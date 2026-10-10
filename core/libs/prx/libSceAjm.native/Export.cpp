@@ -66,9 +66,20 @@ int APS5_VABI sceAjmBatchJobEncode(AjmBatchInfo* info, uint32_t instance, const 
 }
 
 const char* APS5_VABI sceAjmStrError(int error) {
- (void)error;
- AjmStub(__func__);
- return nullptr;
+    struct Entry {
+        int code;
+        const char* message;
+    };
+    static const Entry messages[] = {
+        {static_cast<int>(0x80930002), "Invalid context"},
+        {static_cast<int>(0x80930003), "Invalid instance"},
+        {static_cast<int>(0x80930004), "Invalid batch"},
+        {static_cast<int>(0x80930005), "Invalid parameter"},
+        {static_cast<int>(0x80930007), "Out of resources"},
+    };
+    for (const Entry& entry : messages)
+        if (entry.code == error) return entry.message;
+    return "Unknown AJM error";
 }
 
 int APS5_VABI sceAjmDecWVorbisCreateHeaderPacket(WVorbisHeaderPacketParameter* param) {

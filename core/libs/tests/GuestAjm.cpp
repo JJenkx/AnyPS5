@@ -2535,6 +2535,21 @@ void TestPcmResample(std::uint32_t context) {
 
 }
 
+void TestStrError() {
+    const int implemented[] = {static_cast<int>(0x80930002), static_cast<int>(0x80930003), static_cast<int>(0x80930004), static_cast<int>(0x80930005), static_cast<int>(0x80930007)};
+    for (int code : implemented) {
+        const char* text = sceAjmStrError(code);
+        Require(text != nullptr && std::strlen(text) > 0);
+        Require(sceAjmStrError(code) == text);
+    }
+    const char* fallback = sceAjmStrError(0);
+    Require(fallback != nullptr && std::strlen(fallback) > 0);
+    for (int code : {static_cast<int>(0x80930001), 0x7fffffff})
+        Require(sceAjmStrError(code) == fallback);
+    for (int code : implemented)
+        Require(sceAjmStrError(code) != fallback);
+}
+
 int main(int argc, char** argv) {
     Require(argc == 2);
     constexpr int invalidParameter = static_cast<int>(0x80930005);
@@ -2622,5 +2637,6 @@ int main(int argc, char** argv) {
     TestConsoleSingleFrameRun(context);
     TestConsoleStaleHeaderBits(context);
     Require(sceAjmDecWVorbisCreateHeaderPacket(nullptr) == static_cast<int>(0x8A6E0001));
+    TestStrError();
     Require(sceAjmFinalize(context) == 0);
 }
