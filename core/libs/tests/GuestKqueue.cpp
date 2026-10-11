@@ -18,6 +18,7 @@ std::int64_t APS5_VABI send_nid_postfix(int, const void*, std::uint64_t, int);
 std::int64_t APS5_VABI recv_nid_postfix(int, void*, std::uint64_t, int);
 int APS5_VABI open_nid_postfix(const char*, int, int);
 int APS5_VABI mkdir_nid_postfix(const char*, unsigned short);
+int APS5_VABI rmdir_nid_postfix(const char*);
 std::int64_t APS5_VABI write_nid_postfix(int, const char*, std::int64_t);
 int APS5_VABI ftruncate_nid_postfix(int, std::int64_t);
 int APS5_VABI unlink_nid_postfix(const char*);
@@ -346,9 +347,18 @@ static void DirectoryWatch() {
     Require(Wait(kq, events, 4) == 1 && events[0].ident == ident && events[0].fflags == NoteWrite);
     Require(mkdir_nid_postfix((path + "/sub").c_str(), 0755) == 0);
     Require(Wait(kq, events, 4) == 1 && events[0].fflags == (NoteWrite | NoteLink));
+    Require(sceKernelRename((path + "/child.bin").c_str(), (path + "/renamed.bin").c_str()) == SceOk);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    Require(Poll(kq, events, 4) == 1 && events[0].ident == ident && events[0].fflags == NoteWrite);
+    Require(unlink_nid_postfix((path + "/renamed.bin").c_str()) == 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    Require(Poll(kq, events, 4) == 1 && events[0].fflags == NoteWrite);
+    Require(rmdir_nid_postfix((path + "/sub").c_str()) == 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    Require(Poll(kq, events, 4) == 1 && events[0].fflags == (NoteWrite | NoteLink));
     Require(close_nid_postfix(directory) == 0);
     Require(close_nid_postfix(kq) == 0);
-    Require(std::filesystem::remove_all(path) == 3);
+    Require(std::filesystem::remove_all(path) == 1);
 }
 
 static void Timeout() {
