@@ -12,6 +12,7 @@
 #include <prx/libc/include/General.hpp>
 
 #include "SDL.h"
+#include "AudioOutSdl.hpp"
 #include "SceTypes.hpp"
 #include "prx/libc/include/PreciseWait.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
@@ -98,21 +99,8 @@ struct Port {
 static std::mutex g_mutex;
 static std::mutex g_outputMutex;
 static Port g_ports[PORTS_MAX];
-static bool g_sdlInitialized = false;
-
-static bool ensureSdlAudio() {
-    if (g_sdlInitialized) {
-        return true;
-    }
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
-        return false;
-    }
-    g_sdlInitialized = true;
-    return true;
-}
-
 static bool openDevice(Port& port) {
-    if (!ensureSdlAudio()) {
+    if (!AudioOutInitSdl_nid_no_patch()) {
         return false;
     }
     SDL_AudioSpec desired{};
