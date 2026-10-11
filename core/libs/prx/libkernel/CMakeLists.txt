@@ -61,6 +61,7 @@ add_library(libkernel SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/SystemConfiguration.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/Login.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/SoftwareVersion.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/System/src/CompiledSdkVersion.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/Signals.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/SignalSets.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/Notification.cpp
@@ -82,6 +83,23 @@ endif()
 configure_windows_unwind(libkernel)
 
 if(BUILD_TESTING)
+    add_test_executable(compiled_sdk_version_tests ${LIBS_INCLUDE_DIR}/tests/CompiledSdkVersion.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/System/src/CompiledSdkVersion.cpp)
+    target_include_directories(compiled_sdk_version_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(compiled_sdk_version_tests PRIVATE libc)
+    configure_windows_unwind(compiled_sdk_version_tests)
+    add_test(NAME compiled_sdk_version COMMAND compiled_sdk_version_tests)
+    if(WIN32)
+        set_tests_properties(compiled_sdk_version PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+        add_test_executable(compiled_sdk_version_process_tests ${LIBS_INCLUDE_DIR}/tests/CompiledSdkVersionProcess.cpp)
+        target_include_directories(compiled_sdk_version_process_tests PRIVATE ${LIBS_INCLUDE_DIR})
+        target_link_libraries(compiled_sdk_version_process_tests PRIVATE libkernel libc)
+        configure_windows_unwind(compiled_sdk_version_process_tests)
+        add_test(NAME compiled_sdk_version_process COMMAND compiled_sdk_version_process_tests)
+        set_tests_properties(compiled_sdk_version_process PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libkernel>")
+    endif()
     add_test_executable(download_data_mount_tests ${LIBS_INCLUDE_DIR}/tests/GuestDownloadDataMount.cpp)
     target_include_directories(download_data_mount_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(download_data_mount_tests PRIVATE libkernel libc)
