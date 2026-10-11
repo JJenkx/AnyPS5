@@ -46,6 +46,22 @@ static void TestErrorsAndInfo() {
 
     const auto system = CreateSystem();
     const auto rack = CreateRack(system, SCE_NGS2_RACK_ID_SAMPLER);
+    uintptr_t lastVoice = 0;
+    Require(sceNgs2RackGetVoiceHandle(rack, 255, &lastVoice) == SCE_NGS2_OK && lastVoice != 0);
+    uintptr_t invalidVoice = lastVoice;
+    Require(sceNgs2RackGetVoiceHandle(rack, 256, &invalidVoice) == static_cast<int>(0x804A0302u));
+    Require(invalidVoice == lastVoice);
+    Require(sceNgs2RackGetVoiceHandle(rack, UINT32_MAX, &invalidVoice) == static_cast<int>(0x804A0302u));
+    Require(invalidVoice == lastVoice);
+    Require(sceNgs2RackGetVoiceHandle(rack, 256, nullptr) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
+    Require(sceNgs2RackGetVoiceHandle(0x1234, 256, &invalidVoice) == SCE_NGS2_ERROR_INVALID_RACK_HANDLE);
+    Require(invalidVoice == lastVoice);
+    const auto reverb = CreateRack(system, SCE_NGS2_RACK_ID_REVERB);
+    const auto reverbVoice = Voice(reverb);
+    Require(sceNgs2RackGetVoiceHandle(reverb, 1, &invalidVoice) == static_cast<int>(0x804A0302u));
+    Require(invalidVoice == lastVoice);
+    Require(Voice(reverb) == reverbVoice);
+    Require(sceNgs2RackDestroy(reverb, nullptr) == SCE_NGS2_OK);
     Ngs2RackInfo rackInfo{};
     Require(sceNgs2RackGetInfo(0x1234, &rackInfo, sizeof(rackInfo)) == SCE_NGS2_ERROR_INVALID_RACK_HANDLE);
     Require(sceNgs2RackGetInfo(rack, nullptr, sizeof(rackInfo)) == SCE_NGS2_ERROR_INVALID_OUT_ADDRESS);
