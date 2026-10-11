@@ -61,6 +61,7 @@ std::shared_ptr<const ShaderRecompiler::RecompileResult> Driver::materializeDraw
     stageCapture.regions = shaderMemory.TakeRecentRegions();
     stageCapture.supplied = shaderMemory.SuppliedBlocks();
     stageCapture.userDataUse = capture->userDataUse;
+    stageCapture.prepared = invocation.Handle();
     recompiled[i] = true;
     memory = shaderMemory.Regions();
 
@@ -169,6 +170,7 @@ void Driver::cacheDrawStages(bool useDrawEntries, bool drawHit, const Pm4::DrawP
             variant->forgetSerial = stageCapture.forgetSerial;
             variant->pushOffset = stageCapture.pushOffset;
             variant->userDataMask = stageCapture.userDataMask;
+            variant->prepared = stageCapture.prepared;
             if (vertexInfos[i]) variant->vertexInfo = std::make_shared<const ShaderRecompiler::ShaderVertexStageInfo>(*vertexInfos[i]);
 
             std::vector<ShaderRecompiler::MemoryRegion> regions(stageCapture.regions.begin(), stageCapture.regions.end());
