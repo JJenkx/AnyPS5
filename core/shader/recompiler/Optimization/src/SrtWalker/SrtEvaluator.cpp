@@ -87,6 +87,8 @@ bool BasicEvaluator<TNode>::EvaluateWide(TNode value, std::uint64_t& result) {
     if (_masked && IsRuntimeSelect(inst.Opcode()) && inst.ArgumentCount() == 3 && ActiveMaskImplies(_activeMask, inst.Argument(0))) {
         return EvaluateWide(inst.Argument(1), result);
     }
+    const bool forwards = inst.Opcode() == IrOpcode::ReadConst || inst.Opcode() == IrOpcode::BitCastU32F32 || inst.Opcode() == IrOpcode::BitCastF32U32;
+    if (_nested > 0 && _runtime.userDataUse != nullptr && (inst.Opcode() == IrOpcode::LoadAddressU32 || inst.Opcode() == IrOpcode::ReadConstBuffer) && IsRawRead(_program, inst.Opcode(), inst.template Flags<MemoryFlags>().index)) _runtime.userDataUse->operandReads.push_back(inst.Value());
     if (inst.Id() < _dense.Size()) {
         auto& slot = _dense.At(inst.Id());
         if (slot.stamp == _dense.Done()) {
@@ -98,7 +100,10 @@ bool BasicEvaluator<TNode>::EvaluateWide(TNode value, std::uint64_t& result) {
         }
         slot.stamp = _dense.Visiting();
         std::uint64_t out = 0;
-        if (!EvaluateInst(inst, out)) {
+        if (!forwards) ++_nested;
+        const bool evaluated = EvaluateInst(inst, out);
+        if (!forwards) --_nested;
+        if (!evaluated) {
             slot.stamp = 0;
             static const bool debug = std::getenv("APS5_SRT_DEBUG") != nullptr;
             if (debug) std::fprintf(stderr, "[srt] cannot evaluate %s (%zu arguments)\n", std::string(IrOpcodeName(inst.Opcode())).c_str(), inst.ArgumentCount());
@@ -116,7 +121,9 @@ bool BasicEvaluator<TNode>::EvaluateWide(TNode value, std::uint64_t& result) {
     }
     _visiting.push_back(inst.Value());
     std::uint64_t out = 0;
+    if (!forwards) ++_nested;
     const bool evaluated = EvaluateInst(inst, out);
+    if (!forwards) --_nested;
     _visiting.pop_back();
     if (!evaluated) {
         static const bool debug = std::getenv("APS5_SRT_DEBUG") != nullptr;
@@ -241,7 +248,10 @@ bool BasicEvaluator<TNode>::EvaluateRawRead(const TNode& inst, std::uint64_t& re
         result = 0;
         return true;
     }
-    if (_runtime.userDataUse != nullptr) _runtime.userDataUse->reads.emplace_back(address, origin);
+    if (_runtime.userDataUse != nullptr) {
+        _runtime.userDataUse->reads.emplace_back(address, origin);
+        _runtime.userDataUse->readInstructions.push_back(inst.Value());
+    }
     if (_inaccessible != nullptr && _runtime.accessible != nullptr && !_runtime.accessible(_runtime.userContext, address, sizeof(std::uint32_t)) && LoadedFromMemory(*handle.Value())) {
         *_inaccessible = {inst.Value(), address};
         return false;
@@ -474,6 +484,7 @@ bool BasicEvaluator<TNode>::EvaluateInst(const TNode& inst, std::uint64_t& resul
             BasicEvaluator active(_program, _runtime, _cleanFlatSlots, _cleanEvaluator, &mask);
             active._outer = this;
             active._firstLane = inst.Value();
+            active._nested = _nested;
             active.ReportInaccessibleReads(_inaccessible);
             active.ReportNullRootReads(_nullRoots);
             return active.EvaluateWide(inst.Argument(0), result);
@@ -495,7 +506,10 @@ bool BasicEvaluator<TNode>::EvaluateInst(const TNode& inst, std::uint64_t& resul
                 return false;
             }
             if (slot < _cleanFlatSlots.size() && _cleanFlatSlots[slot] != 0u && _cleanEvaluator != nullptr) {
-                return _cleanEvaluator->EvaluateWide(TNode::SrtRead(_program, slot), result);
+                _cleanEvaluator->_nested += _nested;
+                const bool clean = _cleanEvaluator->EvaluateWide(TNode::SrtRead(_program, slot), result);
+                _cleanEvaluator->_nested -= _nested;
+                return clean;
             }
             return EvaluateWide(TNode::SrtRead(_program, slot), result);
         }
