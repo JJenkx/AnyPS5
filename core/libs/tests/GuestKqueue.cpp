@@ -20,6 +20,8 @@ int APS5_VABI open_nid_postfix(const char*, int, int);
 int APS5_VABI mkdir_nid_postfix(const char*, unsigned short);
 std::int64_t APS5_VABI write_nid_postfix(int, const char*, std::int64_t);
 int APS5_VABI ftruncate_nid_postfix(int, std::int64_t);
+int APS5_VABI unlink_nid_postfix(const char*);
+int APS5_VABI sceKernelRename(const char*, const char*);
 int APS5_VABI sceKernelCreateEqueue(KernelEqueue* eq, const char* name);
 int APS5_VABI sceKernelDeleteEqueue(KernelEqueue eq);
 int APS5_VABI sceKernelWaitEqueue(KernelEqueue eq, KernelEvent* ev, int num, int* out, const KernelUseconds* timo);
@@ -308,6 +310,27 @@ static void FileWatch() {
     Require(std::filesystem::remove(path));
 }
 
+#ifndef _WIN32
+static void RenameAndDeleteWatchedFile() {
+    const auto path = TemporaryName("moved");
+    const auto renamed = path + "-renamed";
+    const int file = open_nid_postfix(path.c_str(), ReadWrite | Create, 0644);
+    Require(file >= 0);
+    const int kq = kqueue_nid_postfix();
+    KernelEvent events[4]{};
+    const auto ident = static_cast<std::uintptr_t>(file);
+    Require(Apply(kq, Change(ident, EvfiltVnode, EvAdd | EvClear, NoteDelete | NoteRename)) == 0);
+    Require(sceKernelRename(path.c_str(), renamed.c_str()) == SceOk);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    Require(Poll(kq, events, 4) == 1 && events[0].ident == ident && events[0].fflags == NoteRename);
+    Require(unlink_nid_postfix(renamed.c_str()) == 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    Require(Poll(kq, events, 4) == 1 && events[0].ident == ident && events[0].fflags == NoteDelete);
+    Require(close_nid_postfix(file) == 0);
+    Require(close_nid_postfix(kq) == 0);
+}
+#endif
+
 static void DirectoryWatch() {
     const auto path = TemporaryName("directory");
     Require(mkdir_nid_postfix(path.c_str(), 0755) == 0);
@@ -346,6 +369,9 @@ int main() {
     SocketPair();
     Errors();
     FileWatch();
+#ifndef _WIN32
+    RenameAndDeleteWatchedFile();
+#endif
     DirectoryWatch();
     Timeout();
     return 0;
