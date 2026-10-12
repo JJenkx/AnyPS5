@@ -226,6 +226,14 @@ int main(int argc, char** argv) {
     Require(sceHttpAddRequestHeader(headerRequest, "X-Value", "old", 0) == 0 && sceHttpAddRequestHeader(headerRequest, "x-value", "new", 0) == 0 && sceHttpAddRequestHeader(headerRequest, "X-Value", "added", 1) == 0, "header overwrite and add");
     Require(sceHttpSendRequest(headerRequest, nullptr, 0) == 0 && ReadBody(headerRequest) == "template|new,added|AnyPS5-local-test", "inherited and repeated headers");
     Require(sceHttpDeleteRequest(headerRequest) == 0, "header cleanup");
+#ifdef __linux__
+    const auto emptyHeaders = sceHttpCreateRequest(connection, 0, "/emptyheaders", 0);
+    Require(sceHttpAddRequestHeader(emptyHeaders, "X-Empty", "", 0) == 0 && sceHttpAddRequestHeader(emptyHeaders, "Accept", "", 0) == 0, "empty header setup");
+    Require(sceHttpAddRequestHeader(emptyHeaders, "X-Repeated", "first", 0) == 0 && sceHttpAddRequestHeader(emptyHeaders, "X-Repeated", "", 1) == 0, "repeated empty header setup");
+    Require(sceHttpSendRequest(emptyHeaders, nullptr, 0) == 0, "empty header send");
+    Require(ReadBody(emptyHeaders) == "['']|['']|['first', '']", "empty request headers were discarded");
+    Require(sceHttpDeleteRequest(emptyHeaders) == 0, "empty header cleanup");
+#endif
     const auto huge = sceHttpCreateRequest(connection, 0, "/largeheaders", 0);
     Require(sceHttpSetResponseHeaderMaxSize(huge, 512) == 0, "response header cap");
     Require(sceHttpSendRequest(huge, nullptr, 0) == static_cast<int>(0x80431073u), "large header accepted");
