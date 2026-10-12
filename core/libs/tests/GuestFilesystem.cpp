@@ -40,6 +40,7 @@ int APS5_VABI open_nid_postfix(const char*, int, int);
 int APS5_VABI creat_nid_postfix(const char*, int);
 int APS5_VABI _open_nid_postfix(const char*, int, ...);
 int APS5_VABI close_nid_postfix(int);
+int APS5_VABI _close_nid_postfix(int);
 int APS5_VABI flock_nid_postfix(int, int);
 int APS5_VABI stat_nid_postfix(const char*, FileStat*);
 int APS5_VABI lstat_nid_postfix(const char*, FileStat*);
@@ -170,7 +171,32 @@ static void TestParentTraversal() {
     std::filesystem::remove_all(root);
 }
 
+static void TestStandardDescriptorClose() {
+    for (int descriptor = 0; descriptor < 3; ++descriptor) {
+        FileStat before{};
+        Require(sceKernelFstat(descriptor, &before) == 0);
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            *__error_nid_postfix() = 123;
+            Require(sceKernelClose(descriptor) == static_cast<int>(0x80020001u));
+            Require(*__error_nid_postfix() == 123);
+            Require(close_nid_postfix(descriptor) == -1 && *__error_nid_postfix() == 1);
+            Require(_close_nid_postfix(descriptor) == -1 && *__error_nid_postfix() == 1);
+        }
+        FileStat after{};
+        Require(sceKernelFstat(descriptor, &after) == 0);
+        Require(after.st_dev == before.st_dev && after.st_ino == before.st_ino && after.st_mode == before.st_mode);
+    }
+    const int descriptor = sceKernelOpen("/dev/urandom", 0, 0);
+    Require(descriptor >= 3);
+    unsigned char value{};
+    Require(sceKernelRead(descriptor, &value, sizeof(value)) == sizeof(value));
+    Require(sceKernelClose(descriptor) == 0);
+    Require(sceKernelClose(descriptor) == static_cast<int>(0x80020009u));
+    Require(sceKernelClose(-1) == static_cast<int>(0x80020009u));
+}
+
 int main() {
+    TestStandardDescriptorClose();
     TestParentTraversal();
     Require(chmod_nid_postfix(nullptr, 0600) == -1 && *__error_nid_postfix() == 14);
     Require(sceKernelChmod_nid_postfix(nullptr, 0600) == static_cast<int>(0x8002000eu));
