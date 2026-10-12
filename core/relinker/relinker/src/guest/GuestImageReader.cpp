@@ -87,7 +87,7 @@ std::vector<std::string> GuestImageReader::ReadModuleNames(const std::vector<std
     return names;
 }
 
-GuestImage GuestImageReader::Read(const std::filesystem::path& path, std::vector<std::uint8_t> bytes, const bool windows) const {
+GuestImage GuestImageReader::Read(const std::filesystem::path& path, std::vector<std::uint8_t> bytes, const bool allowFunctionAliases) const {
     const auto fail = [&](const std::string& message) { throw Domain::RelinkerException(path.string() + ": " + message); };
     const auto range = [&](std::uint64_t offset, std::uint64_t size) {
         if (offset > bytes.size() || size > bytes.size() - offset) {
@@ -227,7 +227,7 @@ GuestImage GuestImageReader::Read(const std::filesystem::path& path, std::vector
         if (offset != 0 && ((info >> 4) > 2 || (visibility & ~3u) != 0 || ((info & 15) != 0 && (info & 15) != 1 && (info & 15) != 2 && (info & 15) != 6))) fail("Unsupported symbol attributes: " + name);
         if (section != 0 && (info >> 4) != 0 && visibility != 1 && visibility != 2) {
             const auto [found, inserted] = exports.emplace(name, image.Symbols.size());
-            if (name.empty() || (!inserted && (!windows || !IdenticalOrdinaryFunctionExport(image.Symbols[found->second], symbol)))) fail("Duplicate or empty export after stripping #: " + name);
+            if (name.empty() || (!inserted && (!allowFunctionAliases || !IdenticalOrdinaryFunctionExport(image.Symbols[found->second], symbol)))) fail("Duplicate or empty export after stripping #: " + name);
         }
         if ((info & 15) == 6 && section != 0 && (tls == nullptr || value > tls->MemorySize || size > tls->MemorySize - value)) fail("TLS symbol exceeds TLS segment: " + name);
         if (section != 0 && section != AbsoluteSection && (info & 15) != 6) {

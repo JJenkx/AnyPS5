@@ -1,5 +1,7 @@
 from pathlib import Path
 import os
+import ctypes
+import platform
 import struct
 import subprocess
 import sys
@@ -7,7 +9,7 @@ import tempfile
 
 from test_guest_intel_trampolines import PLAIN_SITE, guest_fixture, main_fixture
 from test_guest_module_directories import needed_libraries
-from test_guest_symbol_names import imported_symbols, module_symbols
+from test_guest_symbol_names import dynamic_tags, file_offset, imported_symbols, module_symbols
 from test_windows_import_modules import executable
 
 
@@ -56,6 +58,85 @@ def large_modules(count):
     }
 
 
+def aliases(reverse=False):
+    names = ['entry#A#A', 'entry#B#A']
+    if reverse:
+        names.reverse()
+    image = guest_symbols([(name, 0x12, 3, 1) for name in names])
+    tags = dynamic_tags(image)
+    slots = len(image)
+    image.extend(bytes(16))
+    relocations = len(image)
+    for index in (1, 2):
+        image.extend(struct.pack('<QQq', slots + 0x1a00 + (index - 1) * 8,
+                                 (index << 32) | 1, 0))
+    entries = [(tag, value) for tag, value in tags.items()]
+    entries += [(7, relocations + 0x1a00), (8, 48), (9, 24), (0, 0)]
+    for index, entry in enumerate(entries):
+        struct.pack_into('<qQ', image, 0x600 + index * 16, *entry)
+    struct.pack_into('<QQ', image, 120 + 32, len(image) - 0x600, len(image) - 0x600)
+    struct.pack_into('<QQ', image, 176 + 32, len(entries) * 16, len(entries) * 16)
+    aligned = bytearray(0x2000 + len(image) - 0x600)
+    aligned[:64 + 3 * 56] = image[:64 + 3 * 56]
+    aligned[0x1000:0x1100] = image[0x400:0x500]
+    aligned[0x2000:] = image[0x600:]
+    for header, offset in ((64, 0x1000), (120, 0x2000), (176, 0x2000)):
+        struct.pack_into('<Q', aligned, header + 8, offset)
+    for header in (64, 120):
+        struct.pack_into('<Q', aligned, header + 48, 0x1000)
+    return aligned, slots + 0x1a00
+
+
+def check_aliases(relinker, work):
+    cases = 0
+    for reverse in (False, True):
+        image, slots = aliases(reverse)
+        result, output = convert(relinker, work / f'aliases-{reverse}', False, {
+            'provider.prx': image,
+            'consumer.prx': guest_symbols([('entry', 0x12, 0, 0)], 'provider.prx'),
+        })
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        provider = output.parent / 'app0/sce_module/provider.prx.guest.prx'
+        generated = provider.read_bytes()
+        tags = dynamic_tags(generated)
+        assert module_symbols(generated) == ['entry#guest', 'entry#guest']
+        symbols = file_offset(generated, tags[6])
+        assert generated[symbols + 28:symbols + 48] == generated[symbols + 52:symbols + 72]
+        relocations = file_offset(generated, tags[7])
+        assert [struct.unpack_from('<QQq', generated, relocations + i * 24)
+                for i in range(2)] == [(slots, (1 << 32) | 1, 0), (slots + 8, (2 << 32) | 1, 0)]
+        result = subprocess.run([str(relinker), '--macos', str(output.parent / 'input.elf'),
+                                 str(output.parent / 'output.macho')], capture_output=True,
+                                text=True, timeout=30)
+        assert result.returncode != 0 and 'Duplicate or empty export' in result.stderr, (result.stdout, result.stderr)
+        if sys.platform == 'linux' and platform.machine().lower() in ('x86_64', 'amd64'):
+            library = ctypes.CDLL(str(provider))
+            function = getattr(library, 'entry#guest')
+            function.restype = ctypes.c_int
+            assert function() == 42
+            address = ctypes.cast(function, ctypes.c_void_p).value
+            assert [ctypes.c_uint64.from_address(address - 0x1000 + slots + i * 8).value
+                    for i in range(2)] == [address, address]
+        cases += 1
+    image, _ = aliases()
+    symbols = file_offset(image, dynamic_tags(image)[6])
+    for field, layout, value in ((4, '<B', 0x22), (4, '<B', 0x11), (5, '<B', 0),
+                                  (6, '<H', 2), (8, '<Q', 0x1010), (16, '<Q', 7)):
+        conflicting = bytearray(image)
+        struct.pack_into(layout, conflicting, symbols + 48 + field, value)
+        result, _ = convert(relinker, work / f'conflict-{field}-{value}', False, {'provider.prx': conflicting})
+        assert result.returncode != 0 and 'Duplicate or empty export' in result.stderr, (result.stdout, result.stderr)
+        cases += 1
+    for info in (0x11, 0x10):
+        nonfunction = bytearray(image)
+        for index in (1, 2):
+            struct.pack_into('<B', nonfunction, symbols + index * 24 + 4, info)
+        result, _ = convert(relinker, work / f'nonfunction-{info}', False, {'provider.prx': nonfunction})
+        assert result.returncode != 0 and 'Duplicate or empty export' in result.stderr, (result.stdout, result.stderr)
+        cases += 1
+    return cases
+
+
 def convert(relinker, case, windows, modules, source=None):
     directory = case / 'sce_module'
     directory.mkdir(parents=True)
@@ -75,6 +156,7 @@ def main():
     cases = 0
     with tempfile.TemporaryDirectory(prefix='anyps5-export-lookup-') as directory:
         work = Path(directory)
+        cases += check_aliases(relinker, work)
         for windows in (False, True):
             modules = large_modules(4096)
             result, output = convert(relinker, work / f'large-{windows}', windows, modules,
@@ -107,9 +189,9 @@ def main():
                     ('local-first', [('entry', 0x02, 0, 1), ('entry', 0x11, 0, 1)],
                      [('entry', 0x11, 0, 0)], None),
                     ('duplicate-first', [('entry#A#A', 0x12, 0, 1), ('entry#B#A', 0x12, 0, 1)],
-                     [('entry', 0x12, 0, 0)], None if windows else 'Duplicate or empty export after stripping #: entry'),
+                     [('entry', 0x12, 0, 0)], None),
                     ('duplicate-mismatch', [('entry#A#A', 0x12, 0, 1), ('entry#B#A', 0x12, 0, 1)],
-                     [('entry', 0x11, 0, 0)], 'Guest import/export type mismatch: entry' if windows else 'Duplicate or empty export after stripping #: entry'),
+                     [('entry', 0x11, 0, 0)], 'Guest import/export type mismatch: entry'),
                     ('weak', [('entry', 0x22, 0, 1)], [('entry', 0x12, 0, 0)], None),
                     ('protected', [('entry', 0x12, 3, 1)], [('entry', 0x12, 0, 0)], None)):
                 result, _ = convert(relinker, work / f'{label}-{windows}', windows, {
