@@ -759,8 +759,8 @@ bool MovableBuffers() {
     return enabled;
 }
 
-ResourceCache::Key DrawResourceKey(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint32_t colorAttachments, std::uint64_t indexAddress, std::uint64_t indexBytes, bool ranges) {
-    ResourceCache::Key key;
+void DrawResourceKey(ResourceCache::Key& key, const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint32_t colorAttachments, std::uint64_t indexAddress, std::uint64_t indexBytes, bool ranges) {
+    key.clear();
     std::size_t reserve = 16u + shaders.size() * 8u;
     for (const auto& shader : shaders) {
         Require(shader.program != nullptr, "missing compiled shader");
@@ -787,7 +787,6 @@ ResourceCache::Key DrawResourceKey(const Context& context, std::span<const Compi
         append64(indexAddress);
         append64(indexBytes);
     }
-    return key;
 }
 
 // The alias checks the build makes for every guest buffer descriptor (ShaderResources::
@@ -1275,6 +1274,17 @@ std::shared_ptr<StorageTexture> refreshResidentTarget(const Context& context, co
 // A draw's resources (resolveDrawResources): the resource-cache template a recordable draw's
 // stages repeat, or a fresh build.
 struct ResolvedResources {
+    static ResourceCache::Key& Scratch_nid_no_patch() {
+        static thread_local ResourceCache::Key key;
+        return key;
+    }
+    ResolvedResources() : contentKey(std::move(Scratch_nid_no_patch())) { contentKey.clear(); }
+    ResolvedResources(const ResolvedResources&) = delete;
+    ResolvedResources(ResolvedResources&&) noexcept = default;
+    ~ResolvedResources() {
+        auto& scratch = Scratch_nid_no_patch();
+        if (contentKey.capacity() > scratch.capacity()) scratch = std::move(contentKey);
+    }
     std::shared_ptr<ShaderResources> resources;
     std::vector<ShaderResources::MovedBuffer> moved;
     ResourceCache::Key contentKey;
@@ -1298,7 +1308,7 @@ ResolvedResources resolveDrawResources(const Context& context, const State& stat
     static const bool trimKey = std::getenv("APS5_NO_DRAW_KEY_TRIM") == nullptr;
     resolved.cacheable = recordable && !noDrawResourceCache && !noTextureCache && std::all_of(shaders.begin(), shaders.end(), [](const CompiledShader& shader) { return shader.program != nullptr && shader.program->PipelineVariantId() != 0; }) && !ShaderResources::NeverReusable(shaders);
     if (resolved.cacheable) {
-        resolved.contentKey = DrawResourceKey(context, shaders, state.color, static_cast<std::uint32_t>(state.colors.size()), draw.indexAddress, indexBytes, !trimKey);
+        DrawResourceKey(resolved.contentKey, context, shaders, state.color, static_cast<std::uint32_t>(state.colors.size()), draw.indexAddress, indexBytes, !trimKey);
         if (auto cached = SharedResourceCache().Find(resolved.contentKey)) {
             const bool valid = cached->Revalidate(shaders);
             auto* recorder = Recorder::Active();

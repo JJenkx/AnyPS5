@@ -406,6 +406,8 @@ Throughout the project, every function at every stage either **does exactly what
 
 ### Functional
 
+- [Draw resource keys](../../core/libs/prx/libSceAgcDriver/Graphics/src/Draw.cpp) retain one scratch vector capacity per rendering thread until it exits. Each active draw owns its vector; nested draws obtain a separate vector, and the larger capacity is retained afterward. Cache and recipe entries copy their keys before the scratch storage returns. The retained capacity is not capped.
+
 - [Multisampled color targets](../../core/libs/prx/libSceAgcDriver/Graphics/src/MultisampleTarget.cpp) lose their guest-read guards and cannot be reused after a successful allocation removal or unmap covers their full guarded range. Retired Vulkan images remain allocated until device teardown to preserve outstanding references. Partial unmaps keep the guard; partial allocation reuse and guest access to live multisampled data remain unsupported.
 
 - [PhysicalMemoryPool](../../core/libs/prx/libkernel/DirectMemory/MemoryPool.cpp) and the [guest allocation registry](../../core/libs/prx/libc/src/GuestAllocations.cpp) have process lifetime so late guest finalizers can release and reuse direct memory after host static teardown starts. Their remaining metadata is reclaimed by the host OS at process exit; explicit teardown and reset within a running process are not implemented. Other kernel state still follows its existing destruction order.
