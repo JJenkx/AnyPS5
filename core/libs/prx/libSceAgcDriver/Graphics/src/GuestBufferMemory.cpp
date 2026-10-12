@@ -308,7 +308,7 @@ const char* createDmaBufImport(const Context& context, HostImport& entry, int fi
 #endif
 
 #ifndef _WIN32
-constexpr std::uint64_t ImportChunkBytes = std::uint64_t{64} << 20u;
+constexpr std::uint64_t ImportChunkBytes = std::uint64_t{4} << 20u;
 
 struct ImportChunk {
     VkDevice device = VK_NULL_HANDLE;

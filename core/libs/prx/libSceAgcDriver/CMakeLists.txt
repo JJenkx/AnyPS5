@@ -983,6 +983,8 @@ foreach(agcExecutionTestSource IN LISTS agcExecutionTestSources)
 endforeach()
 target_link_libraries(agc_driver_direct_memory_transfers_tests PRIVATE libkernel)
 
+target_link_libraries(agc_driver_dma_buf_import_footprint_tests PRIVATE libkernel)
+
 target_include_directories(agc_driver_alpha_to_coverage_tests PRIVATE $<TARGET_PROPERTY:shader_recompiler_agc_driver,INTERFACE_INCLUDE_DIRECTORIES>)
 
 target_include_directories(agc_driver_dual_source_blend_tests PRIVATE $<TARGET_PROPERTY:shader_recompiler_agc_driver,INTERFACE_INCLUDE_DIRECTORIES>)
@@ -1062,6 +1064,7 @@ if(BUILD_TESTING)
         set_tests_properties(agc_driver_texture_readback_reuse PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
+    set_tests_properties(agc_driver_dma_buf_import_footprint PROPERTIES TIMEOUT 30)
     add_test(NAME agc_driver_emulated_color_compare_srgb_decode COMMAND agc_driver_emulated_color_compare_tests)
     set_tests_properties(agc_driver_emulated_color_compare_srgb_decode PROPERTIES
             ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1;APS5_SRGB_SHADER_DECODE=1"
