@@ -24,7 +24,7 @@
 #include <sys/inotify.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <unordered_map>
+#include "prx/libkernel/Equeue/InotifyMoves.hpp"
 #endif
 
 namespace {
@@ -379,9 +379,11 @@ std::uint32_t ModifyHint(HostWatch& host) {
 void RunHostWatch(std::shared_ptr<VnodeWatch> watch, HostWatch host) {
     pollfd waits[2] = {{host.notify, POLLIN, 0}, {watch->StopEvent(), POLLIN, 0}};
     alignas(inotify_event) char buffer[16384];
+    FileEvents::InotifyMoves moves;
     bool watching = true;
     while (watching) {
-        if (::poll(waits, 2, -1) < 0) {
+        const auto polled = ::poll(waits, 2, moves.Timeout(FileEvents::InotifyMoves::Clock::now()));
+        if (polled < 0) {
             if (errno == EINTR) {
                 continue;
             }
@@ -391,21 +393,18 @@ void RunHostWatch(std::shared_ptr<VnodeWatch> watch, HostWatch host) {
         if (waits[1].revents != 0) {
             break;
         }
+        if (polled == 0) {
+            for (const auto hint : moves.Expire(FileEvents::InotifyMoves::Clock::now())) watch->Deliver(hint);
+            continue;
+        }
         const auto length = ::read(host.notify, buffer, sizeof(buffer));
         if (length < 0) {
             if (errno == EINTR || errno == EAGAIN) {
+                for (const auto hint : moves.Expire(FileEvents::InotifyMoves::Clock::now())) watch->Deliver(hint);
                 continue;
             }
             CloseHostWatch(host);
             throw std::runtime_error("EVFILT_VNODE: reading inotify failed, errno=" + std::to_string(errno));
-        }
-        std::unordered_map<std::uint32_t, int> moves;
-        for (char* cursor = buffer; cursor < buffer + length;) {
-            const auto* event = reinterpret_cast<const inotify_event*>(cursor);
-            if ((event->mask & (IN_MOVED_FROM | IN_MOVED_TO)) != 0) {
-                ++moves[event->cookie];
-            }
-            cursor += sizeof(inotify_event) + event->len;
         }
         std::vector<std::uint32_t> hints;
         for (char* cursor = buffer; cursor < buffer + length;) {
@@ -421,7 +420,8 @@ void RunHostWatch(std::shared_ptr<VnodeWatch> watch, HostWatch host) {
                 hints.push_back(NOTE_WRITE | link);
             }
             if ((event->mask & (IN_MOVED_FROM | IN_MOVED_TO)) != 0) {
-                hints.push_back(moves[event->cookie] > 1 ? NOTE_WRITE : NOTE_WRITE | NOTE_EXTEND | link);
+                const auto moved = moves.Add(event->cookie, (event->mask & IN_MOVED_FROM) != 0, link != 0, FileEvents::InotifyMoves::Clock::now());
+                hints.insert(hints.end(), moved.begin(), moved.end());
             }
             if ((event->mask & IN_MOVE_SELF) != 0) {
                 hints.push_back(NOTE_RENAME);
@@ -434,10 +434,13 @@ void RunHostWatch(std::shared_ptr<VnodeWatch> watch, HostWatch host) {
             }
             cursor += sizeof(inotify_event) + event->len;
         }
+        const auto expired = moves.Expire(FileEvents::InotifyMoves::Clock::now());
+        hints.insert(hints.end(), expired.begin(), expired.end());
         for (const auto hint : hints) {
             watch->Deliver(hint);
         }
     }
+    for (const auto hint : moves.Expire(FileEvents::InotifyMoves::Clock::time_point::max())) watch->Deliver(hint);
     CloseHostWatch(host);
 }
 
