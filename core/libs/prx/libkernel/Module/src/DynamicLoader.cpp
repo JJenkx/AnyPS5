@@ -50,10 +50,16 @@ struct Module {
         }
     }
 };
-std::mutex modulesMutex;
-std::map<std::uintptr_t, std::shared_ptr<Module>> modules;
-std::uintptr_t nextHandle = 0x20000000;
-std::map<const void*, std::uintptr_t> imageIds;
+struct ModuleRegistry {
+    std::mutex mutex;
+    std::map<std::uintptr_t, std::shared_ptr<Module>> modules;
+    std::uintptr_t nextHandle = 0x20000000;
+    std::map<const void*, std::uintptr_t> imageIds;
+};
+ModuleRegistry& Registry() {
+    static auto& registry = *new ModuleRegistry();
+    return registry;
+}
 void* Symbol(Module& module, const char* name) {
 #ifdef _WIN32
     return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(module.native), name));
@@ -163,6 +169,7 @@ static void InitializeDeferredModule(HMODULE native) {
 #endif
 
 void* APS5_VABI dlopen_nid_postfix(const char* path, int flags) {
+    auto& registry = Registry();
     if ((flags & ~0x103) || (flags & 3) == 0 || (flags & 3) == 3) {
         Error("dlopen: unsupported flags"); return nullptr;
     }
@@ -191,23 +198,24 @@ void* APS5_VABI dlopen_nid_postfix(const char* path, int flags) {
         module->native = ::dlopen(path ? resolved.c_str() : nullptr, nativeFlags);
         if (!module->native) { Error(::dlerror()); return nullptr; }
 #endif
-        std::lock_guard lock(modulesMutex);
-        const auto handle = nextHandle++;
-        modules.emplace(handle, std::move(module));
+        std::lock_guard lock(registry.mutex);
+        const auto handle = registry.nextHandle++;
+        registry.modules.emplace(handle, std::move(module));
         return reinterpret_cast<void*>(handle);
     } catch (const std::exception& error) { Error(error.what()); return nullptr; }
 }
 void* APS5_VABI dlsym_nid_postfix(void* handle, const char* name) {
+    auto& registry = Registry();
     if (!name || !*name) { Error("dlsym: empty symbol name"); return nullptr; }
     try {
         std::vector<std::shared_ptr<Module>> search;
         {
-            std::lock_guard lock(modulesMutex);
+            std::lock_guard lock(registry.mutex);
             if (handle == nullptr || handle == reinterpret_cast<void*>(static_cast<std::intptr_t>(-2))) {
-                for (const auto& [key, module] : modules) if (module->global) search.push_back(module);
+                for (const auto& [key, module] : registry.modules) if (module->global) search.push_back(module);
             } else {
-                auto found = modules.find(reinterpret_cast<std::uintptr_t>(handle));
-                if (found == modules.end()) { Error("dlsym: invalid or unsupported module handle"); return nullptr; }
+                auto found = registry.modules.find(reinterpret_cast<std::uintptr_t>(handle));
+                if (found == registry.modules.end()) { Error("dlsym: invalid or unsupported module handle"); return nullptr; }
                 search.push_back(found->second);
             }
         }
@@ -224,18 +232,19 @@ void* APS5_VABI dlsym_nid_postfix(void* handle, const char* name) {
     } catch (const std::exception& error) { Error(error.what()); return nullptr; }
 }
 int APS5_VABI dlclose_nid_postfix(void* handle) {
+    auto& registry = Registry();
     const auto key = reinterpret_cast<std::uintptr_t>(handle);
     std::shared_ptr<Module> module;
 #ifdef _WIN32
     bool lastReference = true;
 #endif
     {
-        std::lock_guard lock(modulesMutex);
-        auto found = modules.find(key);
-        if (found == modules.end()) { Error("dlclose: invalid module handle"); return -1; }
+        std::lock_guard lock(registry.mutex);
+        auto found = registry.modules.find(key);
+        if (found == registry.modules.end()) { Error("dlclose: invalid module handle"); return -1; }
         module = found->second;
 #ifdef _WIN32
-        for (const auto& [other, entry] : modules) {
+        for (const auto& [other, entry] : registry.modules) {
             if (other != key && entry->native == module->native) lastReference = false;
         }
 #endif
@@ -247,22 +256,23 @@ int APS5_VABI dlclose_nid_postfix(void* handle) {
     }
 #endif
     {
-        std::lock_guard lock(modulesMutex);
-        auto found = modules.find(key);
-        if (found == modules.end()) { Error("dlclose: invalid module handle"); return -1; }
-        modules.erase(found);
+        std::lock_guard lock(registry.mutex);
+        auto found = registry.modules.find(key);
+        if (found == registry.modules.end()) { Error("dlclose: invalid module handle"); return -1; }
+        registry.modules.erase(found);
     }
     // Unload outside the registry lock: module destructors may call loader APIs.
     module.reset();
     return 0;
 }
 std::int32_t ModuleIdForImage_nid_no_patch(const void* native) {
-    std::lock_guard lock(modulesMutex);
-    for (const auto& [handle, module] : modules) {
+    auto& registry = Registry();
+    std::lock_guard lock(registry.mutex);
+    for (const auto& [handle, module] : registry.modules) {
         if (module->native == native) return static_cast<std::int32_t>(handle);
     }
-    const auto [found, inserted] = imageIds.emplace(native, nextHandle);
-    if (inserted) ++nextHandle;
+    const auto [found, inserted] = registry.imageIds.emplace(native, registry.nextHandle);
+    if (inserted) ++registry.nextHandle;
     return static_cast<std::int32_t>(found->second);
 }
 }
