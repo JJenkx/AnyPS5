@@ -22,6 +22,7 @@ namespace {
 
 std::mutex gMutex;
 std::unordered_map<void*, std::shared_ptr<UltMutexState>> gMutexes;
+std::unordered_map<void*, std::shared_ptr<UltConditionState>> gConditions;
 std::unordered_map<void*, std::shared_ptr<UltSemaphoreState>> gSemaphores;
 std::unordered_map<void*, UltResourcePoolState> gResourcePools;
 std::unordered_map<void*, std::shared_ptr<UltQueueDataPoolState>> gQueueDataPools;
@@ -128,6 +129,9 @@ int APS5_VABI sceUltFinalize() {
         if (!gUlthreads.empty()) {
             return ULT_ERROR_BUSY;
         }
+        for (const auto& [object, state] : gMutexes) {
+            if (state->_depth != 0 || state->_waiters != 0 || state->_conditionWaiters != 0) return ULT_ERROR_BUSY;
+        }
         semaphores.reserve(gSemaphores.size());
         for (auto& entry : gSemaphores) {
             auto& state = entry.second;
@@ -137,6 +141,7 @@ int APS5_VABI sceUltFinalize() {
         }
         gSemaphores.clear();
         gMutexes.clear();
+        gConditions.clear();
         gResourcePools.clear();
         for (auto& entry : gQueues) {
             auto& state = *entry.second;
@@ -176,36 +181,121 @@ int APS5_VABI sceUltMutexCreate(void* mutex, const char* name, void* waitingQueu
     if (waitingQueueResourcePool != nullptr && gResourcePools.find(waitingQueueResourcePool) == gResourcePools.end()) {
         return ULT_ERROR_INVALID;
     }
+    if (gMutexes.contains(mutex)) return ULT_ERROR_STATE;
     std::memset(mutex, 0, 256);
     gMutexes[mutex] = std::move(state);
     return ULT_OK;
 }
 
 int APS5_VABI sceUltMutexLock(void* mutex) {
-    std::shared_ptr<UltMutexState> state;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        auto it = gMutexes.find(mutex);
-        if (it == gMutexes.end()) {
-            return mutex == nullptr ? ULT_ERROR_NULL : ULT_ERROR_STATE;
-        }
-        state = it->second;
+    std::unique_lock lock(gMutex);
+    const auto it = gMutexes.find(mutex);
+    if (it == gMutexes.end()) return mutex == nullptr ? ULT_ERROR_NULL : ULT_ERROR_STATE;
+    const auto state = it->second;
+    const auto owner = std::this_thread::get_id();
+    if (state->_owner != owner) {
+        ++state->_waiters;
+        try { state->_available.wait(lock, [&] { return state->_depth == 0; }); }
+        catch (...) { --state->_waiters; throw; }
+        --state->_waiters;
     }
-    state->_mutex.lock();
+    if (state->_depth == UINT32_MAX) return ULT_ERROR_RANGE;
+    state->_owner = owner;
+    ++state->_depth;
     return ULT_OK;
 }
 
 int APS5_VABI sceUltMutexUnlock(void* mutex) {
-    std::shared_ptr<UltMutexState> state;
-    {
-        std::lock_guard<std::mutex> lock(gMutex);
-        auto it = gMutexes.find(mutex);
-        if (it == gMutexes.end()) {
-            return mutex == nullptr ? ULT_ERROR_NULL : ULT_ERROR_STATE;
-        }
-        state = it->second;
+    std::lock_guard lock(gMutex);
+    const auto it = gMutexes.find(mutex);
+    if (it == gMutexes.end()) return mutex == nullptr ? ULT_ERROR_NULL : ULT_ERROR_STATE;
+    auto& state = *it->second;
+    if (state._depth == 0 || state._owner != std::this_thread::get_id()) return ULT_ERROR_STATE;
+    if (--state._depth == 0) {
+        state._owner = {};
+        state._available.notify_one();
     }
-    state->_mutex.unlock();
+    return ULT_OK;
+}
+
+int APS5_VABI sceUltMutexDestroy(void* mutex) {
+    std::lock_guard lock(gMutex);
+    const auto it = gMutexes.find(mutex);
+    if (it == gMutexes.end()) return mutex == nullptr ? ULT_ERROR_NULL : ULT_ERROR_STATE;
+    const auto& state = *it->second;
+    if (state._depth != 0 || state._waiters != 0 || state._conditionWaiters != 0 || state._conditions != 0) return ULT_ERROR_BUSY;
+    gMutexes.erase(it);
+    return ULT_OK;
+}
+
+int APS5_VABI _sceUltConditionVariableCreate(void* condition, const char*, void* mutex, const void* optParam, std::uint32_t) {
+    if (condition == nullptr || mutex == nullptr) return ULT_ERROR_NULL;
+    if (optParam != nullptr) throw std::runtime_error("ULT condition variable options are not implemented");
+    std::lock_guard lock(gMutex);
+    const auto mutexIt = gMutexes.find(mutex);
+    if (mutexIt == gMutexes.end()) return ULT_ERROR_INVALID;
+    if (gConditions.contains(condition)) return ULT_ERROR_STATE;
+    auto state = std::make_shared<UltConditionState>();
+    state->_mutex = mutexIt->second;
+    gConditions.emplace(condition, state);
+    ++state->_mutex->_conditions;
+    return ULT_OK;
+}
+
+int APS5_VABI sceUltConditionVariableDestroy(void* condition) {
+    std::lock_guard lock(gMutex);
+    const auto it = gConditions.find(condition);
+    if (it == gConditions.end()) return condition == nullptr ? ULT_ERROR_NULL : ULT_ERROR_STATE;
+    if (it->second->_waiters != 0) return ULT_ERROR_BUSY;
+    --it->second->_mutex->_conditions;
+    gConditions.erase(it);
+    return ULT_OK;
+}
+
+int APS5_VABI sceUltConditionVariableSignal(void* condition) {
+    std::lock_guard lock(gMutex);
+    const auto it = gConditions.find(condition);
+    if (it == gConditions.end()) return condition == nullptr ? ULT_ERROR_NULL : ULT_ERROR_STATE;
+    auto& queue = it->second->_queue;
+    if (!queue.empty()) {
+        auto* waiter = queue.front();
+        queue.pop_front();
+        waiter->_signaled = true;
+        waiter->_available.notify_one();
+    }
+    return ULT_OK;
+}
+
+int APS5_VABI sceUltConditionVariableWait(void* condition) {
+    std::unique_lock lock(gMutex);
+    if (condition == nullptr) return ULT_ERROR_NULL;
+    const auto conditionIt = gConditions.find(condition);
+    if (conditionIt == gConditions.end()) return ULT_ERROR_STATE;
+    const auto state = conditionIt->second;
+    const auto held = state->_mutex;
+    const auto owner = std::this_thread::get_id();
+    if (held->_owner != owner || held->_depth == 0) return ULT_ERROR_STATE;
+    if (held->_depth != 1) throw std::runtime_error("ULT condition wait with a recursively held mutex is not implemented");
+    UltConditionWaiter waiter;
+    state->_queue.push_back(&waiter);
+    ++state->_waiters;
+    ++held->_conditionWaiters;
+    held->_depth = 0;
+    held->_owner = {};
+    held->_available.notify_one();
+    try {
+        waiter._available.wait(lock, [&] { return waiter._signaled; });
+        held->_available.wait(lock, [&] { return held->_depth == 0; });
+    } catch (...) {
+        state->_queue.remove(&waiter);
+        --state->_waiters;
+        --held->_conditionWaiters;
+        throw;
+    }
+    held->_owner = owner;
+    held->_depth = 1;
+    --state->_waiters;
+    --held->_conditionWaiters;
     return ULT_OK;
 }
 

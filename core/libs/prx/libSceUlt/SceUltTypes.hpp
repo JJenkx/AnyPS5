@@ -5,7 +5,9 @@
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
+#include <list>
 #include <mutex>
+#include <thread>
 #include <vector>
 #include "SceTypes.hpp"
 
@@ -19,8 +21,24 @@ constexpr int ULT_ERROR_BUSY = -2139029497;
 constexpr int ULT_ERROR_AGAIN = -2139029496;
 
 struct UltMutexState {
-    std::recursive_mutex _mutex;
+    std::condition_variable _available;
+    std::thread::id _owner;
+    std::uint32_t _depth = 0;
+    std::uint32_t _waiters = 0;
+    std::uint32_t _conditionWaiters = 0;
+    std::uint32_t _conditions = 0;
     std::uint32_t _attribute = 0;
+};
+
+struct UltConditionWaiter {
+    std::condition_variable _available;
+    bool _signaled = false;
+};
+
+struct UltConditionState {
+    std::shared_ptr<UltMutexState> _mutex;
+    std::list<UltConditionWaiter*> _queue;
+    std::uint32_t _waiters = 0;
 };
 
 struct UltSemaphoreState {
