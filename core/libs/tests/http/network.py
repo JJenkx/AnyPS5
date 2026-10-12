@@ -82,6 +82,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif self.path == "/headers":
                 body = "|".join([self.headers.get("X-Inherited", ""), ",".join(self.headers.get_all("X-Value", [])), self.headers.get("User-Agent", "")])
                 self.response(200, body.encode())
+            elif self.path == "/emptyheaders":
+                body = "|".join([repr(self.headers.get_all(name)) for name in ("X-Empty", "Accept", "X-Repeated")])
+                self.response(200, body.encode())
             elif self.path == "/credentials":
                 body = self.headers.get("Authorization") or self.headers.get("Proxy-Authorization") or self.headers.get("Cookie", "")
                 self.response(200, body.encode())

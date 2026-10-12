@@ -168,7 +168,7 @@ private:
             ~Cleanup() { curl_multi_remove_handle(multi, easy); curl_multi_cleanup(multi); curl_easy_cleanup(easy); curl_slist_free_all(list); }
         } cleanup{easy, multi};
         for (const auto& [name, value] : settings.headers) {
-            auto* next = curl_slist_append(cleanup.list, (name + ": " + value).c_str());
+            auto* next = curl_slist_append(cleanup.list, (value.empty() ? name + ";" : name + ": " + value).c_str());
             if (!next) throw std::bad_alloc();
             cleanup.list = next;
         }
