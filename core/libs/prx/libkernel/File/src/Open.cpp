@@ -10,6 +10,7 @@
 #include "prx/libkernel/File/include/FileLock.hpp"
 #include "prx/libkernel/Socket/include/SocketRuntime.hpp"
 #include "prx/libkernel/File/include/RandomDevice.hpp"
+#include "prx/libkernel/File/include/HostStreams.hpp"
 #include "prx/libkernel/KernelErrors.hpp"
 #include "SceTypes.hpp"
 
@@ -217,7 +218,7 @@ int OpenInDirectory_nid_no_patch(int directory, const char* path, int flags, std
 }
 
 int APS5_VABI sceKernelClose(int d) {
-    if (d >= 0 && d < 3) return SCE_KERNEL_ERROR_EPERM;
+    if (File::IsHostStream(d)) return SCE_KERNEL_ERROR_EBADF;
     if (d >= GuestSockets::FirstDescriptor) return GuestSockets::Close(d) == 0 ? 0 : SceKernelError(*__error_nid_postfix());
     File::ForgetRandomDevice(d);
     File::ForgetDescriptor(d);

@@ -177,10 +177,10 @@ static void TestStandardDescriptorClose() {
         Require(sceKernelFstat(descriptor, &before) == 0);
         for (int attempt = 0; attempt < 2; ++attempt) {
             *__error_nid_postfix() = 123;
-            Require(sceKernelClose(descriptor) == static_cast<int>(0x80020001u));
+            Require(sceKernelClose(descriptor) == static_cast<int>(0x80020009u));
             Require(*__error_nid_postfix() == 123);
-            Require(close_nid_postfix(descriptor) == -1 && *__error_nid_postfix() == 1);
-            Require(_close_nid_postfix(descriptor) == -1 && *__error_nid_postfix() == 1);
+            Require(close_nid_postfix(descriptor) == -1 && *__error_nid_postfix() == 9);
+            Require(_close_nid_postfix(descriptor) == -1 && *__error_nid_postfix() == 9);
         }
         FileStat after{};
         Require(sceKernelFstat(descriptor, &after) == 0);
