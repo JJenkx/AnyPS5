@@ -104,6 +104,30 @@ def exporting(*names):
     return build_elf([(name, 1, GLOBAL_FUNCTION) for name in names])
 
 
+def build_sectionless_export_elf(symbols):
+    base, start = 0x4000, 0x200
+    strings = b"\0"
+    entries = [bytes(24)]
+    for name, index, info, visibility in symbols:
+        entries.append(struct.pack("<IBBHQQ", len(strings), info, visibility, index, 0, 0))
+        strings += name.encode() + b"\0"
+    table = b"".join(entries)
+    table_offset = (start + len(strings) + 7) & ~7
+    hash_offset = table_offset + len(table)
+    hashes = struct.pack("<II", 1, len(entries)) + bytes(4 * (1 + len(entries)))
+    dynamic_offset = (hash_offset + len(hashes) + 7) & ~7
+    tags = [(4, base + hash_offset - start), (5, base), (6, base + table_offset - start), (10, len(strings)), (11, 24), (0, 0)]
+    dynamic = b"".join(struct.pack("<qQ", *tag) for tag in tags)
+    image = bytearray(dynamic_offset + len(dynamic))
+    image[start:start + len(strings)] = strings
+    image[table_offset:table_offset + len(table)] = table
+    image[hash_offset:hash_offset + len(hashes)] = hashes
+    image[dynamic_offset:] = dynamic
+    image[:64] = struct.pack("<16sHHIQQQIHHHHHH", b"\x7fELF\x02\x01\x01" + bytes(9), 3, 0x3e, 1, 0, 64, 0, 0, 64, 56, 2, 0, 0, 0)
+    image[64:120] = struct.pack("<IIQQQQQQ", 1, 4, start, base, base, len(image) - start, len(image) - start + 64, 0x100)
+    image[120:176] = struct.pack("<IIQQQQQQ", 2, 4, dynamic_offset, base + dynamic_offset - start, 0, len(dynamic), len(dynamic), 8)
+    return image
+
 def with_elf_symbol_table_range(image, offset, size):
     image = bytearray(image)
     section_offset = struct.unpack_from("<Q", image, 40)[0] + 64
@@ -837,6 +861,63 @@ class ImportAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(import_audit.AuditError, "lib.prx"):
                 import_audit.elf_exports(path, image[:cut])
 
+    def test_sectionless_elf_exports(self):
+        image = build_sectionless_export_elf([
+            ("one#lib#module", 1, GLOBAL_FUNCTION, 0), ("weak", 2, 0x22, 3),
+            ("unique", 1, 0xa1, 0), ("absolute", 0xfff1, GLOBAL_FUNCTION, 0),
+            ("undefined", 0, GLOBAL_FUNCTION, 0), ("local", 1, LOCAL_FUNCTION, 0),
+            ("hidden", 1, GLOBAL_FUNCTION, 2), ("internal", 1, GLOBAL_FUNCTION, 1),
+        ])
+        path = Path("sectionless.prx")
+        expected = {"one#lib#module", "weak", "unique", "absolute"}
+        self.assertEqual(import_audit.read_exports(path, image), expected)
+        struct.pack_into("<H", image, 58, 64)
+        self.assertEqual(import_audit.read_exports(path, image), expected)
+        self.assertEqual(import_audit.read_exports(path, build_sectionless_export_elf([])), set())
+        for cut in (64, 175, len(image) - 1):
+            with self.subTest(cut=cut), self.assertRaises(import_audit.AuditError):
+                import_audit.read_exports(path, image[:cut])
+
+    def test_sectionless_elf_invalid_dynamic_tables(self):
+        original = build_sectionless_export_elf([("one", 1, GLOBAL_FUNCTION, 0)])
+        dynamic = struct.unpack_from("<Q", original, 128)[0]
+        symbols = struct.unpack_from("<Q", original, dynamic + 40)[0] - 0x4000 + 0x200
+        hashes = struct.unpack_from("<Q", original, dynamic + 8)[0] - 0x4000 + 0x200
+        changes = [
+            ("<H", 54, 0), ("<H", 56, 0), ("<H", 56, 0xffff),
+            ("<I", 120, 0), ("<Q", 152, 15), ("<Q", 136, 0x4000),
+            ("<H", 60, 1), ("<Q", 104, 1),
+            ("<q", dynamic + 80, 1), ("<q", dynamic, 0x6ffffef5),
+            ("<q", dynamic + 16, 4),
+            ("<Q", dynamic + 24, 0x4000 + len(original) - 0x200),
+            ("<Q", dynamic + 40, 0xfffffffffffffff0),
+            ("<Q", dynamic + 56, 0), ("<Q", dynamic + 72, 16),
+            ("<I", hashes, 0), ("<I", hashes + 4, 0),
+            ("<I", hashes + 4, 0xffffffff), ("<I", symbols + 24, 0xffffffff),
+            ("<H", symbols + 30, 0xffff),
+        ]
+        for layout, offset, value in changes:
+            with self.subTest(layout=layout, offset=offset, value=value):
+                image = original.copy()
+                struct.pack_into(layout, image, offset, value)
+                with self.assertRaisesRegex(import_audit.AuditError, "sectionless.prx"):
+                    import_audit.read_exports(Path("sectionless.prx"), image)
+
+    def test_sectionless_built_library(self):
+        work = self.work
+        (work.libs / "libSceA.prx").write_bytes(build_sectionless_export_elf([
+            ("AAAAAAAAAAA", 1, GLOBAL_FUNCTION, 0),
+            ("BBBBBBBBBBB#guest", 1, GLOBAL_FUNCTION, 3),
+        ]))
+        exports, libraries = import_audit.built_libraries([work.libs])
+        self.assertEqual(libraries, {"libSceA.prx"})
+        self.assertEqual(exports, {"AAAAAAAAAAA": ["libSceA.prx"], "BBBBBBBBBBB#guest": ["libSceA.prx"]})
+        registry = work.root / "app.registry.json"
+        write_registry(registry, [("AAAAAAAAAAA", "libSceA.prx"), ("BBBBBBBBBBB", "libSceA.prx")])
+        report = work.root / "report.json"
+        code, _, _ = work.run(registry, "--json", str(report))
+        self.assertEqual(code, 1)
+        self.assertEqual({item["nid"]: item["class"] for item in json.loads(report.read_text())["imports"]}, {"AAAAAAAAAAA": "implemented", "BBBBBBBBBBB": "absent"})
     def test_elf_imports_reader(self):
         image = build_elf([("one", 1, GLOBAL_FUNCTION), ("two", 0, GLOBAL_FUNCTION), ("three", 0, 0x22)], ["libc.prx", "libSceZip.prx"])
         path = Path("mod.prx")

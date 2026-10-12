@@ -65,27 +65,35 @@ def elf_program_dynamic_symbols(path, data):
     ident, program_offset, program_size, program_count = header[0], header[5], header[9], header[10]
     if ident[6] != 1 or header[3] != 1:
         raise AuditError(f"{path}: unsupported ELF version (identification {ident[6]}, object {header[3]})")
-    if ident[4] != 2 or ident[5] != 1 or program_size != 56 or not program_offset or not program_count:
+    if ident[4] != 2 or ident[5] != 1 or program_size != 56 or not program_offset or not program_count or program_count == 0xffff or header[12]:
         raise AuditError(f"{path}: sectionless ELF needs little-endian ELF64 program headers")
     take(data, program_offset, program_count * program_size, path, "program header table")
     segments = [unpack("<IIQQQQQQ", data, program_offset + index * program_size, path, f"program header {index}") for index in range(program_count)]
     loads = [segment for segment in segments if segment[0] == 1]
 
     def file_offset(address, size, what):
+        offsets = set()
         for segment in loads:
-            _, _, offset, virtual, _, file_size, _, _ = segment
-            if address >= virtual and address - virtual <= file_size and size <= file_size - (address - virtual):
-                result = offset + address - virtual
-                take(data, result, size, path, what)
-                return result
-        raise AuditError(f"{path}: {what} address 0x{address:x} is outside file-backed load segments")
+            _, _, offset, virtual, _, file_size, memory_size, _ = segment
+            if address < virtual or address - virtual + size > file_size:
+                continue
+            if file_size > memory_size:
+                raise AuditError(f"{path}: load segment file size exceeds its memory size")
+            result = offset + address - virtual
+            take(data, result, size, path, what)
+            offsets.add(result)
+        if len(offsets) != 1:
+            raise AuditError(f"{path}: {what} at virtual address 0x{address:x} with size {size} has no unique file-backed load mapping")
+        return offsets.pop()
 
     dynamic_segments = [segment for segment in segments if segment[0] == 2]
     if len(dynamic_segments) != 1:
         raise AuditError(f"{path}: expected one dynamic segment, found {len(dynamic_segments)}")
     _, _, dynamic_offset, _, _, dynamic_size, _, _ = dynamic_segments[0]
-    if dynamic_size % 16:
+    if not dynamic_size or dynamic_size % 16:
         raise AuditError(f"{path}: dynamic segment size {dynamic_size} is not a multiple of 16")
+    if file_offset(dynamic_segments[0][3], dynamic_size, "dynamic table") != dynamic_offset:
+        raise AuditError(f"{path}: dynamic table file offset disagrees with its load mapping")
     dynamic = {}
     needed_offsets = []
     for position in range(0, dynamic_size, 16):
@@ -95,7 +103,11 @@ def elf_program_dynamic_symbols(path, data):
         if tag == 1:
             needed_offsets.append(value)
         else:
+            if tag in (4, 5, 6, 10, 11, 0x6ffffef5) and tag in dynamic:
+                raise AuditError(f"{path}: duplicate dynamic table tag {tag}")
             dynamic[tag] = value
+    else:
+        raise AuditError(f"{path}: dynamic table has no DT_NULL terminator")
     string_address = dynamic.get(5)
     string_size = dynamic.get(10)
     symbol_address = dynamic.get(6)
@@ -108,11 +120,15 @@ def elf_program_dynamic_symbols(path, data):
     if 4 in dynamic:
         hash_offset = file_offset(dynamic[4], 8, "SysV hash table")
         buckets, chains = unpack("<II", data, hash_offset, path, "SysV hash header")
+        if not buckets or not chains:
+            raise AuditError(f"{path}: dynamic hash table needs buckets and the null symbol")
         file_offset(dynamic[4], 8 + 4 * (buckets + chains), "SysV hash table")
         symbol_count = chains
     elif 0x6ffffef5 in dynamic:
         hash_offset = file_offset(dynamic[0x6ffffef5], 16, "GNU hash header")
         buckets, first_symbol, bloom_count, _ = unpack("<IIII", data, hash_offset, path, "GNU hash header")
+        if not buckets or not bloom_count or bloom_count & (bloom_count - 1):
+            raise AuditError(f"{path}: GNU hash needs buckets and a nonzero power-of-two bloom size")
         file_offset(dynamic[0x6ffffef5], 16 + bloom_count * 8 + buckets * 4, "GNU hash prefix")
         bucket_offset = hash_offset + 16 + bloom_count * 8
         bucket_data = take(data, bucket_offset, buckets * 4, path, "GNU hash buckets")
@@ -140,11 +156,13 @@ def elf_program_dynamic_symbols(path, data):
     exports = set()
     for index in range(symbol_count):
         name, info, other, section_index, _, _ = unpack("<IBBHQQ", data, symbol_offset + index * symbol_size, path, "dynamic symbol")
+        if section_index == 0xffff:
+            raise AuditError(f"{path}: extended symbol section indexes without a section table are not supported")
         if name == 0:
             continue
-        symbol = cstring(data, string_offset + name, string_offset + string_size, path, "dynamic symbol name").split(MODULE_SUFFIX, 1)[0]
+        symbol = cstring(data, string_offset + name, string_offset + string_size, path, "dynamic symbol name")
         if section_index == 0:
-            imports.add(symbol)
+            imports.add(symbol.split(MODULE_SUFFIX, 1)[0])
         elif info >> 4 in (1, 2, 10) and other & 3 in (0, 3):
             exports.add(symbol)
     needed = {cstring(data, string_offset + value, string_offset + string_size, path, "needed library name") for value in needed_offsets}
