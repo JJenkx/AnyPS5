@@ -1850,8 +1850,12 @@ std::vector<std::uint32_t> ShaderResources::ContentKey(const CompiledShader& sha
         for (const auto* bits : {&binding.imageWritten, &binding.samplerDepthCompare, &binding.imageDepthCompare, &binding.imageAtomic, &binding.samplerUnnormalized, &binding.samplerIntegerBorder, &binding.imageUnnormalized, &binding.imageUnnormalizedBaseLevel, &binding.bufferWritten}) addWords(bits->size() / 32u + (bits->size() % 32u != 0 ? 1u : 0u));
     }
     key.reserve(words);
-    VisitContentKey(shader, dataWords, movableBuffers, [&](std::uint32_t word) { key.push_back(word); });
+    AppendContentKey(key, shader, dataWords, movableBuffers);
     return key;
+}
+
+void ShaderResources::AppendContentKey(std::vector<std::uint32_t>& key, const CompiledShader& shader, bool dataWords, bool movableBuffers) {
+    VisitContentKey(shader, dataWords, movableBuffers, [&](std::uint32_t word) { key.push_back(word); });
 }
 
 namespace {

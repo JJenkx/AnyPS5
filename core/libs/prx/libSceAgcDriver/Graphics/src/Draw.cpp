@@ -736,7 +736,15 @@ bool MovableBuffers() {
 }
 
 ResourceCache::Key DrawResourceKey(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint32_t colorAttachments, std::uint64_t indexAddress, std::uint64_t indexBytes, bool ranges) {
-    ResourceCache::Key key{0xffffffffu};
+    ResourceCache::Key key;
+    std::size_t reserve = 16u;
+    for (const auto& shader : shaders) {
+        Require(shader.program != nullptr, "missing compiled shader");
+        if (reserve > key.max_size() - 8u || shader.program->bindings.size() > (key.max_size() - reserve - 8u) / 12u) throw std::length_error("draw resource key exceeds vector limits");
+        reserve += 8u + shader.program->bindings.size() * 12u;
+    }
+    key.reserve(reserve);
+    key.push_back(0xffffffffu);
     const auto append64 = [&](std::uint64_t value) {
         key.push_back(static_cast<std::uint32_t>(value));
         key.push_back(static_cast<std::uint32_t>(value >> 32u));
@@ -744,9 +752,10 @@ ResourceCache::Key DrawResourceKey(const Context& context, std::span<const Compi
     append64(reinterpret_cast<std::uint64_t>(context.device));
     key.push_back(static_cast<std::uint32_t>(shaders.size()));
     for (const auto& shader : shaders) {
-        const auto part = ShaderResources::ContentKey(shader, true, MovableBuffers());
-        key.push_back(static_cast<std::uint32_t>(part.size()));
-        key.insert(key.end(), part.begin(), part.end());
+        const auto length = key.size();
+        key.push_back(0);
+        ShaderResources::AppendContentKey(key, shader, true, MovableBuffers());
+        key[length] = static_cast<std::uint32_t>(key.size() - length - 1u);
     }
     key.push_back(colorAttachments);
     if (ranges) {
