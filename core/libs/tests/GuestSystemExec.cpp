@@ -30,12 +30,13 @@ int main(int argc, char** argv) {
     const std::string guest = "/exec-fixture/next.bin";
     const auto root = std::filesystem::temp_directory_path() / ("anyps5-exec-" + std::to_string(getpid()));
     marker = root / "shutdown-marker";
-    if (std::strcmp(argv[0], guest.c_str()) == 0) {
+    if (std::strcmp(argv[0], guest.c_str()) == 0 || (argc > 1 && std::strcmp(argv[1], "--replacement") == 0)) {
         Require(!std::filesystem::exists(marker));
         if (argc == 1) {
             Require(std::filesystem::exists(root / "no-arguments"));
         } else {
             Require(argc == 5 && std::strcmp(argv[1], "--replacement") == 0);
+            Require(std::strcmp(argv[0], std::filesystem::exists(root / "custom-argv0") ? "custom guest name" : guest.c_str()) == 0);
             Require(std::strcmp(argv[2], std::to_string(getpid()).c_str()) == 0);
             Require(std::strcmp(argv[3], "argument with spaces") == 0 && std::strcmp(argv[4], "") == 0);
         }
@@ -64,7 +65,9 @@ int main(int argc, char** argv) {
         sceSystemServiceLoadExec(guest.c_str(), std::strcmp(argv[1], "--empty-arguments") == 0 ? empty : nullptr);
     } else {
         const auto pid = std::to_string(getpid());
-        const char* args[]{"--replacement", pid.c_str(), "argument with spaces", "", nullptr};
+        const bool custom = argc > 1 && std::strcmp(argv[1], "--custom-argv0") == 0;
+        if (custom) { std::ofstream file(root / "custom-argv0"); file << "custom argv0"; }
+        const char* args[]{custom ? "custom guest name" : guest.c_str(), "--replacement", pid.c_str(), "argument with spaces", "", nullptr};
         sceSystemServiceLoadExec(guest.c_str(), args);
     }
     return 1;

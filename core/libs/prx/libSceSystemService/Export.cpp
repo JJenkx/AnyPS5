@@ -46,8 +46,9 @@ int APS5_VABI sceSystemServiceLoadExec(const char* path, const char* const* argu
         auto native = ResolvePath_nid_no_patch(path);
         native += ".guest.elf";
         const auto executable = native.string();
-        std::vector<char*> argv{const_cast<char*>(path)};
+        std::vector<char*> argv;
         if (arguments) for (const auto* argument = arguments; *argument; ++argument) argv.push_back(const_cast<char*>(*argument));
+        if (argv.empty()) argv.push_back(const_cast<char*>(path));
         argv.push_back(nullptr);
         if (std::getenv("APS5_TRACE_LOAD_EXEC")) {
             std::fprintf(stderr, "[load-exec] %s -> %s argc=%zu\n", path, executable.c_str(), argv.size() - 1);
