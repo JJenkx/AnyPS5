@@ -336,6 +336,27 @@ class RepositoryChecksTests(unittest.TestCase):
         check.code()
         self.assertIn(("comment", "core/example.cpp", 3, ""), check.findings)
 
+    def test_checks_from_a_subdirectory_see_the_whole_repository(self):
+        definition = "int APS5_VABI sceFooBar(int a, int b) { return a + b; }\n"
+        first = self.root / "core/libs/prx/libSceA/Export.cpp"
+        first.parent.mkdir(parents=True)
+        first.write_text(definition, encoding="utf-8")
+        (self.root / "tools").mkdir()
+        (self.root / "tools/tool.py").write_text("print()\n", encoding="utf-8")
+        self.commit()
+        second = self.root / "core/libs/prx/libSceB/Export.cpp"
+        second.parent.mkdir(parents=True)
+        second.write_text(definition, encoding="utf-8")
+        (self.root / "docs").mkdir()
+        (self.root / "docs/guide.md").write_text("[export](../core/libs/prx/libSceA/Export.cpp)\n", encoding="utf-8")
+        self.commit()
+        os.chdir(self.root / "tools")
+        check = Check("HEAD~1", "HEAD")
+        check.code()
+        check.docs()
+        self.assertEqual(check.findings,
+                         [("duplicate-export", "core/libs/prx/libSceB/Export.cpp", 1, "sceFooBar is also in libSceA")])
+
     def test_submodule_outside_thirdparty_reports_without_crashing(self):
         head = self.git("rev-parse", "HEAD")
         self.git("update-index", "--add", "--cacheinfo", "160000", head, "vendor")

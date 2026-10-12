@@ -58,7 +58,7 @@ class Check:
         self.added = defaultdict(list)
         self.status = {}
         self.numstat = {}
-        entries = [entry.split("\t", 1) for entry in git("ls-tree", "-rz", head).split("\0") if entry]
+        entries = [entry.split("\t", 1) for entry in git("ls-tree", "-rz", "--full-tree", head).split("\0") if entry]
         self.modes = {path: metadata.split()[0] for metadata, path in entries}
         self.tree = set(self.modes)
         self.dirs = {str(parent) for path in self.tree for parent in PurePosixPath(path).parents}
@@ -125,7 +125,7 @@ class Check:
         if not exports:
             return
         pattern = r"(^|[^[:alnum:]_])APS5_VABI[[:space:]]+(" + "|".join(exports) + r")[[:space:]]*\("
-        result = subprocess.run(["git", "grep", "-nE", pattern, self.head, "--", "core/libs/prx"], capture_output=True, encoding="utf-8", errors="replace")
+        result = subprocess.run(["git", "grep", "-nE", "--full-name", pattern, self.head, "--", ":(top)core/libs/prx"], capture_output=True, encoding="utf-8", errors="replace")
         for line in result.stdout.splitlines():
             _, path, number, text = line.split(":", 3)
             name = EXPORT.search(text).group(1)

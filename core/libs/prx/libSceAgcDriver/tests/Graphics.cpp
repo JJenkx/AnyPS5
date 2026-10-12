@@ -1909,6 +1909,16 @@ void multisampleTests() {
     queue.context[0x302] = 0x44cc;
     expectFailure([&] { DecodeState(queue); }, "nonstandard sample locations");
     queue = multisampled();
+    queue.context[0x2f8] = 0;
+    queue.context[0x292] = 2;
+    queue.context[0x31d] = 0x12000;
+    state = DecodeState(queue);
+    Require(state.samples == 4 && state.colors.size() == 1 && state.colors[0].samples == 4 && state.customSampleLocations, "single-sample scan conversion into a 4x target did not rasterize the target's samples");
+    const auto centered = AgcDriver::Graphics::SampleLocations(state);
+    for (std::uint32_t sample = 0; sample < state.samples; ++sample) Require(centered[sample].x == 0.5f && centered[sample].y == 0.5f, "single-sample scan conversion did not place every sample at the pixel center");
+    queue.context[0x292] = 3;
+    expectFailure([&] { DecodeState(queue); }, "MSAA_ENABLE on a single-sample target");
+    queue = multisampled();
     queue.context[0x2f8] = 0x00300003;
     queue.context[0x31d] = 0x1b000;
     for (std::uint32_t pixel = 0; pixel < 4; ++pixel) {
