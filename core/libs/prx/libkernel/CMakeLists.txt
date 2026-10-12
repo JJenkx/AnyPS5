@@ -160,6 +160,16 @@ if(BUILD_TESTING)
         add_test(NAME nid_patcher_symbol_versions COMMAND ${Python3_EXECUTABLE}
             ${LIBS_INCLUDE_DIR}/nid/tests/test_symbol_versions.py $<TARGET_FILE:nid_patcher>)
     endif()
+    if(UNIX)
+        add_test_executable(guest_module_teardown_tests ${LIBS_INCLUDE_DIR}/tests/GuestModuleTeardown.cpp)
+        target_include_directories(guest_module_teardown_tests PRIVATE ${LIBS_INCLUDE_DIR})
+        target_link_libraries(guest_module_teardown_tests PRIVATE ${CMAKE_DL_LIBS})
+        add_dependencies(guest_module_teardown_tests libkernel guest_module_fixture)
+        add_test(NAME guest_module_teardown COMMAND guest_module_teardown_tests
+            $<TARGET_FILE:libkernel> $<TARGET_FILE_NAME:guest_module_fixture>)
+        set_tests_properties(guest_module_teardown PROPERTIES
+            WORKING_DIRECTORY "$<TARGET_FILE_DIR:guest_module_fixture>")
+    endif()
     add_test_executable(guest_dynamic_loader_tests ${LIBS_INCLUDE_DIR}/tests/GuestDynamicLoader.cpp)
     target_include_directories(guest_dynamic_loader_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(guest_dynamic_loader_tests PRIVATE libkernel libc)
