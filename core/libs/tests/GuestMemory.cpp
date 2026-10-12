@@ -1544,6 +1544,50 @@ static void CheckDirectMemorySharedBacking() {
     Require(sceKernelReleaseDirectMemory(right, page) == 0);
 }
 
+static void CheckLargeGpuDirectMemory() {
+    constexpr std::size_t page = 0x4000;
+    constexpr std::size_t length = (std::size_t{4} << 20u) + page * 2;
+    constexpr std::int64_t physicalStart = std::int64_t{256} << 20u;
+    std::int64_t physical = 0;
+    Require(sceKernelAllocateDirectMemory(physicalStart, physicalStart + length, length, page, 3, &physical) == 0);
+    void* first = nullptr;
+    Require(sceKernelMapDirectMemory(&first, length, 0x33, 0, physical, page) == 0);
+    auto* data = static_cast<volatile unsigned char*>(first);
+    data[0] = 0x19;
+    data[page + 11] = 0x37;
+    data[length - 1] = 0x53;
+    void* alias = nullptr;
+    Require(sceKernelMapDirectMemory(&alias, length - page * 2, 0x33, 0, physical + page, page) == 0);
+    auto* other = static_cast<volatile unsigned char*>(alias);
+    Require(other[11] == 0x37);
+    other[length - page * 2 - 1] = 0x71;
+    Require(data[length - page - 1] == 0x71);
+    Require(sceKernelMapDirectMemory(&first, length, 0x33, 0x10, physical, page) == 0);
+    Require(data[0] == 0x19 && data[page + 11] == 0x37 && data[length - 1] == 0x53);
+    Require(sceKernelMunmap(alias, length - page * 2) == 0);
+    Require(sceKernelMunmap(first, length) == 0);
+    Require(sceKernelReleaseDirectMemory(physical, length) == 0);
+    Require(sceKernelAllocateDirectMemory(physicalStart, physicalStart + length, length, page, 3, &physical) == 0);
+    first = nullptr;
+    Require(sceKernelMapDirectMemory(&first, length, 0x33, 0, physical, page) == 0);
+    data = static_cast<volatile unsigned char*>(first);
+    for (std::size_t at = 0; at < length; ++at) Require(data[at] == 0);
+    Require(sceKernelMunmap(first, length) == 0);
+    Require(sceKernelReleaseDirectMemory(physical, length) == 0);
+
+    constexpr std::size_t sparseLength = std::size_t{96} << 20u;
+    constexpr std::int64_t sparseStart = std::int64_t{512} << 20u;
+    Require(sceKernelAllocateDirectMemory(sparseStart, sparseStart + sparseLength, sparseLength, page, 3, &physical) == 0);
+    void* sparse = nullptr;
+    Require(sceKernelMapDirectMemory(&sparse, sparseLength, 0x33, 0, physical, page) == 0);
+    const auto hostPage = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
+    std::vector<unsigned char> resident(sparseLength / hostPage);
+    Require(mincore(sparse, sparseLength, resident.data()) == 0);
+    Require(std::none_of(resident.begin(), resident.end(), [](unsigned char value) { return (value & 1) != 0; }));
+    Require(sceKernelMunmap(sparse, sparseLength) == 0);
+    Require(sceKernelReleaseDirectMemory(physical, sparseLength) == 0);
+}
+
 static void CheckDirectMemoryWriteWatch() {
     if (!GuestWriteWatch::GuestWriteWatchAvailable_nid_postfix()) {
         std::puts("write watch unavailable: direct memory not tested");
@@ -1776,6 +1820,7 @@ int main() {
     CheckDirectMemoryWriteWatch();
     CheckDirectMemoryBackingNeedsNoFilesystem();
     CheckDirectMemorySharedBacking();
+    CheckLargeGpuDirectMemory();
 #endif
     constexpr std::size_t page = 0x4000;
     const auto failed = reinterpret_cast<void*>(static_cast<std::uintptr_t>(-1));

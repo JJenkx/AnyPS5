@@ -241,6 +241,26 @@ int PhysicalFile() {
     return file;
 }
 
+void PrepareGpuBacking(std::uint64_t offset, std::size_t bytes) {
+    constexpr std::size_t largePage = std::size_t{2} << 20u;
+    constexpr std::size_t maximum = std::size_t{64} << 20u;
+    if (bytes < largePage || bytes > maximum) return;
+    const auto begin = (offset + largePage - 1) / largePage * largePage;
+    const auto end = (offset + bytes) / largePage * largePage;
+    if (begin >= end) return;
+    const auto length = static_cast<std::size_t>(end - begin);
+    const auto reservedBytes = length + largePage;
+    void* reserved = ::mmap(nullptr, reservedBytes, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (reserved == MAP_FAILED) return;
+    const auto aligned = (reinterpret_cast<std::uintptr_t>(reserved) + largePage - 1) / largePage * largePage;
+    void* view = ::mmap(reinterpret_cast<void*>(aligned), length, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, PhysicalFile(), static_cast<off_t>(begin));
+    if (view != MAP_FAILED && ::madvise(view, length, MADV_HUGEPAGE) == 0) {
+        const auto* data = static_cast<const volatile unsigned char*>(view);
+        for (std::size_t at = 0; at < length; at += largePage) static_cast<void>(data[at]);
+    }
+    ::munmap(reserved, reservedBytes);
+}
+
 std::vector<bool> g_physicalUsed(DIRECT_MEMORY_SIZE / PS5_PAGE_SIZE);
 
 void ZeroReusedPhysical(std::uint64_t start, std::size_t bytes) {
@@ -469,8 +489,13 @@ bool WriteSharedBacking(std::uintptr_t address, const void* source, std::size_t 
 }
 #endif
 
-void AddMapping(std::uintptr_t address, std::size_t len, std::uint64_t phys, int nativeProt) {
+void AddMapping(std::uintptr_t address, std::size_t len, std::uint64_t phys, int nativeProt, bool gpu) {
     ValidatePhysicalRange(phys, len);
+#if defined(__linux__)
+    if (gpu) PrepareGpuBacking(phys, len);
+#else
+    static_cast<void>(gpu);
+#endif
     EraseMappings(address, address + len);
     for (std::size_t offset = 0; offset < len;) {
         const auto& page = g_physPages.at(phys + offset);
@@ -500,7 +525,7 @@ bool RemapFixedIntoRegistered(GuestAllocations::Mutation& mutation, void* addr, 
         const auto address = reinterpret_cast<std::uintptr_t>(addr);
         std::lock_guard lock(g_directLock);
         if (physStart >= 0) {
-            AddMapping(address, len, static_cast<std::uint64_t>(physStart), nativeProtection);
+            AddMapping(address, len, static_cast<std::uint64_t>(physStart), nativeProtection, (prot & GuestProtGpuReadWrite) != 0);
         } else {
             EraseMappings(address, address + len);
 #ifdef _WIN32
@@ -788,7 +813,7 @@ int DoMapDirect(void** addr, size_t len, int prot, int flags, int64_t physStart,
     ValidatePhysicalRange(static_cast<std::uint64_t>(physStart), len);
     void* mapped = MapAligned(*addr, len, PROT_NONE, flags, alignment);
     try {
-        AddMapping(reinterpret_cast<std::uintptr_t>(mapped), len, static_cast<std::uint64_t>(physStart), LinuxProtFromSce(prot));
+        AddMapping(reinterpret_cast<std::uintptr_t>(mapped), len, static_cast<std::uint64_t>(physStart), LinuxProtFromSce(prot), (prot & GuestProtGpuReadWrite) != 0);
         mutation.Add(mapped, len, (prot & 3) != 0, (prot & 2) != 0, (prot & GuestProtGpuReadWrite) != 0);
         if ((prot & GuestProtGpuReadWrite) != 0) mutation.NoteGpuMapping(mapped, len);
     } catch (...) {
