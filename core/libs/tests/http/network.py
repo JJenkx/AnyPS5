@@ -61,6 +61,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             if self.path == "/binary":
                 self.response(200, b"abc\0tail", [("X-Test", "local")])
+            elif self.path == "/stream":
+                self.response(200, bytes(range(256)) * 512)
             elif self.path == "/final":
                 self.response(200, b"final")
             elif self.path == "/missing":

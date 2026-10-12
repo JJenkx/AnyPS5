@@ -101,7 +101,7 @@ bool Enabled_nid_no_patch() {
         const char* value = std::getenv("APS5_HTTP_NETWORK");
         if (!value || !*value || std::string_view(value) == "0") return false;
         if (std::string_view(value) != "1") throw std::runtime_error("APS5_HTTP_NETWORK: expected 0 or 1");
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__linux__)
         throw std::runtime_error("APS5_HTTP_NETWORK: host HTTP is only implemented on Windows");
 #endif
         return true;
@@ -385,7 +385,7 @@ int Unsupported_nid_no_patch(int id, bool requested, const char* function) {
     return 0;
 }
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__linux__)
 std::shared_ptr<ITransport> CreateTransport_nid_no_patch() {
     throw std::runtime_error("host HTTP is only implemented on Windows");
 }
