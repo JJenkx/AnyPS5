@@ -99,6 +99,8 @@ if(BUILD_TESTING)
         add_test(NAME pad_input COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/test_pad_input.py)
         set_tests_properties(pad_input PROPERTIES TIMEOUT 20)
+        add_test(NAME trace_digest COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/test_trace_digest.py)
     endif()
 endif()
 
@@ -128,6 +130,12 @@ if(NOT ANYPS5_USE_SYSTEM_DEPS)
     add_subdirectory(3rdparty/SDL2)
     set(CMAKE_EXE_LINKER_FLAGS "${ANYPS5_EXE_LINKER_FLAGS}")
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        get_directory_property(ANYPS5_SDL_X11_XRANDR DIRECTORY 3rdparty/SDL2 DEFINITION HAVE_X11_XRANDR)
+        if(NOT ANYPS5_SDL_X11_XRANDR)
+            message(FATAL_ERROR "SDL has no XRandR support, so X11 display refresh rates cannot be queried. "
+                "Install libxrandr-dev (Debian, Ubuntu) or libXrandr-devel (Fedora), "
+                "enable SDL_X11_XRANDR, then rerun configuration.")
+        endif()
         get_directory_property(ANYPS5_SDL_PIPEWIRE DIRECTORY 3rdparty/SDL2 DEFINITION HAVE_PIPEWIRE)
         get_directory_property(ANYPS5_SDL_PULSEAUDIO DIRECTORY 3rdparty/SDL2 DEFINITION HAVE_PULSEAUDIO)
         get_directory_property(ANYPS5_SDL_ALSA DIRECTORY 3rdparty/SDL2 DEFINITION HAVE_ALSA)
@@ -161,6 +169,14 @@ if(NOT ANYPS5_USE_SYSTEM_DEPS)
         set_target_properties(freetype PROPERTIES SOURCES "${freetypeSources}")
     endif()
 endif()
+
+set(LIBUSB_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(LIBUSB_INSTALL_TARGETS OFF CACHE BOOL "" FORCE)
+set(LIBUSB_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(LIBUSB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LIBUSB_ENABLE_UDEV OFF CACHE BOOL "" FORCE)
+add_subdirectory(3rdparty/libusb-cmake EXCLUDE_FROM_ALL)
+set_target_properties(usb-1.0 PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_subdirectory(core/shader/recompiler)
 add_subdirectory(core/Decoder/Jpeg)

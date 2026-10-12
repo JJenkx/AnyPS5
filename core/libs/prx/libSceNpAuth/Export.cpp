@@ -6,8 +6,9 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 
-static constexpr int SCE_NP_AUTH_ERROR_INVALID_ARGUMENT = static_cast<int>(0x80550301);
+static constexpr int ORBIS_NP_AUTH_ERROR_INVALID_ARGUMENT = static_cast<int>(0x80550301);
 static constexpr int SCE_NP_ERROR_SIGNED_OUT = static_cast<int>(0x80550006);
+static constexpr int ORBIS_NP_AUTH_ERROR_ABORTED = static_cast<int>(0x80550304);
 static constexpr int ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND = static_cast<int>(0x80550306);
 static constexpr int ORBIS_NP_AUTH_ERROR_INVALID_ID = static_cast<int>(0x80550307);
 static constexpr int NP_POLL_ASYNC_FINISHED = 0;
@@ -17,6 +18,7 @@ namespace {
 struct RequestInfo {
  bool isAsync = false;
  bool processed = false;
+ bool aborted = false;
  int result = SCE_NP_ERROR_SIGNED_OUT;
 };
 
@@ -27,7 +29,7 @@ std::atomic<int> g_nextRequest{1};
 int CreateRequest(bool isAsync) {
  const int reqId = g_nextRequest.fetch_add(1, std::memory_order_relaxed);
  std::lock_guard lock(g_requestMutex);
- g_requests[reqId] = {isAsync, false, SCE_NP_ERROR_SIGNED_OUT};
+ g_requests[reqId] = {isAsync, false, false, SCE_NP_ERROR_SIGNED_OUT};
  return reqId;
 }
 
@@ -36,7 +38,10 @@ int CreateRequest(bool isAsync) {
 extern "C" {
 
 int APS5_VABI sceNpAuthAbortRequest(int req_id) {
- (void)req_id;
+ std::lock_guard lock(g_requestMutex);
+ auto it = g_requests.find(req_id);
+ if (it == g_requests.end()) return ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND;
+ if (!it->second.processed) it->second.aborted = true;
  return 0;
 }
 
@@ -56,19 +61,19 @@ int APS5_VABI sceNpAuthDeleteRequest(int req_id) {
 }
 
 int APS5_VABI sceNpAuthGetAuthorizedAppCode() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ return SCE_NP_ERROR_SIGNED_OUT;
 }
 
 int APS5_VABI sceNpAuthGetAuthorizationCodeV3(int req_id, const void* param, void* auth_code, int* issuer_id) {
  (void)issuer_id;
- if (!param || !auth_code) return SCE_NP_AUTH_ERROR_INVALID_ARGUMENT;
+ if (!param || !auth_code) return ORBIS_NP_AUTH_ERROR_INVALID_ARGUMENT;
  std::lock_guard lock(g_requestMutex);
  auto it = g_requests.find(req_id);
  if (it == g_requests.end()) return ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND;
- if (it->second.processed) {
-  it->second.result = SCE_NP_AUTH_ERROR_INVALID_ARGUMENT;
-  return SCE_NP_AUTH_ERROR_INVALID_ARGUMENT;
+ if (it->second.processed) return ORBIS_NP_AUTH_ERROR_INVALID_ARGUMENT;
+ if (it->second.aborted) {
+  it->second.result = ORBIS_NP_AUTH_ERROR_ABORTED;
+  return ORBIS_NP_AUTH_ERROR_ABORTED;
  }
  it->second.processed = true;
  if (it->second.isAsync) {
@@ -79,13 +84,14 @@ int APS5_VABI sceNpAuthGetAuthorizationCodeV3(int req_id, const void* param, voi
 }
 
 int APS5_VABI sceNpAuthGetIdTokenV3(int req_id, const void* param, void* id_token) {
- if (!param || !id_token) return SCE_NP_AUTH_ERROR_INVALID_ARGUMENT;
+ if (!param || !id_token) return ORBIS_NP_AUTH_ERROR_INVALID_ARGUMENT;
  std::lock_guard lock(g_requestMutex);
  auto it = g_requests.find(req_id);
  if (it == g_requests.end()) return ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND;
- if (it->second.processed) {
-  it->second.result = SCE_NP_AUTH_ERROR_INVALID_ARGUMENT;
-  return SCE_NP_AUTH_ERROR_INVALID_ARGUMENT;
+ if (it->second.processed) return ORBIS_NP_AUTH_ERROR_INVALID_ARGUMENT;
+ if (it->second.aborted) {
+  it->second.result = ORBIS_NP_AUTH_ERROR_ABORTED;
+  return ORBIS_NP_AUTH_ERROR_ABORTED;
  }
  it->second.processed = true;
  if (it->second.isAsync) {
@@ -96,21 +102,20 @@ int APS5_VABI sceNpAuthGetIdTokenV3(int req_id, const void* param, void* id_toke
 }
 
 int APS5_VABI sceNpAuthPollAsync(int req_id, int* result) {
- if (!result) return SCE_NP_AUTH_ERROR_INVALID_ARGUMENT;
  std::lock_guard lock(g_requestMutex);
  auto it = g_requests.find(req_id);
  if (it == g_requests.end()) return ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND;
- if (!it->second.isAsync || !it->second.processed) return ORBIS_NP_AUTH_ERROR_INVALID_ID;
- *result = it->second.result;
+ if (!it->second.isAsync || (!it->second.processed && !it->second.aborted)) return ORBIS_NP_AUTH_ERROR_INVALID_ID;
+ if (result) *result = it->second.result;
  return NP_POLL_ASYNC_FINISHED;
 }
 
 int APS5_VABI sceNpAuthWaitAsync(int req_id, int* result) {
- if (!result) return SCE_NP_AUTH_ERROR_INVALID_ARGUMENT;
+ if (!result) return ORBIS_NP_AUTH_ERROR_INVALID_ARGUMENT;
  std::lock_guard lock(g_requestMutex);
  auto it = g_requests.find(req_id);
  if (it == g_requests.end()) return ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND;
- if (!it->second.isAsync || !it->second.processed) return ORBIS_NP_AUTH_ERROR_INVALID_ID;
+ if (!it->second.isAsync || (!it->second.processed && !it->second.aborted)) return ORBIS_NP_AUTH_ERROR_INVALID_ID;
  *result = it->second.result;
  return NP_POLL_ASYNC_FINISHED;
 }

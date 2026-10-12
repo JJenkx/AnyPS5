@@ -40,3 +40,6 @@
 [submodule "3rdparty/zlib"]
 	path = 3rdparty/zlib
 	url = https://github.com/madler/zlib.git
+[submodule "3rdparty/libusb-cmake"]
+	path = 3rdparty/libusb-cmake
+	url = https://github.com/libusb/libusb-cmake.git
