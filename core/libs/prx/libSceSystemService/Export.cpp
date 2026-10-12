@@ -1,3 +1,9 @@
+#include <cerrno>
+#include <cstdio>
+#include <vector>
+#ifdef __linux__
+#include <unistd.h>
+#endif
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -36,7 +42,23 @@ extern "C" {
 int APS5_VABI sceSystemServiceLoadExec(const char* path, const char* const* arguments) {
     if (!path || !*path) return SYSTEM_SERVICE_ERROR_PARAMETER;
     if (std::strcmp(path, "exit") != 0) {
+#ifdef __linux__
+        auto native = ResolvePath_nid_no_patch(path);
+        native += ".guest.elf";
+        const auto executable = native.string();
+        std::vector<char*> argv{const_cast<char*>(path)};
+        if (arguments) for (const auto* argument = arguments; *argument; ++argument) argv.push_back(const_cast<char*>(*argument));
+        argv.push_back(nullptr);
+        if (std::getenv("APS5_TRACE_LOAD_EXEC")) {
+            std::fprintf(stderr, "[load-exec] %s -> %s argc=%zu\n", path, executable.c_str(), argv.size() - 1);
+            for (std::size_t index = 0; index + 1 < argv.size(); ++index) std::fprintf(stderr, "[load-exec] argv[%zu]=%s\n", index, argv[index]);
+        }
+        ::execv(executable.c_str(), argv.data());
+        const int error = errno;
+        throw std::system_error(error, std::generic_category(), "sceSystemServiceLoadExec: " + executable);
+#else
         NotImplemented_nid_no_patch("sceSystemServiceLoadExec: executable replacement");
+#endif
     }
     (void)arguments;
     LibcRunShutdown_nid_postfix();
