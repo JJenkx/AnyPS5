@@ -2302,6 +2302,9 @@ struct MockVulkan {
     std::vector<VkCopyDescriptorSet> copies;
     bool allowCopies = false;
     std::uint32_t boundSets = 0;
+    std::uint32_t bindCalls = 0;
+    std::vector<VkDescriptorSet> boundHandles;
+    std::map<std::uint32_t, VkDescriptorSet> writtenSets;
     std::uint32_t boundFirst = 0;
     VkPipelineBindPoint boundPoint = VK_PIPELINE_BIND_POINT_MAX_ENUM;
     std::map<VkPipelineLayout, VkDeviceSize> pipelineLayoutPushConstantSize;
@@ -2435,13 +2438,16 @@ VKAPI_ATTR void VKAPI_CALL mockUpdateDescriptorSets(VkDevice, std::uint32_t coun
     Require(copyCount == 0 || mock.allowCopies, "descriptor copies are not expected");
     if (copyCount != 0) mock.copies.insert(mock.copies.end(), copies, copies + copyCount);
     for (std::uint32_t i = 0; i < count; ++i) {
+        mock.writtenSets[writes[i].dstBinding] = writes[i].dstSet;
         MockDescriptorWrite write{writes[i].dstBinding, writes[i].dstArrayElement, writes[i].descriptorCount, writes[i].descriptorType, {}};
         write.buffers.assign(writes[i].pBufferInfo, writes[i].pBufferInfo + writes[i].descriptorCount);
         mock.writes.push_back(write);
     }
 }
 
-VKAPI_ATTR void VKAPI_CALL mockCmdBindDescriptorSets(VkCommandBuffer, VkPipelineBindPoint point, VkPipelineLayout, std::uint32_t first, std::uint32_t count, const VkDescriptorSet*, std::uint32_t, const std::uint32_t*) {
+VKAPI_ATTR void VKAPI_CALL mockCmdBindDescriptorSets(VkCommandBuffer, VkPipelineBindPoint point, VkPipelineLayout, std::uint32_t first, std::uint32_t count, const VkDescriptorSet* sets, std::uint32_t, const std::uint32_t*) {
+    ++mock.bindCalls;
+    mock.boundHandles.assign(sets, sets + count);
     mock.boundPoint = point;
     mock.boundFirst = first;
     mock.boundSets = count;
@@ -2863,6 +2869,25 @@ void descriptorSnapshotTests() {
         }
         Require(mock.live == 0, "snapshot descriptor resources leaked Vulkan objects");
     }
+}
+
+void splitResourceBindTests() {
+    mock = MockVulkan{};
+    const auto context = mockContext();
+    const auto state = AgcDriver::Graphics::DecodeState(makeState());
+    {
+        ShaderRecompiler::RecompileResult vertex, fragment;
+        vertex.bindings.push_back(makeBinding(Role::GuestBuffers, 0, 1, vsharp(guestFirst.data(), 16)));
+        const auto fragmentBinding = ShaderRecompiler::RuntimeAbi::BindingNumber(ShaderRecompiler::RuntimeAbi::Stage::Fragment, ShaderRecompiler::RuntimeAbi::Binding::Buffers);
+        fragment.bindings.push_back(makeBinding(Role::GuestBuffers, fragmentBinding, 1, vsharp(guestThird.data(), 8)));
+        fragment.bindings.back().descriptorSet = ShaderRecompiler::RuntimeAbi::FragmentDescriptorSet;
+        const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, 0}}};
+        AgcDriver::Graphics::ShaderResources resources(context, shaders, state.color, 1, 0, 0);
+        resources.Bind(reinterpret_cast<VkCommandBuffer>(std::uintptr_t{1}), VK_PIPELINE_BIND_POINT_GRAPHICS, VK_NULL_HANDLE);
+        Require(mock.bindCalls == 1 && mock.boundFirst == 0 && mock.boundSets == 2, "split resources require one bind of consecutive sets");
+        Require(mock.boundHandles == std::vector<VkDescriptorSet>{mock.writtenSets.at(0), mock.writtenSets.at(fragmentBinding)}, "split resources lost descriptor set order or identity");
+    }
+    Require(mock.live == 0, "split resources leaked Vulkan objects");
 }
 
 void resourceTests() {
@@ -5076,6 +5101,7 @@ int main(int argc, char** argv) {
         descriptorPoolTests();
         pushConstantTests();
         resourceTests();
+        splitResourceBindTests();
         descriptorSnapshotTests();
         descriptorCacheTests();
         misalignedShaderDataTests();

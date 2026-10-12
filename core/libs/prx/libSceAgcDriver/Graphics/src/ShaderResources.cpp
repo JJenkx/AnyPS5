@@ -3604,9 +3604,17 @@ std::shared_ptr<ShaderResources::DrawBindings> ShaderResources::PrepareDrawBindi
     return result;
 }
 
+void BindResourceDescriptorSets_nid_no_patch(const Context& context, VkCommandBuffer commands, VkPipelineBindPoint bindPoint, VkPipelineLayout layout, VkDescriptorSet main, VkDescriptorSet fragment) {
+    static_assert(ShaderRecompiler::RuntimeAbi::FragmentDescriptorSet == 1);
+    if (main == VK_NULL_HANDLE && fragment == VK_NULL_HANDLE) return;
+    const std::array sets{main, fragment};
+    const std::uint32_t first = main == VK_NULL_HANDLE ? 1u : 0u;
+    const std::uint32_t count = main != VK_NULL_HANDLE && fragment != VK_NULL_HANDLE ? 2u : 1u;
+    context.Resolved(&DeviceFunctions::cmdBindDescriptorSets, "vkCmdBindDescriptorSets")(commands, bindPoint, layout, first, count, sets.data() + first, 0, nullptr);
+}
+
 void ShaderResources::Bind(VkCommandBuffer commands, VkPipelineBindPoint bindPoint, VkPipelineLayout layout) const {
-    if (_set != VK_NULL_HANDLE) context.Resolved(&DeviceFunctions::cmdBindDescriptorSets, "vkCmdBindDescriptorSets")(commands, bindPoint, layout, 0, 1, &_set, 0, nullptr);
-    if (fragment.set != VK_NULL_HANDLE) context.Resolved(&DeviceFunctions::cmdBindDescriptorSets, "vkCmdBindDescriptorSets")(commands, bindPoint, layout, ShaderRecompiler::RuntimeAbi::FragmentDescriptorSet, 1, &fragment.set, 0, nullptr);
+    BindResourceDescriptorSets_nid_no_patch(context, commands, bindPoint, layout, _set, fragment.set);
 }
 
 namespace {

@@ -24,6 +24,8 @@ namespace AgcDriver::Graphics {
 
 class Recorder;
 
+void BindResourceDescriptorSets_nid_no_patch(const Context& context, VkCommandBuffer commands, VkPipelineBindPoint bindPoint, VkPipelineLayout layout, VkDescriptorSet main, VkDescriptorSet fragment);
+
 void FlushCachedTextures(VkDevice device);
 void ClearCachedTextures(VkDevice device);
 std::uint64_t TextureCacheBudget(const VkPhysicalDeviceMemoryProperties& memory);
