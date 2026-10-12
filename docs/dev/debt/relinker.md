@@ -2,6 +2,8 @@
 
 ### Functional
 
+- [Executable guest imports](../../../core/relinker/relinker/src/guest/GuestModuleBuilder.cpp) - on Linux and macOS, a relocated executable import resolved to one guest provider requires that module and its dependencies at startup, even when it was discovered through `--module-dir` without a DT_NEEDED entry. Unreferenced symbols and no-op relocations do not require an otherwise deferred module. Console module-start ordering is unmeasured.
+
 - [Guest function aliases](../../../core/relinker/relinker/src/guest/GuestModuleBuilder.cpp) - Linux and Windows accept same-image exports whose stripped names, binding, type, visibility, ordinary section, address and size match. Linux preserves both dynamic symbol indices and their relocations. Conflicting and nonfunction duplicates remain rejected; macOS conversion retains strict rejection. This does not implement logical export-library namespaces. Console alias resolution is unmeasured.
 
 - [Runtime-loaded modules](../../../core/relinker/relinker/src/guest/GuestModuleBuilder.cpp) (`--module-dir`) that another module needs are initialized at startup with no start arguments, before the module that needs them is loaded; the console is assumed to start them when that module is loaded.
