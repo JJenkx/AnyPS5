@@ -147,6 +147,13 @@ int main(int argc, char** argv) {
     Require(sceHttpSetRequestContentLength(post, payload.size()) == 0, "content length update");
     Require(sceHttpSendRequest(post, payload.data(), payload.size()) == 0 && ReadBody(post) == payload, "POST echo");
     Require(sceHttpDeleteRequest(post) == 0, "POST cleanup");
+    for (const auto code : {303, 307}) {
+        const auto path = "/post" + std::to_string(code);
+        const auto redirectedPost = sceHttpCreateRequest(connection, 1, path.c_str(), payload.size());
+        Require(sceHttpSendRequest(redirectedPost, payload.data(), payload.size()) == 0, "redirected POST send");
+        Require(ReadBody(redirectedPost) == (code == 303 ? std::string("GET") : "POST:" + payload), "redirected POST method or body changed incorrectly");
+        Require(sceHttpDeleteRequest(redirectedPost) == 0, "redirected POST cleanup");
+    }
     const auto head = sceHttpCreateRequest2(connection, "HEAD", "/binary", 0);
     Require(sceHttpSendRequest(head, nullptr, 0) == 0 && ReadBody(head).empty(), "HEAD body");
     Require(sceHttpGetResponseContentLength(head, &lengthResult, &length) == 0 && length == 8, "HEAD length");
