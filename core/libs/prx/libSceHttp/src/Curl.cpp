@@ -216,7 +216,7 @@ private:
             curl_off_t sent = 0;
             curl_easy_getinfo(easy, CURLINFO_SIZE_UPLOAD_T, &sent);
             if (sent != uploaded) { uploaded = sent; progress = Clock::now(); }
-            const auto timeout = phase == 0 ? settings.resolveTimeout : phase == 1 ? settings.connectTimeout : static_cast<std::uint64_t>(uploaded) < payload.size() ? settings.sendTimeout : settings.receiveTimeout;
+            const auto timeout = ready ? settings.receiveTimeout : phase == 0 ? settings.resolveTimeout : phase == 1 ? settings.connectTimeout : static_cast<std::uint64_t>(uploaded) < payload.size() ? settings.sendTimeout : settings.receiveTimeout;
             if (running && timeout != 0 && Clock::now() - progress >= std::chrono::microseconds(timeout)) {
                 code = CURLE_OPERATION_TIMEDOUT;
                 break;
