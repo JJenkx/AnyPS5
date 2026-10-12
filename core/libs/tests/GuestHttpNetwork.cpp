@@ -52,7 +52,7 @@ static void Require(bool value, const char* label) {
     }
 }
 
-static std::string ReadBody(int request) {
+static std::string ReadBody(int request, std::size_t limit = 4096) {
     std::string result;
     char buffer[32];
     for (;;) {
@@ -60,7 +60,7 @@ static std::string ReadBody(int request) {
         Require(count >= 0 && count <= static_cast<int>(sizeof(buffer)), "body read failed");
         if (!count) return result;
         result.append(buffer, count);
-        Require(result.size() <= 4096, "body exceeded test limit");
+        Require(result.size() <= limit, "body exceeded test limit");
     }
 }
 
@@ -133,6 +133,14 @@ int main(int argc, char** argv) {
     Require(sceHttpGetResponseContentLength(chunked, &lengthResult, &length) == 0 && lengthResult == 1 && length == 0, "unknown response length");
     Require(ReadBody(chunked) == "firstsecond", "chunk framing leaked into body");
     Require(sceHttpDeleteRequest(chunked) == 0, "chunked cleanup");
+    const auto stream = Get(connection, "/stream");
+    const auto streamed = ReadBody(stream, 131072);
+    Require(streamed.size() == 131072, "stream larger than transport buffer was truncated");
+    for (std::size_t i = 0; i < streamed.size(); ++i) Require(static_cast<unsigned char>(streamed[i]) == i % 256, "stream payload changed");
+    Require(sceHttpDeleteRequest(stream) == 0, "stream cleanup");
+    const auto bodyAbort = Get(connection, "/slowbody/body-abort");
+    Require(sceHttpAbortRequest(bodyAbort) == 0 && sceHttpReadData(bodyAbort, small, sizeof(small)) == aborted, "abort a pending response body");
+    Require(sceHttpDeleteRequest(bodyAbort) == 0, "body abort cleanup");
     const auto post = sceHttpCreateRequestWithURL2(connection, "POST", (std::string(argv[1]) + "/echo").c_str(), 0);
     const std::string payload("post\0bytes", 10);
     Require(sceHttpSendRequest(post, payload.data(), payload.size()) == invalidValue, "body length mismatch");
@@ -170,7 +178,15 @@ int main(int argc, char** argv) {
         Require(sceHttpDeleteTemplate(credentialTemplate) == 0, "credential request cleanup");
     }
     const auto gzip = sceHttpCreateRequest(connection, 0, "/gzip", 0);
-    Require(sceHttpSetInflateGZIPEnabled(gzip, 1) == 0 && sceHttpSendRequest(gzip, nullptr, 0) == 0 && ReadBody(gzip) == "compressed body", "GZIP decoding");
+    Require(sceHttpSetInflateGZIPEnabled(gzip, 1) == 0, "GZIP setup");
+    const auto gzipResult = sceHttpSendRequest(gzip, nullptr, 0);
+    const auto gzipBody = gzipResult == 0 ? ReadBody(gzip) : std::string();
+    if (gzipResult != 0 || gzipBody != "compressed body") {
+        int error = 0;
+        sceHttpGetLastErrno(gzip, &error);
+        std::fprintf(stderr, "GZIP result=0x%x host error=%d body size=%zu\n", gzipResult, error, gzipBody.size());
+    }
+    Require(gzipResult == 0 && gzipBody == "compressed body", "GZIP decoding");
     Require(sceHttpDeleteRequest(gzip) == 0, "GZIP cleanup");
     const auto headerRequest = sceHttpCreateRequest(connection, 0, "/headers", 0);
     Require(sceHttpAddRequestHeader(headerRequest, "X-Value", "old", 0) == 0 && sceHttpAddRequestHeader(headerRequest, "x-value", "new", 0) == 0 && sceHttpAddRequestHeader(headerRequest, "X-Value", "added", 1) == 0, "header overwrite and add");
