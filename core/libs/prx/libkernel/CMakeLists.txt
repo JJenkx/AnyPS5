@@ -92,13 +92,36 @@ if(BUILD_TESTING)
     if(WIN32)
         set_tests_properties(compiled_sdk_version PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+    if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_test_executable(compiled_sdk_version_process_tests ${LIBS_INCLUDE_DIR}/tests/CompiledSdkVersionProcess.cpp)
         target_include_directories(compiled_sdk_version_process_tests PRIVATE ${LIBS_INCLUDE_DIR})
         target_link_libraries(compiled_sdk_version_process_tests PRIVATE libkernel libc)
         configure_windows_unwind(compiled_sdk_version_process_tests)
         add_test(NAME compiled_sdk_version_process COMMAND compiled_sdk_version_process_tests)
-        set_tests_properties(compiled_sdk_version_process PROPERTIES ENVIRONMENT_MODIFICATION
-            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libkernel>")
+        set_tests_properties(compiled_sdk_version_process PROPERTIES TIMEOUT 20)
+        if(WIN32)
+            set_tests_properties(compiled_sdk_version_process PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libkernel>")
+        else()
+            find_package(Python3 REQUIRED COMPONENTS Interpreter)
+            set(sdkElfFixture ${LIBS_INCLUDE_DIR}/tests/CompiledSdkVersionElfFixture.py)
+            target_link_options(compiled_sdk_version_process_tests PRIVATE LINKER:--build-id)
+            set_property(TARGET compiled_sdk_version_process_tests APPEND PROPERTY LINK_DEPENDS ${sdkElfFixture})
+            add_custom_command(TARGET compiled_sdk_version_process_tests POST_BUILD
+                COMMAND ${Python3_EXECUTABLE} ${sdkElfFixture} $<TARGET_FILE:compiled_sdk_version_process_tests>
+                BYPRODUCTS ${ANYPS5_TEST_OUTPUT_DIRECTORY}/compiled_sdk_version_process_tests.missing
+                    ${ANYPS5_TEST_OUTPUT_DIRECTORY}/compiled_sdk_version_process_tests.truncated
+                    ${ANYPS5_TEST_OUTPUT_DIRECTORY}/compiled_sdk_version_process_tests.unmapped
+                VERBATIM)
+            set_tests_properties(compiled_sdk_version_process PROPERTIES FIXTURES_SETUP compiled_sdk_process)
+            foreach(sdkElfCase IN ITEMS missing truncated unmapped)
+                add_test(NAME compiled_sdk_version_process_${sdkElfCase}
+                    COMMAND $<TARGET_FILE:compiled_sdk_version_process_tests>.${sdkElfCase} reader-reject)
+                set_tests_properties(compiled_sdk_version_process_${sdkElfCase} PROPERTIES
+                    TIMEOUT 20 FIXTURES_REQUIRED compiled_sdk_process)
+            endforeach()
+        endif()
     endif()
     add_test_executable(download_data_mount_tests ${LIBS_INCLUDE_DIR}/tests/GuestDownloadDataMount.cpp)
     target_include_directories(download_data_mount_tests PRIVATE ${LIBS_INCLUDE_DIR})
