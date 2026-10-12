@@ -93,6 +93,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.response(200, bytes(range(256)) * 512)
             elif self.path == "/final":
                 self.response(200, b"final")
+            elif self.path == "/downgrade":
+                self.response(302, b"", [("Location", self.server.insecure_origin + "/final")])
             elif self.path == "/missing":
                 self.response(404, b"missing")
             elif self.path == "/disconnect":
@@ -183,6 +185,8 @@ def main():
             thread.start()
             threads.append(thread)
         environment = os.environ.copy()
+        for server in servers:
+            server.insecure_origin = f"http://127.0.0.1:{servers[0].server_port}"
         environment["APS5_HTTP_NETWORK"] = "1"
         result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{servers[0].server_port}", f"https://127.0.0.1:{servers[1].server_port}"], env=environment, timeout=15)
         return 0 if result.returncode == 0 else 1

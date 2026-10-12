@@ -172,9 +172,12 @@ private:
             if (!next) throw std::bad_alloc();
             cleanup.list = next;
         }
+        const bool secure = url.size() >= 6 && std::equal(url.begin(), url.begin() + 6, "https:", [](unsigned char value, char expected) {
+            return (value >= 'A' && value <= 'Z' ? value + ('a' - 'A') : value) == expected;
+        });
         option(easy, CURLOPT_URL, url.c_str());
         option(easy, CURLOPT_PROTOCOLS_STR, "http,https");
-        option(easy, CURLOPT_REDIR_PROTOCOLS_STR, url.starts_with("https:") ? "https" : "http,https");
+        option(easy, CURLOPT_REDIR_PROTOCOLS_STR, secure ? "https" : "http,https");
         option(easy, CURLOPT_PROXY, "");
         option(easy, CURLOPT_NOSIGNAL, 1L);
         option(easy, CURLOPT_USERAGENT, settings.agent.c_str());
@@ -210,7 +213,7 @@ private:
             curl_off_t resolved = 0;
             curl_off_t connected = 0;
             curl_easy_getinfo(easy, CURLINFO_NAMELOOKUP_TIME_T, &resolved);
-            curl_easy_getinfo(easy, url.starts_with("https:") ? CURLINFO_APPCONNECT_TIME_T : CURLINFO_CONNECT_TIME_T, &connected);
+            curl_easy_getinfo(easy, secure ? CURLINFO_APPCONNECT_TIME_T : CURLINFO_CONNECT_TIME_T, &connected);
             const auto nextPhase = connected > 0 ? 2 : resolved > 0 ? 1 : 0;
             if (nextPhase != phase) { phase = nextPhase; progress = Clock::now(); }
             curl_off_t sent = 0;
