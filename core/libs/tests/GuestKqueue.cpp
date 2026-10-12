@@ -347,6 +347,13 @@ static void DirectoryWatch() {
     Require(Wait(kq, events, 4) == 1 && events[0].ident == ident && events[0].fflags == NoteWrite);
     Require(mkdir_nid_postfix((path + "/sub").c_str(), 0755) == 0);
     Require(Wait(kq, events, 4) == 1 && events[0].fflags == (NoteWrite | NoteLink));
+#ifndef _WIN32
+    const auto outside = TemporaryName("outside");
+    Require(sceKernelRename((path + "/child.bin").c_str(), outside.c_str()) == SceOk);
+    Require(Wait(kq, events, 4) == 1 && events[0].fflags == (NoteWrite | NoteExtend));
+    Require(sceKernelRename(outside.c_str(), (path + "/child.bin").c_str()) == SceOk);
+    Require(Wait(kq, events, 4) == 1 && events[0].fflags == (NoteWrite | NoteExtend));
+#endif
     Require(sceKernelRename((path + "/child.bin").c_str(), (path + "/renamed.bin").c_str()) == SceOk);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     Require(Poll(kq, events, 4) == 1 && events[0].ident == ident && events[0].fflags == NoteWrite);
