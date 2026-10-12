@@ -497,15 +497,16 @@ std::size_t reuseOffset = 0;
 bool reuseInjected = false;
 bool reuseBoth = false;
 constexpr std::uint64_t ReuseMarker = 0x0123456789abcdefull;
+std::uint64_t reuseValue = ReuseMarker;
 
 void ReuseDuringReadback(std::uint64_t address, std::size_t bytes) {
     if (address != reuseAddress || bytes != BlockBytes || reuseInjected) return;
     reuseInjected = true;
-    std::memcpy(reinterpret_cast<void*>(address + reuseOffset), &ReuseMarker, sizeof(ReuseMarker));
-    if (reuseBoth) std::memcpy(reinterpret_cast<void*>(address + SurfaceBytes), &ReuseMarker, sizeof(ReuseMarker));
+    std::memcpy(reinterpret_cast<void*>(address + reuseOffset), &reuseValue, sizeof(reuseValue));
+    if (reuseBoth) std::memcpy(reinterpret_cast<void*>(address + SurfaceBytes), &reuseValue, sizeof(reuseValue));
 }
 
-void RunReadbackReuse(AgcDriver::VulkanDevice& device, bool late, std::size_t offset, bool both = false) {
+void RunReadbackReuse(AgcDriver::VulkanDevice& device, bool late, std::size_t offset, bool both = false, std::uint64_t value = ReuseMarker) {
     GuestBlock block(true);
     GuestBlock keys(true);
     std::memset(block.Data(), 0x55, BlockBytes);
@@ -514,14 +515,17 @@ void RunReadbackReuse(AgcDriver::VulkanDevice& device, bool late, std::size_t of
     descriptor[2] = ((Side - 1u) >> 2u) | ((2 * Side - 1u) << 14u);
     std::vector<std::uint32_t> data(16, 0);
     std::copy(descriptor.begin(), descriptor.end(), data.begin() + 4);
-    std::vector<std::uint32_t> secondRow{0x7e0202ff, Side};
-    secondRow.insert(secondRow.end(), WriteCode.begin() + 1, WriteCode.end());
+    std::vector<std::uint32_t> secondRow(WriteCode.size() + 1);
+    secondRow[0] = 0x7e0202ff;
+    secondRow[1] = Side;
+    std::copy(WriteCode.begin() + 1, WriteCode.end(), secondRow.begin() + 2);
     std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
     Dispatch(device, WriteCode, data);
     Dispatch(device, secondRow, data);
     reuseAddress = AddressOf(block.Data());
     reuseOffset = offset;
     reuseBoth = both;
+    reuseValue = value;
     reuseInjected = false;
     const auto image = StorageTexture::FindPending(reuseAddress, BlockBytes);
     Require(image != nullptr && image->GuestBytes() == BlockBytes, "readback reuse: no two-block pending image");
@@ -538,11 +542,11 @@ void RunReadbackReuse(AgcDriver::VulkanDevice& device, bool late, std::size_t of
     Require(reuseInjected, "readback reuse: the CPU store did not run");
     std::uint64_t observed = 0;
     std::memcpy(&observed, block.Data() + offset, sizeof(observed));
-    Require(observed == ReuseMarker, "readback reuse: writeback overwrote newer CPU bytes");
+    Require(observed == reuseValue, "readback reuse: writeback overwrote newer CPU bytes");
     const auto untouched = offset < SurfaceBytes ? SurfaceBytes : 0;
     if (both) {
         std::memcpy(&observed, block.Data() + SurfaceBytes, sizeof(observed));
-        Require(observed == ReuseMarker, "readback reuse: writeback overwrote the second reused block");
+        Require(observed == reuseValue, "readback reuse: writeback overwrote the second reused block");
     } else {
         Require(Count(block.Data() + untouched, SurfaceBytes, 0xff) == Threads * 4u, "readback reuse: the unchanged block lost its GPU results");
     }
@@ -570,6 +574,13 @@ int main(int argc, char** argv) {
             }
             RunReadbackReuse(*device, false, 0, true);
             RunReadbackReuse(*device, true, 0, true);
+            constexpr std::uint64_t baseline = 0x5555555555555555ull;
+            for (auto offset : {std::size_t{0}, SurfaceBytes}) {
+                RunReadbackReuse(*device, false, offset, false, baseline);
+                RunReadbackReuse(*device, true, offset, false, baseline);
+            }
+            RunReadbackReuse(*device, false, 0, true, baseline);
+            RunReadbackReuse(*device, true, 0, true, baseline);
             std::puts("CPU reuse during texture readback tests passed");
             return 0;
         }

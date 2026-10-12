@@ -4004,13 +4004,14 @@ void StorageTexture::writeBackLayers(const std::vector<bool>& layers) {
         for (auto at = layerBegin(layer) & ~(block - 1); at < end; at += block) generations[static_cast<std::size_t>((at - spanBegin) / block)] = layerGeneration[layer];
     }
     std::vector<std::uint8_t> changedBlocks(spanBlocks);
+    std::vector<std::uint8_t> cpuBlocks(spanBlocks);
     const auto selectRanges = [&] {
         keep.clear();
         std::fill(skippedLayer.begin(), skippedLayer.end(), false);
         skippedAny = false;
         skipped = 0;
         GuestMemory::CollectWritesUncached(firstStored, static_cast<std::size_t>(lastStored - firstStored));
-        const bool tracked = GuestMemory::ChangedBlocks(firstStored, static_cast<std::size_t>(lastStored - firstStored), generations, changedBlocks);
+        const bool tracked = GuestMemory::ChangedBlocks(firstStored, static_cast<std::size_t>(lastStored - firstStored), generations, changedBlocks, cpuBlocks);
         const bool compared = !tracked && compareUntracked(firstStored, static_cast<std::size_t>(lastStored - firstStored), changedBlocks);
         for (std::uint32_t layer = 0; layer < trackedLayers; ++layer) {
             if (!layers[layer]) continue;
@@ -4025,7 +4026,8 @@ void StorageTexture::writeBackLayers(const std::vector<bool>& layers) {
                 const auto to = std::min(at + block, end);
                 if (from >= to) continue;
                 const bool edge = from != at || to != at + block;
-                if (changedBlocks[static_cast<std::size_t>((at - spanBegin) / block)] == GuestMemory::BlockWritten && (compared || !edge || GuestMemory::StoredOver(from, static_cast<std::size_t>(to - from), layerGeneration[layer])) && !unchangedSinceBaseline(from, to)) {
+                const auto index = static_cast<std::size_t>((at - spanBegin) / block);
+                if (changedBlocks[index] == GuestMemory::BlockWritten && (compared || !edge || GuestMemory::StoredOver(from, static_cast<std::size_t>(to - from), layerGeneration[layer])) && (cpuBlocks[index] != 0 || !unchangedSinceBaseline(from, to))) {
                     skippedAny = true;
                     skippedLayer[layer] = true;
                     ++skipped;
