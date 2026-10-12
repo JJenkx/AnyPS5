@@ -1,4 +1,4 @@
-add_library(libSceHttp SHARED EXCLUDE_FROM_ALL Export.cpp src/Parse.cpp src/Uri.cpp src/Network.cpp src/WinHttp.cpp)
+add_library(libSceHttp SHARED EXCLUDE_FROM_ALL Export.cpp src/Parse.cpp src/Uri.cpp src/Network.cpp src/Offline.cpp src/WinHttp.cpp)
 target_include_directories(libSceHttp PRIVATE ${LIBS_INCLUDE_DIR})
 if(WIN32)
     target_link_libraries(libSceHttp PRIVATE winhttp)
