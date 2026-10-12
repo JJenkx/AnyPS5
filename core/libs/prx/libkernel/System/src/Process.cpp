@@ -44,6 +44,7 @@ extern "C" int* APS5_VABI __error_nid_postfix();
 namespace {
 
 constexpr int sceInvalidArgument = static_cast<int>(0x80020016u);
+constexpr int errnoNoSuchProcess = 3;
 constexpr int errnoNoChild = 10;
 constexpr int errnoBadAddress = 14;
 constexpr int errnoInvalidArgument = 22;
@@ -214,8 +215,9 @@ int APS5_VABI getpid_nid_postfix(void) {
 }
 
 int APS5_VABI getsid_nid_postfix(int pid) {
-    (void)pid;
-    NotImplemented_nid_no_patch("getsid: process sessions");
+    const int self = getpid_nid_postfix();
+    if (pid == 0 || pid == self) return self;
+    *__error_nid_postfix() = errnoNoSuchProcess;
     return -1;
 }
 
@@ -572,6 +574,15 @@ int APS5_VABI setreuid_nid_postfix(std::uint32_t ruid, std::uint32_t euid) {
         throw std::runtime_error("setreuid: unsupported real user id " + std::to_string(ruid));
     if (euid != 0 && euid != unchanged)
         throw std::runtime_error("setreuid: unsupported effective user id " + std::to_string(euid));
+    return 0;
+}
+
+int APS5_VABI setregid_nid_postfix(std::uint32_t rgid, std::uint32_t egid) {
+    constexpr std::uint32_t unchanged = 0xffffffffu;
+    if (rgid != 0 && rgid != unchanged)
+        throw std::runtime_error("setregid: unsupported real group id " + std::to_string(rgid));
+    if (egid != 0 && egid != unchanged)
+        throw std::runtime_error("setregid: unsupported effective group id " + std::to_string(egid));
     return 0;
 }
 
