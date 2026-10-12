@@ -264,7 +264,7 @@ PadData Pad::ReadState(int port) {
     const std::uint64_t now = sceKernelGetProcessTime();
     const auto injected = port == 0 ? InjectedInput(now) : Pad::InputCommandFile::Input{};
     auto& slot = slots[port];
-    PadData data = BuildData(slot, slot.state, slot.timestamp, now, injected, port);
+    PadData data = BuildData(slot, slot.state, now, now, injected, port);
     if (slot.pressedSinceRead != 0 && now - slot.pressedAt <= LatchExpiry(slot)) {
         data.buttons |= slot.pressedSinceRead;
         if (slot.pressedSinceRead & 0x100u) data.analog_buttons_l2 = std::max(data.analog_buttons_l2, slot.pressedAnalogL2);
@@ -287,7 +287,7 @@ int Pad::Read(PadData* data, int num, int port) {
     const std::uint64_t now = sceKernelGetProcessTime();
     const auto injected = port == 0 ? InjectedInput(now) : Pad::InputCommandFile::Input{};
     if (slot.queue.empty()) {
-        data[0] = BuildData(slot, slot.state, slot.timestamp, now, injected, port);
+        data[0] = BuildData(slot, slot.state, now, now, injected, port);
         return 1;
     }
     int count = 0;
