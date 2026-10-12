@@ -53,6 +53,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    def handle_expect_100(self):
+        if self.path != "/earlyresponse":
+            return super().handle_expect_100()
+        self.send_response(413)
+        self.send_header("Content-Length", "1")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.flush()
+        self.close_connection = True
+        time.sleep(0.5)
+        self.wfile.write(b"x")
+        return False
+
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)

@@ -157,6 +157,15 @@ int main(int argc, char** argv) {
     Require(sceHttpSetRequestContentLength(post, payload.size()) == 0, "content length update");
     Require(sceHttpSendRequest(post, payload.data(), payload.size()) == 0 && ReadBody(post) == payload, "POST echo");
     Require(sceHttpDeleteRequest(post) == 0, "POST cleanup");
+#ifdef __linux__
+    const auto earlyResponse = sceHttpCreateRequest(connection, 1, "/earlyresponse", payload.size());
+    Require(sceHttpAddRequestHeader(earlyResponse, "Expect", "100-continue", 0) == 0, "early response header setup");
+    Require(sceHttpSetSendTimeOut(earlyResponse, 0) == 0 && sceHttpSetRecvTimeOut(earlyResponse, 100000) == 0, "early response timeout setup");
+    Require(sceHttpSendRequest(earlyResponse, payload.data(), payload.size()) == 0, "early response send");
+    Require(sceHttpGetStatusCode(earlyResponse, &status) == 0 && status == 413, "early response status");
+    Require(sceHttpReadData(earlyResponse, small, sizeof(small)) == static_cast<int>(0x80431068u), "early response used upload deadline for receiving");
+    Require(sceHttpDeleteRequest(earlyResponse) == 0, "early response cleanup");
+#endif
     for (const auto code : {303, 307}) {
         const auto path = "/post" + std::to_string(code);
         const auto redirectedPost = sceHttpCreateRequest(connection, 1, path.c_str(), payload.size());
