@@ -183,3 +183,5 @@ The report also lists needed libraries that have no file in `--libs` or `--modul
 Exit codes: `0` nothing blocks loading, `1` there are `absent` imports or needed libraries without a file, `2` an input could not be read; the message names the file and the value.
 
 A module registry lists `nid`, `library` and `targetOffset` for each relocation against a function that no other bundled module exports, without the `#` suffix of the executable's NIDs.
+
+On Linux, a secondary executable selected through `sceSystemServiceLoadExec` needs a preconverted companion. For example, `/app0/next.bin` uses `app0/next.bin.guest.elf`. Convert each secondary executable separately and place its output or a symlink at that companion path. The runtime working directory and resource root remain unchanged. Stage any bundled modules loaded by guest path under that shared resource root as well. Executable replacement is not implemented on other hosts.
