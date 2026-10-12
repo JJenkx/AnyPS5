@@ -760,7 +760,14 @@ bool MovableBuffers() {
 }
 
 ResourceCache::Key DrawResourceKey(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint32_t colorAttachments, std::uint64_t indexAddress, std::uint64_t indexBytes, bool ranges) {
-    ResourceCache::Key key{0xffffffffu};
+    ResourceCache::Key key;
+    std::size_t reserve = 16u + shaders.size() * 8u;
+    for (const auto& shader : shaders) {
+        Require(shader.program != nullptr, "missing compiled shader");
+        reserve += shader.program->bindings.size() * 12u;
+    }
+    key.reserve(reserve);
+    key.push_back(0xffffffffu);
     const auto append64 = [&](std::uint64_t value) {
         key.push_back(static_cast<std::uint32_t>(value));
         key.push_back(static_cast<std::uint32_t>(value >> 32u));
@@ -768,9 +775,10 @@ ResourceCache::Key DrawResourceKey(const Context& context, std::span<const Compi
     append64(reinterpret_cast<std::uint64_t>(context.device));
     key.push_back(static_cast<std::uint32_t>(shaders.size()));
     for (const auto& shader : shaders) {
-        const auto part = ShaderResources::ContentKey(shader, true, MovableBuffers());
-        key.push_back(static_cast<std::uint32_t>(part.size()));
-        key.insert(key.end(), part.begin(), part.end());
+        const auto length = key.size();
+        key.push_back(0);
+        ShaderResources::AppendContentKey(key, shader, true, MovableBuffers());
+        key[length] = static_cast<std::uint32_t>(key.size() - length - 1u);
     }
     key.push_back(colorAttachments);
     if (ranges) {

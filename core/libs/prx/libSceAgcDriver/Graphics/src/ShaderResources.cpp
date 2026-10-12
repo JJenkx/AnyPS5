@@ -1812,8 +1812,12 @@ std::vector<std::uint32_t> ShaderResources::ContentKey(const CompiledShader& sha
     Require(shader.program != nullptr, "missing compiled shader");
     std::vector<std::uint32_t> key;
     key.reserve(8u + shader.program->bindings.size() * 12u);
-    VisitContentKey(shader, dataWords, movableBuffers, [&](std::uint32_t word) { key.push_back(word); });
+    AppendContentKey(key, shader, dataWords, movableBuffers);
     return key;
+}
+
+void ShaderResources::AppendContentKey(std::vector<std::uint32_t>& key, const CompiledShader& shader, bool dataWords, bool movableBuffers) {
+    VisitContentKey(shader, dataWords, movableBuffers, [&](std::uint32_t word) { key.push_back(word); });
 }
 
 bool MatchesContentKey(const CompiledShader& shader, std::span<const std::uint32_t> key) {
