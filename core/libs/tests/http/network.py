@@ -79,6 +79,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.close_connection = True
             elif self.path == "/redirect":
                 self.response(302, b"", [("Location", "/final")])
+            elif self.path in ("/emptyredirect", "/blankredirect"):
+                self.response(302, b"no destination", [("Location", "" if self.path == "/emptyredirect" else " \t ")])
             elif self.path == "/headers":
                 body = "|".join([self.headers.get("X-Inherited", ""), ",".join(self.headers.get_all("X-Value", [])), self.headers.get("User-Agent", "")])
                 self.response(200, body.encode())
