@@ -162,6 +162,23 @@ void stateTests() {
     Require(initial.userConfig.at(0x24b) == 0, "queue reset must disable primitive restart");
     auto queue = makeState();
     auto state = AgcDriver::Graphics::DecodeState(queue);
+    {
+        auto lines = queue;
+        lines.userConfig[0x242] = 3;
+        lines.context[0x1b3] = 2;
+        lines.context[0x1b4] = 2;
+        Require(AgcDriver::Graphics::DecodeState(lines).topology == VK_PRIMITIVE_TOPOLOGY_LINE_STRIP, "connected lines were not decoded as a strip");
+        lines.userConfig[0x24b] = 1;
+        lines.context[0x103] = 0xffffffffu;
+        Require(AgcDriver::Graphics::DrawRejection(lines, true).empty(), "indexed line strip restart was rejected");
+        Require(AgcDriver::Graphics::DecodeState(lines).primitiveRestart, "line strip lost primitive restart");
+        lines.context[0x103] = 5;
+        Require(AgcDriver::Graphics::DrawRejection(lines, true).find("all ones") != std::string::npos, "line strip accepted a custom restart index");
+        lines.context[0x205] |= 0x3800u;
+        expectFailure([&] { AgcDriver::Graphics::DecodeState(lines); }, "nonstandard rasterization");
+        lines.userConfig[0x242] = 4;
+        (void)AgcDriver::Graphics::DecodeState(lines);
+    }
     Require(state.color.address == reinterpret_cast<std::uintptr_t>(colorMemory.data()) && state.color.bytes == colorMemory.size(), "render-target address or size changed");
     Require(state.viewport.y == 4 && state.viewport.height == -4, "negative viewport height was lost");
     Require(state.color.format == VK_FORMAT_R8G8B8A8_UNORM, "RGBA format changed");
