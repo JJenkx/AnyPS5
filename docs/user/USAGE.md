@@ -69,6 +69,14 @@ The `--skip-sce-module`, `--exclude-sce-module <file>`, `--skip-syscall-check`, 
 
 `--trap-sdk-syscall-stubs` is also for debugging. It preserves a runtime failure if a syscall wrapper is called; it does not implement FreeBSD syscalls or make these applications generally safe to run.
 
+## HTTP networking
+
+On Windows, `APS5_HTTP_NETWORK=1` enables experimental host HTTP/HTTPS for `libSceHttp`. Set the environment variable before starting the title. An unset variable or `0` keeps the offline backend; `1` on Linux or macOS throws. `libSceHttp2` remains offline.
+
+The backend supports blocking requests, binary bodies, response headers and status, chunked responses, optional GZIP decoding, redirects, timeouts and cancellation. HTTPS uses Windows certificate trust and checks certificates by default. Disable automatic redirects before sending Authorization, Proxy-Authorization, Cookie or other sensitive custom headers; credential headers with automatic redirects throw.
+
+With the host backend enabled, certificate-loading calls, epoll calls, enabling nonblocking requests and registering a nonnull request-status callback throw. Titles that load custom certificates during initialization may stop before their first request. Automatic proxy configuration, cookies, authentication, other guest callbacks, explicit TLS versions and chunked uploads also throw when requested. Console behavior and title compatibility remain unverified; see [technical debt](../dev/debt/libSceHttp.md).
+
 ## Runtime layout
 
 Paths are relative to the output executable:
