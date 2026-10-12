@@ -3997,7 +3997,6 @@ void StorageTexture::writeBackLayers(const std::vector<bool>& layers) {
     // bypasses the per-packet collect memo (a Refresh collect earlier in the same packet would
     // satisfy it); the unselected layers keep their own generations and are collected by their
     // own refreshes. One tracker lock then reads the span's stamps against the layers' generations.
-    GuestMemory::CollectWritesUncached(firstStored, static_cast<std::size_t>(lastStored - firstStored));
     std::vector<std::uint64_t> generations(spanBlocks, 0);
     for (std::uint32_t layer = 0; layer < trackedLayers; ++layer) {
         if (!layers[layer]) continue;
@@ -4005,31 +4004,39 @@ void StorageTexture::writeBackLayers(const std::vector<bool>& layers) {
         for (auto at = layerBegin(layer) & ~(block - 1); at < end; at += block) generations[static_cast<std::size_t>((at - spanBegin) / block)] = layerGeneration[layer];
     }
     std::vector<std::uint8_t> changedBlocks(spanBlocks);
-    const bool tracked = GuestMemory::ChangedBlocks(firstStored, static_cast<std::size_t>(lastStored - firstStored), generations, changedBlocks);
-    const bool compared = !tracked && compareUntracked(firstStored, static_cast<std::size_t>(lastStored - firstStored), changedBlocks);
-    for (std::uint32_t layer = 0; layer < trackedLayers; ++layer) {
-        if (!layers[layer]) continue;
-        const auto begin = layerBegin(layer);
-        const auto end = begin + layerBytes(layer);
-        if (!compared && (!tracked || layerGeneration[layer] == 0)) {
-            keep.emplace_back(begin, end);
-            continue;
-        }
-        for (auto at = begin & ~(block - 1); at < end; at += block) {
-            const auto from = std::max(at, begin);
-            const auto to = std::min(at + block, end);
-            if (from >= to) continue;
-            const bool edge = from != at || to != at + block;
-            if (changedBlocks[static_cast<std::size_t>((at - spanBegin) / block)] == GuestMemory::BlockWritten && (compared || !edge || GuestMemory::StoredOver(from, static_cast<std::size_t>(to - from), layerGeneration[layer])) && !unchangedSinceBaseline(from, to)) {
-                skippedAny = true;
-                skippedLayer[layer] = true;
-                ++skipped;
+    const auto selectRanges = [&] {
+        keep.clear();
+        std::fill(skippedLayer.begin(), skippedLayer.end(), false);
+        skippedAny = false;
+        skipped = 0;
+        GuestMemory::CollectWritesUncached(firstStored, static_cast<std::size_t>(lastStored - firstStored));
+        const bool tracked = GuestMemory::ChangedBlocks(firstStored, static_cast<std::size_t>(lastStored - firstStored), generations, changedBlocks);
+        const bool compared = !tracked && compareUntracked(firstStored, static_cast<std::size_t>(lastStored - firstStored), changedBlocks);
+        for (std::uint32_t layer = 0; layer < trackedLayers; ++layer) {
+            if (!layers[layer]) continue;
+            const auto begin = layerBegin(layer);
+            const auto end = begin + layerBytes(layer);
+            if (!compared && (!tracked || layerGeneration[layer] == 0)) {
+                keep.emplace_back(begin, end);
                 continue;
             }
-            if (!keep.empty() && keep.back().second == from) keep.back().second = to;
-            else keep.emplace_back(from, to);
+            for (auto at = begin & ~(block - 1); at < end; at += block) {
+                const auto from = std::max(at, begin);
+                const auto to = std::min(at + block, end);
+                if (from >= to) continue;
+                const bool edge = from != at || to != at + block;
+                if (changedBlocks[static_cast<std::size_t>((at - spanBegin) / block)] == GuestMemory::BlockWritten && (compared || !edge || GuestMemory::StoredOver(from, static_cast<std::size_t>(to - from), layerGeneration[layer])) && !unchangedSinceBaseline(from, to)) {
+                    skippedAny = true;
+                    skippedLayer[layer] = true;
+                    ++skipped;
+                    continue;
+                }
+                if (!keep.empty() && keep.back().second == from) keep.back().second = to;
+                else keep.emplace_back(from, to);
+            }
         }
-    }
+    };
+    selectRanges();
     // Debug aid: APS5_TRACE_FLUSH also names the blocks a write-back leaves to the CPU.
     static const bool traceKept = std::getenv("APS5_TRACE_FLUSH") != nullptr;
     if (traceKept && skippedAny) {
@@ -4040,7 +4047,7 @@ void StorageTexture::writeBackLayers(const std::vector<bool>& layers) {
     // its stamps cover.
     const auto firstBlock = firstStored / block;
     const auto lastBlock = (lastStored - 1) / block;
-    const auto adjacent = adjacentPendingUnchanged(firstBlock, lastBlock);
+    auto adjacent = adjacentPendingUnchanged(firstBlock, lastBlock);
     // After the store: the stored layers are in sync at a fresh generation unless blocks were kept
     // for the CPU (then the layer is stale there, keeps its old generation and re-uploads at its
     // next use); their results are no longer pending either way. The collect covers the stored
@@ -4293,6 +4300,14 @@ void StorageTexture::writeBackLayers(const std::vector<bool>& layers) {
     }
     // Store only the kept ranges' blocks that changed, so concurrent CPU writes to untouched texels
     // survive; `original` follows for the stored layers (the others' guest bytes are unchanged).
+    selectRanges();
+    adjacent = adjacentPendingUnchanged(firstBlock, lastBlock);
+    if (keep.empty()) {
+        emptyWriteBacks.fetch_add(1, std::memory_order_relaxed);
+        originalValid = false;
+        settle(false);
+        return;
+    }
     const auto current = host.Bytes();
     for (const auto& [from, to] : keep) {
         const auto offset = static_cast<std::size_t>(from - descriptor.baseAddress);

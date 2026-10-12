@@ -492,9 +492,68 @@ void RunSharedImport(AgcDriver::VulkanDevice& device, std::uint8_t* block) {
 }
 #endif
 
+std::uint64_t reuseAddress = 0;
+std::size_t reuseOffset = 0;
+bool reuseInjected = false;
+bool reuseBoth = false;
+constexpr std::uint64_t ReuseMarker = 0x0123456789abcdefull;
+
+void ReuseDuringReadback(std::uint64_t address, std::size_t bytes) {
+    if (address != reuseAddress || bytes != BlockBytes || reuseInjected) return;
+    reuseInjected = true;
+    std::memcpy(reinterpret_cast<void*>(address + reuseOffset), &ReuseMarker, sizeof(ReuseMarker));
+    if (reuseBoth) std::memcpy(reinterpret_cast<void*>(address + SurfaceBytes), &ReuseMarker, sizeof(ReuseMarker));
 }
 
-int main() {
+void RunReadbackReuse(AgcDriver::VulkanDevice& device, bool late, std::size_t offset, bool both = false) {
+    GuestBlock block(true);
+    GuestBlock keys(true);
+    std::memset(block.Data(), 0x55, BlockBytes);
+    std::memset(keys.Data(), 0, 2 * KeyBytes);
+    auto descriptor = TextureDescriptor(block.Data(), keys.Data());
+    descriptor[2] = ((Side - 1u) >> 2u) | ((2 * Side - 1u) << 14u);
+    std::vector<std::uint32_t> data(16, 0);
+    std::copy(descriptor.begin(), descriptor.end(), data.begin() + 4);
+    std::vector<std::uint32_t> secondRow{0x7e0202ff, Side};
+    secondRow.insert(secondRow.end(), WriteCode.begin() + 1, WriteCode.end());
+    std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
+    Dispatch(device, WriteCode, data);
+    Dispatch(device, secondRow, data);
+    reuseAddress = AddressOf(block.Data());
+    reuseOffset = offset;
+    reuseBoth = both;
+    reuseInjected = false;
+    const auto image = StorageTexture::FindPending(reuseAddress, BlockBytes);
+    Require(image != nullptr && image->GuestBytes() == BlockBytes, "readback reuse: no two-block pending image");
+    Require(!image->GuestSnapshotValid(), "readback reuse: fast-clear unexpectedly captured guest bytes");
+    if (!late) ReuseDuringReadback(reuseAddress, BlockBytes);
+    struct GuardReset {
+        ~GuardReset() { AgcDriver::GuestMemory::SetReadGuard(nullptr); }
+    } guardReset;
+    AgcDriver::GuestMemory::SetReadGuard(&ReuseDuringReadback);
+    image->WriteBack();
+    AgcDriver::GuestMemory::SetReadGuard(nullptr);
+    StorageTexture::FlushPending(reuseAddress, BlockBytes, nullptr, "readback reuse");
+    device.WaitIdle();
+    Require(reuseInjected, "readback reuse: the CPU store did not run");
+    std::uint64_t observed = 0;
+    std::memcpy(&observed, block.Data() + offset, sizeof(observed));
+    Require(observed == ReuseMarker, "readback reuse: writeback overwrote newer CPU bytes");
+    const auto untouched = offset < SurfaceBytes ? SurfaceBytes : 0;
+    if (both) {
+        std::memcpy(&observed, block.Data() + SurfaceBytes, sizeof(observed));
+        Require(observed == ReuseMarker, "readback reuse: writeback overwrote the second reused block");
+    } else {
+        Require(Count(block.Data() + untouched, SurfaceBytes, 0xff) == Threads * 4u, "readback reuse: the unchanged block lost its GPU results");
+    }
+    Require(StorageTexture::FindPending(reuseAddress, BlockBytes) == nullptr, "readback reuse: discarded results remained pending");
+    Require(!image->Refresh(), "readback reuse: discarded image was treated as current");
+    Require(image->Refresh(), "readback reuse: refreshed image did not stabilize");
+}
+
+}
+
+int main(int argc, char** argv) {
     try {
         std::optional<GuestBlock> block;
         std::optional<GuestBlock> watched;
@@ -503,6 +562,17 @@ int main() {
         std::optional<GuestBlock> window;
         const auto device = OpenVulkanTestDevice();
         if (!device) return VulkanTestSkipped;
+        if (argc == 2 && std::string(argv[1]) == "--readback-reuse") {
+            if (!AgcDriver::GuestMemory::WriteWatched()) return VulkanTestSkipped;
+            for (auto offset : {std::size_t{0}, SurfaceBytes}) {
+                RunReadbackReuse(*device, false, offset);
+                RunReadbackReuse(*device, true, offset);
+            }
+            RunReadbackReuse(*device, false, 0, true);
+            RunReadbackReuse(*device, true, 0, true);
+            std::puts("CPU reuse during texture readback tests passed");
+            return 0;
+        }
         block.emplace(false);
         Run(*device, block->Data());
         untracked.emplace(false);

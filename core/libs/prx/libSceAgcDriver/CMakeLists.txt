@@ -1054,6 +1054,14 @@ if(BUILD_TESTING)
         endif()
     endforeach()
     set_tests_properties(agc_driver_direct_memory_transfers PROPERTIES TIMEOUT 30)
+    add_test(NAME agc_driver_texture_readback_reuse COMMAND agc_driver_dcc_keys_first_write_tests --readback-reuse)
+    set_tests_properties(agc_driver_texture_readback_reuse PROPERTIES
+            ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1;APS5_NO_HOST_IMPORT=1"
+            SKIP_RETURN_CODE 77 TIMEOUT 30 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    if(WIN32)
+        set_tests_properties(agc_driver_texture_readback_reuse PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_test(NAME agc_driver_emulated_color_compare_srgb_decode COMMAND agc_driver_emulated_color_compare_tests)
     set_tests_properties(agc_driver_emulated_color_compare_srgb_decode PROPERTIES
             ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1;APS5_SRGB_SHADER_DECODE=1"
