@@ -178,4 +178,6 @@ The report also lists needed libraries that have no file in `--libs` or `--modul
 
 Exit codes: `0` nothing blocks loading, `1` there are `absent` imports or needed libraries without a file, `2` an input could not be read; the message names the file and the value.
 
+ELF64 libraries without section headers are read through their program headers and dynamic tables. This path requires `DT_HASH` for the symbol count; GNU-hash-only images and extended symbol section indexes without section headers are rejected. Export names retain their `#` suffixes.
+
 A module registry lists `nid`, `library` and `targetOffset` for each relocation against a function that no other bundled module exports, without the `#` suffix of the executable's NIDs.

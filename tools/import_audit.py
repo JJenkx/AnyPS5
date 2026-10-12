@@ -44,13 +44,81 @@ def cstring(data, offset, limit, path, what, encoding="utf-8", errors="surrogate
         raise AuditError(f"{path}: {what} at 0x{offset:x} is not {encoding}: {error}") from error
 
 
+def elf_dynamic_exports(path, data, header):
+    program_offset, program_size, program_count = header[5], header[9], header[10]
+    if not program_offset or program_size != 56 or program_count in (0, 0xffff):
+        raise AuditError(f"{path}: sectionless ELF needs a program header table with 56-byte entries and a non-extended count")
+    take(data, program_offset, program_count * 56, path, "program header table")
+    segments = [unpack("<IIQQQQQQ", data, program_offset + index * 56, path, f"program header {index}") for index in range(program_count)]
+
+    def to_offset(address, size, what):
+        offsets = set()
+        for segment in segments:
+            kind, _, offset, virtual, _, file_size, memory_size, _ = segment
+            if kind != 1 or address < virtual or address - virtual + size > file_size:
+                continue
+            if file_size > memory_size:
+                raise AuditError(f"{path}: load segment file size exceeds its memory size")
+            result = offset + address - virtual
+            take(data, result, size, path, what)
+            offsets.add(result)
+        if len(offsets) != 1:
+            raise AuditError(f"{path}: {what} at virtual address 0x{address:x} with size {size} has no unique file-backed load mapping")
+        return offsets.pop()
+
+    dynamic = [segment for segment in segments if segment[0] == 2]
+    if len(dynamic) != 1 or not dynamic[0][5] or dynamic[0][5] % 16:
+        raise AuditError(f"{path}: sectionless ELF needs one complete dynamic table")
+    offset, size = dynamic[0][2], dynamic[0][5]
+    take(data, offset, size, path, "dynamic table")
+    if to_offset(dynamic[0][3], size, "dynamic table") != offset:
+        raise AuditError(f"{path}: dynamic table file offset disagrees with its load mapping")
+    tags = {}
+    required = {4: "DT_HASH", 5: "DT_STRTAB", 6: "DT_SYMTAB", 10: "DT_STRSZ", 11: "DT_SYMENT"}
+    for position in range(offset, offset + size, 16):
+        tag, value = unpack("<qQ", data, position, path, "dynamic entry")
+        if tag == 0:
+            break
+        if tag in required:
+            if tag in tags:
+                raise AuditError(f"{path}: duplicate {required[tag]} in dynamic table")
+            tags[tag] = value
+    else:
+        raise AuditError(f"{path}: dynamic table has no DT_NULL terminator")
+    for tag, name in required.items():
+        if tag not in tags:
+            raise AuditError(f"{path}: sectionless ELF export reading requires {name}")
+    if tags[11] != 24 or not tags[10]:
+        raise AuditError(f"{path}: invalid dynamic symbol entry size or empty string table")
+    hashes = to_offset(tags[4], 8, "dynamic hash header")
+    buckets, count = unpack("<II", data, hashes, path, "dynamic hash counts")
+    if not buckets or not count:
+        raise AuditError(f"{path}: dynamic hash table needs buckets and the null symbol")
+    to_offset(tags[4], (2 + buckets + count) * 4, "dynamic hash table")
+    strings = to_offset(tags[5], tags[10], "dynamic string table")
+    symbols = to_offset(tags[6], count * 24, "dynamic symbol table")
+    names = set()
+    for position in range(count):
+        name, info, other, index, _, _ = unpack("<IBBHQQ", data, symbols + position * 24, path, "dynamic symbol")
+        if index == 0xffff:
+            raise AuditError(f"{path}: extended symbol section indexes without a section table are not supported")
+        if name == 0 or index == 0 or info >> 4 not in (1, 2, 10) or other & 3 not in (0, 3):
+            continue
+        names.add(cstring(data, strings + name, strings + tags[10], path, "export name"))
+    return names
+
+
 def elf_exports(path, data):
     header = unpack("<16sHHIQQQIHHHHHH", data, 0, path, "ELF header")
     ident, section_offset, section_size, section_count = header[0], header[6], header[11], header[12]
-    if ident[4] != 2 or ident[5] != 1 or section_size != 64:
-        raise AuditError(f"{path}: only little-endian ELF64 with 64-byte section headers is supported (class {ident[4]}, data {ident[5]}, shentsize {section_size})")
+    if ident[4] != 2 or ident[5] != 1:
+        raise AuditError(f"{path}: only little-endian ELF64 is supported (class {ident[4]}, data {ident[5]})")
     if not section_offset:
-        raise AuditError(f"{path}: ELF exports without a section header table are not supported")
+        if section_count:
+            raise AuditError(f"{path}: nonzero section count without a section header table")
+        return elf_dynamic_exports(path, data, header)
+    if section_size != 64:
+        raise AuditError(f"{path}: expected 64-byte section headers, got {section_size}")
     if not section_count:
         section_count = unpack("<IIQQQQIIQQ", data, section_offset, path, "extended section count")[5]
     take(data, section_offset, section_count * 64, path, "section header table")
