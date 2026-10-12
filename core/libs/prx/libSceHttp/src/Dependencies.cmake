@@ -1,5 +1,7 @@
 enable_language(C)
 function(add_http_transport_dependencies)
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    set(CMAKE_POLICY_DEFAULT_CMP0126 NEW)
     set(ENABLE_TESTING OFF)
     set(ENABLE_PROGRAMS OFF)
     set(MBEDTLS_FATAL_WARNINGS OFF)
