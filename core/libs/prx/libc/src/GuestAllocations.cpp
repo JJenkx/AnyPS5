@@ -39,8 +39,8 @@ struct Registry {
 };
 
 Registry& registry() {
-    static Registry value;
-    return value;
+    static Registry* const value = new Registry;
+    return *value;
 }
 
 std::atomic<std::uint64_t> generation{1};

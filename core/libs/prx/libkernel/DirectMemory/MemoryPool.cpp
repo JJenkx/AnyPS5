@@ -8,8 +8,8 @@ static constexpr size_t NUM_PAGES = DIRECT_MEMORY_SIZE / PS5_PAGE_SIZE;
 
 struct PhysicalMemoryPool {
     static PhysicalMemoryPool& Instance() {
-        static PhysicalMemoryPool inst;
-        return inst;
+        static PhysicalMemoryPool* const inst = new PhysicalMemoryPool;
+        return *inst;
     }
 
     int Alloc(int64_t searchStart, int64_t searchEnd, size_t len, size_t alignment, int memoryType, int64_t* physOut) {
