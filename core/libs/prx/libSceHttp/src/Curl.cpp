@@ -46,7 +46,7 @@ public:
         std::unique_lock lock(mutex);
         wake.wait(lock, [&] { return ready || done || aborted.load(); });
         if (failure) std::rethrow_exception(failure);
-        return aborted.load() ? ERROR_HTTP_ABORTED : result;
+        return aborted.load() ? ERROR_HTTP_ABORTED : ready ? 0 : result;
     }
 
     int Read(void* data, std::size_t size) override {
@@ -54,7 +54,7 @@ public:
         wake.wait(lock, [&] { return !body.empty() || done || aborted.load(); });
         if (failure) std::rethrow_exception(failure);
         if (aborted.load()) return ERROR_HTTP_ABORTED;
-        if (result != 0) return result;
+        if (body.empty() && result != 0) return result;
         const auto count = std::min(size, body.size());
         for (std::size_t i = 0; i < count; ++i) {
             static_cast<char*>(data)[i] = body.front();
