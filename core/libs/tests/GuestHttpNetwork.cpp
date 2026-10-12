@@ -179,6 +179,14 @@ int main(int argc, char** argv) {
     const auto redirect = Get(connection, "/redirect");
     Require(sceHttpGetStatusCode(redirect, &status) == 0 && status == 200 && ReadBody(redirect) == "final", "redirect following");
     Require(sceHttpDeleteRequest(redirect) == 0, "redirect cleanup");
+#ifdef __linux__
+    for (const auto* path : {"/emptyredirect", "/blankredirect"}) {
+        const auto emptyRedirect = Get(connection, path);
+        Require(sceHttpGetStatusCode(emptyRedirect, &status) == 0 && status == 302, "empty redirect changed status");
+        Require(ReadBody(emptyRedirect) == "no destination", "empty redirect discarded response body");
+        Require(sceHttpDeleteRequest(emptyRedirect) == 0, "empty redirect cleanup");
+    }
+#endif
     const auto noRedirect = sceHttpCreateRequest(connection, 0, "/redirect", 0);
     Require(sceHttpSetAutoRedirect(noRedirect, 0) == 0 && sceHttpSendRequest(noRedirect, nullptr, 0) == 0, "redirect-disabled send");
     Require(sceHttpGetStatusCode(noRedirect, &status) == 0 && status == 302 && ReadBody(noRedirect).empty(), "redirect-disabled response");
