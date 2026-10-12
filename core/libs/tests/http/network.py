@@ -55,12 +55,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
-        self.response(200, self.rfile.read(length))
+        body = self.rfile.read(length)
+        if self.path in ("/post303", "/post307"):
+            self.response(303 if self.path == "/post303" else 307, b"", [("Location", "/redirect-report")])
+        elif self.path == "/redirect-report":
+            self.response(200, b"POST:" + body)
+        else:
+            self.response(200, body)
 
     def do_GET(self):
         try:
             if self.path == "/binary":
                 self.response(200, b"abc\0tail", [("X-Test", "local")])
+            elif self.path == "/redirect-report":
+                self.response(200, b"GET")
             elif self.path == "/stream":
                 self.response(200, bytes(range(256)) * 512)
             elif self.path == "/final":

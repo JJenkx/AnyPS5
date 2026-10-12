@@ -186,7 +186,7 @@ private:
             option(easy, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(payload.size()));
         }
         option(easy, CURLOPT_HTTPHEADER, cleanup.list);
-        option(easy, CURLOPT_FOLLOWLOCATION, settings.redirect ? 1L : 0L);
+        option(easy, CURLOPT_FOLLOWLOCATION, settings.redirect ? CURLFOLLOW_OBEYCODE : 0L);
         option(easy, CURLOPT_MAXREDIRS, 20L);
         option(easy, CURLOPT_FORBID_REUSE, settings.keepAlive ? 0L : 1L);
         option(easy, CURLOPT_ACCEPT_ENCODING, settings.gzip ? "gzip" : nullptr);
