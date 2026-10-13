@@ -220,6 +220,19 @@ int main(int argc, char** argv) {
     }
     Require(tlsResult == 0 && ReadBody(tls) == "final", "HTTPS transfer");
     Require(sceHttpDeleteRequest(tls) == 0, "HTTPS cleanup");
+#ifdef __linux__
+    for (const auto* scheme : {"https", "HTTPS", "HtTpS"}) {
+        const auto base = std::string(scheme) + std::string(argv[2]).substr(5);
+        const auto mixedTls = sceHttpCreateRequestWithURL(tlsConnection, 0, (base + "/final").c_str(), 0);
+        Require(sceHttpsDisableOption(mixedTls, 0x20) == 0, "mixed-case HTTPS certificate setup");
+        Require(sceHttpSendRequest(mixedTls, nullptr, 0) == 0 && ReadBody(mixedTls) == "final", "mixed-case HTTPS transfer");
+        Require(sceHttpDeleteRequest(mixedTls) == 0, "mixed-case HTTPS cleanup");
+        const auto downgrade = sceHttpCreateRequestWithURL(tlsConnection, 0, (base + "/downgrade").c_str(), 0);
+        Require(sceHttpsDisableOption(downgrade, 0x20) == 0, "HTTPS downgrade certificate setup");
+        Require(sceHttpSendRequest(downgrade, nullptr, 0) < 0, "HTTPS scheme casing allowed a plaintext redirect");
+        Require(sceHttpDeleteRequest(downgrade) == 0, "HTTPS downgrade cleanup");
+    }
+#endif
 
     const auto timeout = sceHttpCreateRequest(connection, 0, "/slowheaders/timeout", 0);
     Require(sceHttpSetRecvTimeOut(timeout, 100000) == 0, "receive timeout");
