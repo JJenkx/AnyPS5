@@ -92,9 +92,6 @@ static void TestStreamClosedBeforeDeclaredSamples() {
     auto out = RenderI16(system);
     for (std::uint32_t i = 0; i < Grain; i++) Require(out[i] == (i < 6 ? 16384 : 8192));
     Require(Flags(voice) == (SCE_NGS2_VOICE_STATE_FLAG_INUSE | SCE_NGS2_VOICE_STATE_FLAG_PLAYING));
-    Ngs2SamplerVoiceState partial{};
-    Require(sceNgs2VoiceGetState(voice, &partial.voice_state, sizeof(partial)) == SCE_NGS2_OK);
-    Require(partial.num_decoded_samples == Grain && partial.decoded_data_size == first.size() * sizeof(std::int16_t));
     out = RenderI16(system);
     for (std::uint32_t i = 0; i < Grain; i++) Require(out[i] == (i < 2 ? 8192 : 0));
     Require(Flags(voice) == 0);

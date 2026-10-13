@@ -48,32 +48,16 @@ static void ReadFrames(Ngs2Voice& voice, float* current, float* next) {
     else std::memcpy(next, current, voice.channels * sizeof(float));
 }
 
-static void CompletePcmInput(Ngs2Voice& voice, Ngs2Block& block, bool ended) {
-    std::uint64_t frames = ended ? block.cursor : 0;
-    if (block.streaming && !ended) {
-        for (const auto& piece : block.pieces) {
-            const auto end = piece.firstFrame + piece.frames;
-            if (block.cursor >= end) frames = std::max(frames, end);
-        }
-    }
-    const auto bytes = frames * voice.channels * sizeof(std::int16_t);
-    if (bytes > block.dataCursor) {
-        voice.decodedBytes += bytes - block.dataCursor;
-        block.dataCursor = bytes;
-    }
-}
-
 bool Ngs2FinishBlock(Ngs2Voice& voice) {
     auto& block = voice.blocks.front();
-    if (voice.waveformType == SCE_NGS2_WAVEFORM_TYPE_PCM_I16L) CompletePcmInput(voice, block, true);
     const bool repeat = block.info.num_repeats != 0;
     if (repeat) {
         if (block.info.num_repeats != UINT32_MAX) block.info.num_repeats--;
         block.numRepeated++;
         block.cursor = 0;
-        block.dataCursor = 0;
         block.started = false;
         if (voice.waveformType == SCE_NGS2_WAVEFORM_TYPE_ATRAC9) {
+            block.dataCursor = 0;
             Ngs2RestartAtrac9(voice);
         }
     }
@@ -106,7 +90,7 @@ static void Advance(Ngs2Voice& voice, std::uint64_t frames) {
         const auto step = std::min<std::uint64_t>(frames, limit - block.cursor);
         block.cursor += static_cast<std::uint32_t>(step);
         voice.decodedSamples += step;
-        if (voice.waveformType == SCE_NGS2_WAVEFORM_TYPE_PCM_I16L && block.streaming) CompletePcmInput(voice, block, false);
+        if (voice.waveformType != SCE_NGS2_WAVEFORM_TYPE_ATRAC9) voice.decodedBytes += step * voice.channels * sizeof(std::int16_t);
         frames -= step;
         if (block.streaming) {
             while (block.pieces.size() > 1 && block.cursor >= block.pieces.front().firstFrame + block.pieces.front().frames) block.pieces.erase(block.pieces.begin());

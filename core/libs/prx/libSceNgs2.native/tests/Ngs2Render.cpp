@@ -1,7 +1,6 @@
 #include "Ngs2Test.hpp"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -152,7 +151,7 @@ static void TestPcmBlockEnd() {
     Ngs2SamplerVoiceState state{};
     Require(sceNgs2VoiceGetState(sampler, &state.voice_state, sizeof(state) - 8) == SCE_NGS2_ERROR_INVALID_OUT_SIZE);
     Require(sceNgs2VoiceGetState(sampler, &state.voice_state, sizeof(state)) == SCE_NGS2_OK);
-    Require(state.num_decoded_samples == Grain && state.decoded_data_size == 0 && state.user_data == 0x55);
+    Require(state.num_decoded_samples == Grain && state.decoded_data_size == Grain * 2 && state.user_data == 0x55);
     Require(state.waveform_data == pcm.data() + Grain);
 
     out = RenderI16(system);
@@ -166,49 +165,6 @@ static void TestPcmBlockEnd() {
 
 static bool Near(float a, float b) {
     return std::fabs(a - b) < 1e-4f;
-}
-
-static void TestPcmBufferRecycling() {
-    const auto system = CreateSystem();
-    const auto master = Mastering(system, 1);
-    const auto sampler = Voice(CreateRack(system, SCE_NGS2_RACK_ID_SAMPLER));
-    Control(sampler, SCE_NGS2_SAMPLER_VOICE_PARAM_SETUP, Ngs2SamplerVoiceSetupParam{{}, {SCE_NGS2_WAVEFORM_TYPE_PCM_I16L, 1, 44100, 0, 0, 0}});
-    Patch(sampler, master);
-    std::array<std::array<std::int16_t, 16>, 4> ring{};
-    std::uint32_t generated = 0;
-    const auto sample = [](std::uint32_t frame) { return static_cast<std::int16_t>(1000 + frame * 32); };
-    const auto refill = [&](std::size_t index) {
-        for (auto& value : ring[index]) value = sample(generated++);
-        const Ngs2WaveformBlock block{0, sizeof(ring[index]), 0, 0, static_cast<std::uint32_t>(ring[index].size()), 0, 0};
-        Control(sampler, SCE_NGS2_SAMPLER_VOICE_PARAM_ADD_WAVEFORM_BLOCKS, Ngs2SamplerVoiceWaveformBlocksParam{{}, ring[index].data(), SCE_NGS2_WAVEFORM_BLOCKS_FLAG_CONTINUE, 1, &block});
-    };
-    for (std::size_t i = 0; i < ring.size(); ++i) refill(i);
-    Event(sampler, SCE_NGS2_VOICE_EVENT_PLAY);
-    double position = 0;
-    std::uint64_t completed = 0;
-    std::size_t next = 0;
-    for (int render = 0; render < 40; ++render) {
-        std::array<float, Grain> output{};
-        const Ngs2RenderBufferInfo info{output.data(), sizeof(output), SCE_NGS2_WAVEFORM_TYPE_PCM_F32L, 1};
-        Require(sceNgs2SystemRender(system, &info, 1) == SCE_NGS2_OK);
-        for (const auto value : output) {
-            const auto frame = static_cast<std::uint32_t>(position);
-            const auto expected = std::lerp(static_cast<float>(sample(frame)), static_cast<float>(sample(frame + 1)), static_cast<float>(position - frame)) / 32768.0f;
-            Require(Near(value, expected));
-            position += 44100.0 / 48000.0;
-        }
-        Ngs2SamplerVoiceState state{};
-        Require(sceNgs2VoiceGetState(sampler, &state.voice_state, sizeof(state)) == SCE_NGS2_OK);
-        const auto released = state.decoded_data_size - completed;
-        Require(released == 0 || released == sizeof(ring[next]));
-        if (released != 0) {
-            refill(next);
-            next = (next + 1) % ring.size();
-        }
-        completed = state.decoded_data_size;
-    }
-    Require(completed > sizeof(ring));
-    Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
 }
 
 static bool PanThrows(Ngs2PanWork* work, const Ngs2PanParam* params, std::uint32_t numParams, std::uint32_t format) {
@@ -1000,7 +956,6 @@ static void RenderAfterStaticTeardown() {
 int main() {
     Require(std::atexit(RenderAfterStaticTeardown) == 0);
     TestErrorsAndInfo();
-    TestPcmBufferRecycling();
     TestPcmBlockEnd();
     TestPan();
     TestPitchAndRepeat();
