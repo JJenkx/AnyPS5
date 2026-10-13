@@ -9,7 +9,7 @@ body:
 
         - Run the scene once and restart the title, so the shader and pipeline caches are warm.
         - Use the same scene, window, resolution and settings for every capture you compare.
-        - Set no other `APS5_TRACE_*` or `APS5_PROFILE_*` switch and do not redirect the log; they cost time.
+        - Set no other `APS5_TRACE_*` or `APS5_PROFILE_*` switch except the optional `APS5_TRACE_CAPACITY` buffer setting, and do not redirect the log; additional profilers cost time.
         - Capture the base and the change on the same machine in the same session.
 
         A trace holds timings, scope and thread names and counts, no game data. The summary line names the GPU, driver and OS.
@@ -60,6 +60,6 @@ body:
       options:
         - label: The caches were warm (the scene ran once and the title was restarted)
           required: true
-        - label: No other APS5_TRACE_* or APS5_PROFILE_* switch was set and the log was not redirected
+        - label: No other APS5_TRACE_* or APS5_PROFILE_* switch except APS5_TRACE_CAPACITY was set and the log was not redirected
           required: true
         - label: Captures compared here come from the same machine, scene and settings

@@ -60,6 +60,25 @@ void BufferCap() {
     Check(snapshot.totals.size() == 1 && snapshot.totals[0].count == 3 && snapshot.totals[0].length == microseconds(90), "totals missed a slice past the cap");
 }
 
+void ConfiguredBufferCap() {
+    Check(TraceThread::ParseCapacity(nullptr) == TraceThread::DefaultCapacity, "the default event capacity changed");
+    Check(TraceThread::ParseCapacity("1") == 1 && TraceThread::ParseCapacity("4194304") == 4194304, "valid capacity bounds were rejected");
+    for (const char* text : {"", "0", "-1", "+1", " 16", "16 ", "1.5", "4194305", "99999999999999999999999999999"}) {
+        bool rejected = false;
+        try { TraceThread::ParseCapacity(text); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        Check(rejected, "an invalid event capacity was accepted");
+    }
+    std::atomic<std::uint64_t> presents{1};
+    TraceThread thread("queue worker 0x0", presents, TraceThread::ParseCapacity("16"));
+    const auto origin = Clock::now();
+    for (int index = 0; index < 16; ++index)
+        thread.Add("Driver.Packet", nullptr, origin + milliseconds(index), origin + milliseconds(index) + microseconds(30));
+    Check(thread.Collect().slices.size() == 16 && !thread.Collect().dropped, "the configured buffer dropped events before its limit");
+    thread.Add("Driver.Packet", nullptr, origin + milliseconds(16), origin + milliseconds(16) + microseconds(30));
+    Check(thread.Collect().slices.size() == 16 && thread.Collect().dropped, "the configured buffer did not enforce its limit");
+}
+
 void FoldShortSlices() {
     std::atomic<std::uint64_t> presents{1};
     TraceThread thread("queue worker 0x0", presents, 16);
@@ -205,6 +224,7 @@ int main() {
         WindowBySeconds();
         WindowRejects();
         BufferCap();
+        ConfiguredBufferCap();
         FoldShortSlices();
         EscapeStrings();
         EventsShape();

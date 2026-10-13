@@ -90,6 +90,17 @@ public:
     static constexpr std::size_t DefaultCapacity = 262144;
     static constexpr Clock::duration MinimumSlice = std::chrono::microseconds(20);
 
+    static std::size_t ParseCapacity(const char* text) {
+        if (text == nullptr) return DefaultCapacity;
+        const std::string_view value(text);
+        std::size_t capacity = 0;
+        const auto end = value.data() + value.size();
+        const auto [last, error] = std::from_chars(value.data(), end, capacity);
+        if (value.empty() || error != std::errc{} || last != end || capacity == 0 || capacity > 4194304)
+            throw std::invalid_argument("APS5_TRACE_CAPACITY must be an event count from 1 to 4194304");
+        return capacity;
+    }
+
     struct Slice {
         const char* scope;
         const char* stage;
@@ -400,7 +411,13 @@ public:
         return configured;
     }
 
-    static void BindThread(const char* name, std::size_t capacity = TraceThread::DefaultCapacity);
+    static std::size_t Capacity() {
+        if (!Configured()) return TraceThread::DefaultCapacity;
+        static const std::size_t capacity = TraceThread::ParseCapacity(std::getenv("APS5_TRACE_CAPACITY"));
+        return capacity;
+    }
+
+    static void BindThread(const char* name, std::size_t capacity = Capacity());
     static void Present(std::uint32_t width, std::uint32_t height, const VulkanDevice* device);
 
     static void GpuRange(const char* name, double beginNs, double endNs) {
