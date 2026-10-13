@@ -87,6 +87,7 @@ private:
         void SetBlock(std::size_t index) { bits[index / 64u] |= ((std::uint64_t{1} << BlockWords) - 1u) << (index % 64u / BlockWords * BlockWords); }
         void Reset() { bits.fill(0u); }
         [[nodiscard]] bool None() const;
+        [[nodiscard]] bool All() const;
         template<typename TRun>
         void ForEachRun(TRun&& run) const;
 

@@ -117,6 +117,10 @@ bool ShaderMemory::WordMask::None() const {
     return std::all_of(bits.begin(), bits.end(), [](std::uint64_t word) { return word == 0u; });
 }
 
+bool ShaderMemory::WordMask::All() const {
+    return std::all_of(bits.begin(), bits.end(), [](std::uint64_t word) { return word == ~std::uint64_t{0}; });
+}
+
 template<typename TRun>
 void ShaderMemory::WordMask::ForEachRun(TRun&& run) const {
     constexpr std::size_t words = PageWords / 64u;
@@ -287,7 +291,7 @@ bool ShaderMemory::accessible(void* context, std::uint64_t address, std::uint64_
         const auto base = address & ~static_cast<std::uint64_t>(PageBytes - 1);
         const auto pageEnd = std::min<std::uint64_t>(base + PageBytes, end);
         const auto& page = self.page(base);
-        if (!page.wordwise && !page.valid.all() && !GuestMemory::Accessible(reinterpret_cast<const void*>(address), static_cast<std::size_t>(pageEnd - address))) return false;
+        if (!page.wordwise && !page.valid.All() && !GuestMemory::Accessible(reinterpret_cast<const void*>(address), static_cast<std::size_t>(pageEnd - address))) return false;
         address = pageEnd;
     }
     return true;
