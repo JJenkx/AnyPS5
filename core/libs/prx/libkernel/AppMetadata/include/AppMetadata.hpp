@@ -24,6 +24,7 @@ bool HasAppIcon_nid_postfix();
 AppIconData GetAppIconData_nid_postfix();
 std::uint64_t GetAppDownloadDataSizeMiB_nid_postfix();
 std::uint32_t GetAppAttribute3_nid_no_patch();
+std::uint32_t GetAppCategoryType_nid_no_patch();
 std::int32_t GetAppUserDefinedParam_nid_postfix(std::uint32_t index);
 
 }

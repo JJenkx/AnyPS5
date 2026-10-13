@@ -96,6 +96,15 @@ std::uint32_t GetAppAttribute3_nid_no_patch() {
     return g_attribute3;
 }
 
+std::uint32_t GetAppCategoryType_nid_no_patch() {
+    static const std::uint32_t category = [] {
+        const auto parsed = parseParamJson(ResolvePath_nid_no_patch(AppMetadataParamJsonGuestPath));
+        if (!parsed.applicationCategoryType) throw std::runtime_error("param.json applicationCategoryType is missing");
+        return *parsed.applicationCategoryType;
+    }();
+    return category;
+}
+
 std::int32_t GetAppUserDefinedParam_nid_postfix(std::uint32_t index) {
     if (index >= 4) throw std::out_of_range("user defined param index out of range");
     ensureTitleLoaded();

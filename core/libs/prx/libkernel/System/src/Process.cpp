@@ -262,6 +262,14 @@ int APS5_VABI sceKernelGetAppInfo(int pid, void* info) {
     return 0;
 }
 
+int APS5_VABI sceKernelGetAppCategoryType(int pid, std::uint32_t* category) {
+    if (pid != getpid_nid_postfix()) return SCE_KERNEL_ERROR_EPERM;
+    if (category == nullptr) throw std::invalid_argument("sceKernelGetAppCategoryType: null output");
+    const auto value = GetAppCategoryType_nid_no_patch();
+    std::memcpy(category, &value, sizeof(value));
+    return 0;
+}
+
 int APS5_VABI getuid_nid_postfix(void) {
     return 0;
 }
