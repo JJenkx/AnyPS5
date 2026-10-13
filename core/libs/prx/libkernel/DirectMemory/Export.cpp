@@ -134,6 +134,12 @@ int _mapSystemFlexible(void** addr, size_t len, int prot, int flags) {
 
 }
 
+void ForgetVirtualRangeNames(const void* addr, size_t len) {
+ const auto start = reinterpret_cast<uintptr_t>(addr);
+ std::lock_guard lock(g_rangeNameLock);
+ EraseRangeNames(start, start + len);
+}
+
 extern "C" {
 
 int APS5_VABI sceKernelAllocateDirectMemory(int64_t search_start, int64_t search_end, size_t len, size_t alignment, int memory_type, int64_t* phys_addr_out) {

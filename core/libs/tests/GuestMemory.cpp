@@ -64,6 +64,7 @@ int APS5_VABI sceKernelClearVirtualRangeName(const void*, std::uint64_t);
 int APS5_VABI sceKernelGetPageTableStats(int*, int*, int*, int*);
 int APS5_VABI sceKernelAllocateDirectMemory(std::int64_t, std::int64_t, std::size_t, std::size_t, int, std::int64_t*);
 int APS5_VABI sceKernelMapDirectMemory(void**, std::size_t, int, int, std::int64_t, std::size_t);
+int APS5_VABI sceKernelMapNamedDirectMemory(void**, std::size_t, int, int, std::int64_t, std::size_t, const char*);
 int APS5_VABI sceKernelEnableDmemAliasing();
 int APS5_VABI sceKernelReleaseDirectMemory(std::int64_t, std::size_t);
 int APS5_VABI sceKernelAvailableDirectMemorySize(std::int64_t, std::int64_t, std::size_t, std::int64_t*, std::size_t*);
@@ -98,6 +99,71 @@ static const char* NameAt(const void* address) {
     static VirtualQueryInfo info;
     Require(sceKernelVirtualQuery(address, 0, &info, sizeof(info)) == 0);
     return info.name;
+}
+
+static void CheckRangeNamesFollowMappingLifetime() {
+    constexpr std::size_t page = 0x4000;
+    void* mapped = nullptr;
+    Require(sceKernelMapNamedFlexibleMemory(&mapped, page * 3, 3, 0, "live mapping") == 0);
+    auto* bytes = static_cast<unsigned char*>(mapped);
+    Require(sceKernelMprotect(bytes + page, page, 1) == 0);
+    Require(std::strcmp(NameAt(bytes + page), "live mapping") == 0);
+    Require(sceKernelMunmap(bytes + page, page + 1) == SCE_KERNEL_ERROR_EINVAL);
+    Require(std::strcmp(NameAt(bytes + page), "live mapping") == 0);
+    Require(sceKernelMunmap(bytes + page, page) == 0);
+    void* middle = bytes + page;
+    Require(sceKernelMapFlexibleMemory(&middle, page, 3, 0x90) == 0 && middle == bytes + page);
+    Require(NameAt(middle)[0] == '\0');
+    Require(std::strcmp(NameAt(bytes), "live mapping") == 0);
+    Require(std::strcmp(NameAt(bytes + page * 2), "live mapping") == 0);
+    VirtualQueryInfo info{};
+    Require(sceKernelVirtualQuery(middle, 0, &info, sizeof(info)) == 0);
+    Require(info.start == reinterpret_cast<std::uintptr_t>(middle) && info.end == info.start + page);
+    // A fixed replacement creates new memory, while protection changes keep the old label.
+    void* replacement = bytes;
+    Require(sceKernelMapFlexibleMemory(&replacement, page, 3, 0x90) == SCE_KERNEL_ERROR_ENOMEM);
+    Require(std::strcmp(NameAt(bytes), "live mapping") == 0);
+    Require(sceKernelMapFlexibleMemory(&replacement, page, 3, 0x10) == 0 && replacement == bytes);
+    Require(NameAt(bytes)[0] == '\0');
+    Require(std::strcmp(NameAt(bytes + page * 2), "live mapping") == 0);
+    Require(sceKernelMapNamedFlexibleMemory(&replacement, page, 3, 0x10, "replacement") == 0);
+    Require(std::strcmp(NameAt(bytes), "replacement") == 0);
+    Require(sceKernelMunmap(mapped, page * 3) == 0);
+    Require(sceKernelMapFlexibleMemory(&mapped, page * 3, 3, 0x90) == 0 && mapped == bytes);
+    Require(NameAt(mapped)[0] == '\0');
+    Require(sceKernelVirtualQuery(mapped, 0, &info, sizeof(info)) == 0);
+    Require(info.start == reinterpret_cast<std::uintptr_t>(mapped) && info.end == info.start + page * 3);
+    Require(sceKernelMunmap(mapped, page * 3) == 0);
+
+    // POSIX munmap rounds its length and must erase labels through the same backend.
+    mapped = nullptr;
+    Require(sceKernelMapNamedFlexibleMemory(&mapped, page * 2, 3, 0, "POSIX mapping") == 0);
+    bytes = static_cast<unsigned char*>(mapped);
+    Require(munmap_nid_postfix(mapped, 1) == 0);
+    replacement = bytes;
+    Require(sceKernelMapFlexibleMemory(&replacement, page, 3, 0x90) == 0 && replacement == bytes);
+    Require(NameAt(replacement)[0] == '\0');
+    Require(std::strcmp(NameAt(bytes + page), "POSIX mapping") == 0);
+    Require(sceKernelMunmap(mapped, page * 2) == 0);
+
+    // Releasing physical pages also removes labels from every virtual alias of those pages.
+    std::int64_t physical = 0;
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, page * 3, 0, 0, &physical) == 0);
+    void* views[2] = {};
+    for (auto& view : views)
+        Require(sceKernelMapNamedDirectMemory(&view, page * 3, 3, 0, physical, 0, "direct alias") == 0);
+    Require(sceKernelReleaseDirectMemory(physical + page, page) == 0);
+    for (auto view : views) {
+        auto* base = static_cast<unsigned char*>(view);
+        middle = base + page;
+        Require(sceKernelMapFlexibleMemory(&middle, page, 3, 0x90) == 0 && middle == base + page);
+        Require(NameAt(middle)[0] == '\0');
+        Require(std::strcmp(NameAt(base), "direct alias") == 0);
+        Require(std::strcmp(NameAt(base + page * 2), "direct alias") == 0);
+        Require(sceKernelMunmap(middle, page) == 0);
+    }
+    Require(sceKernelReleaseDirectMemory(physical, page) == 0);
+    Require(sceKernelReleaseDirectMemory(physical + page * 2, page) == 0);
 }
 
 static void CheckVirtualQueryWireLayout() {
@@ -2182,6 +2248,7 @@ int main() {
     CheckAvailableDirectMemoryIsLargestFreeBlock();
     CheckVirtualQuerySplitFlexibleRanges();
     CheckVirtualQueryForNonReadableGuestRange();
+    CheckRangeNamesFollowMappingLifetime();
     CheckVirtualQueryWireLayout();
     CheckReleaseFlexibleMemory();
     CheckFlexibleMappingIgnoresFlag8000();

@@ -600,6 +600,7 @@ bool RemapFixedIntoRegistered(GuestAllocations::Mutation& mutation, void* addr, 
 #endif
         }
     });
+    ForgetVirtualRangeNames(addr, len);
     if ((prot & GuestProtGpuReadWrite) != 0) mutation.NoteGpuMapping(addr, len);
     return true;
 }
@@ -836,6 +837,7 @@ void UnmapRegistered(GuestAllocations::Mutation& mutation, void* addr, size_t le
 #endif
     });
     EraseReservations(addr, len);
+    ForgetVirtualRangeNames(addr, len);
     RecordProtection(addr, len, -1);
 }
 

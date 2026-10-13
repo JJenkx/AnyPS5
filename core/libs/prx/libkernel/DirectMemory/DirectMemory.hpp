@@ -41,6 +41,7 @@ int DoMapShared(void** addr, size_t len, int prot, HostSharedMemory object);
 int DoMprotect(const void* addr, size_t len, int prot);
 int DoMtypeprotect(const void* addr, size_t len, int type, int prot);
 int DoMunmap(void* addr, size_t len);
+void ForgetVirtualRangeNames(const void* addr, size_t len);
 int DoReserveVirtual(void** addr, size_t len, int flags, size_t alignment);
 bool GuestProtection(uintptr_t addr, int* prot);
 bool GuestReservation(std::uintptr_t addr, std::uintptr_t* start, std::uintptr_t* end);
