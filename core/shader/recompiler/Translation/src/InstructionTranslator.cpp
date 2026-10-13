@@ -356,8 +356,9 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
             setVector(static_cast<VectorReg>(vgpr(PixelInput::PositionZ)), builtin(StageInputKind::FragCoord, 2u));
         }
         if (loaded(PixelInput::PositionW)) {
-            IrValue& reciprocalW = entryIr.BitCastF32(builtin(StageInputKind::FragCoord, 3u));
-            IrValue& w = entryIr.Emit(IrOpcode::FPRecip32, IrOpcodeType(IrOpcode::FPRecip32), {&reciprocalW});
+            IrValue& reciprocalBits = builtin(StageInputKind::FragCoord, 3u);
+            IrValue& flushed = entryIr.Select(entryIr.IEqual(entryIr.BitwiseAnd(reciprocalBits, entryIr.Constant(0x7f800000u)), entryIr.Constant(0u)), entryIr.BitwiseAnd(reciprocalBits, entryIr.Constant(0x80000000u)), reciprocalBits);
+            IrValue& w = entryIr.Emit(IrOpcode::FPRecip32, IrOpcodeType(IrOpcode::FPRecip32), {&entryIr.BitCastF32(flushed)});
             setVector(static_cast<VectorReg>(vgpr(PixelInput::PositionW)), entryIr.BitCastU32(w));
         }
         if (loaded(PixelInput::FrontFace)) {
@@ -376,7 +377,8 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
         }
     } else if (options.stage == ShaderStageKind::Vertex) {
         if (options.userDataBaseRegister >= 8u) {
-            const std::uint32_t lanes = options.waveSize == 64u && options.inputInfo.vertex->hostSubgroupSize == 32u ? 32u : options.waveSize;
+            const auto hostLanes = options.inputInfo.vertex->hostSubgroupSize;
+            const std::uint32_t lanes = hostLanes == 1u ? 1u : options.waveSize == 64u && hostLanes == 32u ? 32u : options.waveSize;
             entryIr.SetScalarReg(static_cast<ScalarReg>(3), entryIr.Constant(lanes | (lanes << 8u)));
         }
         setVector(static_cast<VectorReg>(5), drawIndex(StageInputKind::VertexIndex));
@@ -414,6 +416,7 @@ IrProgram InstructionTranslator::Translate(const RdnaProgram& decoded, const Con
     IrProgram program;
     program.SetWaveSize(options.waveSize);
     std::uint32_t windowBase = NumVectorRegs;
+    bool indexedWrites = false;
     for (const auto& cfgBlock : cfg.blocks) {
         for (std::uint32_t index = cfgBlock.instructionBegin; index < cfgBlock.instructionEnd; index++) {
             const auto& instruction = decoded.instructions[index];
@@ -424,11 +427,13 @@ IrProgram InstructionTranslator::Translate(const RdnaProgram& decoded, const Con
                     break;
                 case RdnaOpcode::VMovreldB32:
                     windowBase = std::min(windowBase, instruction.destination.reg);
+                    indexedWrites = true;
                     break;
                 case RdnaOpcode::VMovrelsdB32:
                 case RdnaOpcode::VMovrelsd2B32:
                 case RdnaOpcode::VSwaprelB32:
                     windowBase = std::min({windowBase, instruction.source0.reg, instruction.destination.reg});
+                    indexedWrites = true;
                     break;
                 default:
                     break;
@@ -439,6 +444,7 @@ IrProgram InstructionTranslator::Translate(const RdnaProgram& decoded, const Con
     if (windowBase < vectorLimit && !ancillaryWindow) {
         program.Metadata().vectorWindowBase = windowBase;
         program.Metadata().vectorWindowSize = vectorLimit - windowBase;
+        program.Metadata().vectorWindowIndexedWrites = indexedWrites;
     }
     program.Resources().stage = toIrShaderStage(options.stage);
     program.Resources().shaderHash = options.shaderHash;
