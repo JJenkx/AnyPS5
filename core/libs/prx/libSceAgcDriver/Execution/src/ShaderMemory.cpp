@@ -14,6 +14,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <vector>
 
@@ -84,14 +85,22 @@ double WaitedMs() {
     return provider != nullptr ? provider() : 0.0;
 }
 
-template<typename TPage>
-std::vector<std::unique_ptr<TPage>>& pagePool() {
-    struct PagePoolStorage {};
-    return HostThreadLocal<std::vector<std::unique_ptr<TPage>>, PagePoolStorage>();
-}
-
 constexpr std::size_t PagePoolLimit = 64;
 
+}
+
+struct ShaderMemory::PagePool {
+    std::mutex mutex;
+    std::vector<std::unique_ptr<Page>> pages;
+
+    PagePool() { pages.reserve(PagePoolLimit); }
+};
+
+std::shared_ptr<ShaderMemory::PagePool> ShaderMemory::threadPagePool() {
+    struct PagePoolStorage {};
+    auto& pool = HostThreadLocal<std::shared_ptr<PagePool>, PagePoolStorage>();
+    if (!pool) pool = std::make_shared<PagePool>();
+    return pool;
 }
 
 void ShaderMemory::SetWaitedMsProvider(WaitedMsProvider provider) {
@@ -105,10 +114,16 @@ ShaderMemory::ShaderMemory(std::span<const ShaderRecompiler::MemoryRegion> regio
     }
 }
 
+ShaderMemory::ShaderMemory(ShaderMemory&& other) noexcept
+    : initial(std::move(other.initial)), pages(std::move(other.pages)), ownerPool(std::move(other.ownerPool)),
+      lastBase(std::exchange(other.lastBase, ~std::uint64_t{0})), lastPage(std::exchange(other.lastPage, nullptr)),
+      pendingWrite(other.pendingWrite), observe(other.observe), hookWaits(other.hookWaits) {}
+
 ShaderMemory::~ShaderMemory() {
-    auto& pool = pagePool<Page>();
+    if (pages.empty()) return;
+    std::lock_guard lock(ownerPool->mutex);
     for (const auto& [base, page] : pages) {
-        if (pool.size() < PagePoolLimit) pool.emplace_back(page);
+        if (ownerPool->pages.size() < PagePoolLimit) ownerPool->pages.emplace_back(page);
         else delete page;
     }
 }
@@ -150,21 +165,24 @@ ShaderMemory::Page& ShaderMemory::page(std::uint64_t base) {
         lastPage = position->second;
         return *lastPage;
     }
-    auto& pool = pagePool<Page>();
+    if (!ownerPool) ownerPool = threadPagePool();
     std::unique_ptr<Page> owned;
-    if (pool.empty()) {
-        owned = std::make_unique<Page>();
-    } else {
-        owned = std::move(pool.back());
-        pool.pop_back();
+    {
+        std::lock_guard lock(ownerPool->mutex);
+        if (!ownerPool->pages.empty()) {
+            owned = std::move(ownerPool->pages.back());
+            ownerPool->pages.pop_back();
+        }
     }
+    if (!owned) owned = std::make_unique<Page>();
     owned->valid.Reset();
     owned->read.Reset();
     owned->recent.Reset();
     owned->wordwise = false;
     owned->lazy = false;
     auto& page = *owned;
-    pages.insert(position, {base, owned.release()});
+    pages.insert(position, {base, owned.get()});
+    owned.release();
     lastBase = base;
     lastPage = &page;
     ++CaptureTotals().pages;

@@ -59,7 +59,7 @@ public:
     ~ShaderMemory();
     ShaderMemory(const ShaderMemory&) = delete;
     ShaderMemory& operator=(const ShaderMemory&) = delete;
-    ShaderMemory(ShaderMemory&&) noexcept = default;
+    ShaderMemory(ShaderMemory&& other) noexcept;
     ShaderMemory& operator=(ShaderMemory&&) = delete;
     // Returns what the capture resolved (plan, snapshot, specialization) for
     // ShaderRecompiler::Recompile(request, capture), which then skips its own materialization. One
@@ -106,6 +106,8 @@ private:
         bool wordwise = false;
         bool lazy = false;
     };
+    struct PagePool;
+    static std::shared_ptr<PagePool> threadPagePool();
 
     static bool read(void* context, std::uint64_t address, std::uint32_t* value);
     static bool accessible(void* context, std::uint64_t address, std::uint64_t bytes);
@@ -115,6 +117,8 @@ private:
     // the caller keeps them alive for as long as the capture is used.
     std::map<std::uint64_t, std::span<const std::byte>> initial;
     std::vector<std::pair<std::uint64_t, Page*>> pages;
+    // Keep the creating thread's pool alive when a capture moves to the committer.
+    std::shared_ptr<PagePool> ownerPool;
     std::uint64_t lastBase = ~std::uint64_t{0};
     Page* lastPage = nullptr;
     PendingWriteQuery pendingWrite = nullptr;

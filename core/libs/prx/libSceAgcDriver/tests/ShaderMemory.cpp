@@ -3667,6 +3667,57 @@ int main(int argc, char** argv) {
             require(movedCapture->readTrace.leaves == capture->readTrace.leaves && movedCapture->readTrace.otherReads == capture->readTrace.otherReads, "moving shader memory lost its captured read trace");
         }
         {
+            // A pipelined capture is created here but released by the committer. Keep that
+            // thread alive so its local pool cannot free the page and accidentally hide the loss.
+            std::promise<void> returned;
+            std::promise<void> resume;
+            auto resumed = resume.get_future();
+            AgcDriver::ShaderMemory source({});
+            static_cast<void>(source.Capture(request));
+            const auto* pageBytes = source.Regions().front().bytes.data();
+            auto work = std::async(std::launch::async, [owned = std::move(source), resumed = std::move(resumed), &returned]() mutable {
+                {
+                    AgcDriver::ShaderMemory committed(std::move(owned));
+                }
+                returned.set_value();
+                resumed.wait();
+            });
+            returned.get_future().wait();
+            bool reused = false;
+            try {
+                AgcDriver::ShaderMemory replacement({});
+                static_cast<void>(replacement.Capture(request));
+                reused = replacement.Regions().front().bytes.data() == pageBytes;
+            } catch (...) {
+                resume.set_value();
+                work.get();
+                throw;
+            }
+            resume.set_value();
+            work.get();
+            require(reused, "a capture released by the committer did not return its pages to the creating thread");
+        }
+        {
+            AgcDriver::ShaderMemory source({});
+            static_cast<void>(source.Capture(request));
+            AgcDriver::ShaderMemory moved(std::move(source));
+            const auto freshCapture = source.Capture(request);
+            const auto freshRegions = source.Regions();
+            const auto movedRegions = moved.Regions();
+            require(!freshRegions.empty() && !movedRegions.empty(), "a reused moved-from capture did not record its new pages");
+            require(freshRegions.front().bytes.data() != movedRegions.front().bytes.data(), "a moved-from capture retained the other capture's page shortcut");
+            require(freshCapture->snapshot.flattenedSrt == capture->snapshot.flattenedSrt, "reusing a moved-from capture changed its resource snapshot");
+        }
+        {
+            // The pool must outlive the producer thread when a queued capture still owns it.
+            auto transferred = std::async(std::launch::async, [&] {
+                AgcDriver::ShaderMemory source({});
+                static_cast<void>(source.Capture(request));
+                return source;
+            }).get();
+            require(transferred.Capture(request)->snapshot.flattenedSrt == capture->snapshot.flattenedSrt, "producer thread exit invalidated a transferred capture");
+        }
+        {
             // The payload slot is consumed by the export alone: pure, its leaf traced at the
             // payload's address; the table pointer's words (the payload's address cone) are among
             // the other reads.
