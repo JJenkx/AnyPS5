@@ -1,0 +1,5 @@
+# libSceSysmodule technical debt
+
+### Unknown function info
+
+- [sceSysmoduleLoadModuleByNameInternal](../../../core/libs/prx/libSceSysmodule/Export.cpp) takes a basename, argument byte count, argument pointer, options pointer and initializer-result pointer, following [shadPS4's declaration](https://github.com/shadps4-emu/shadPS4/blob/35a6384f6dfc3dda2ce7ef001e10c1c5c0d47a11/src/core/libraries/sysmodule/sysmodule.h). PPSA21564 calls it with `libSceShaderTranscode_minimal` and four zero arguments. The emulator loads `libs/<name>.prx` through its existing kernel loader, returns that handle, and updates matching module-table load counts/handles after initialization outside the sysmodule mutex. Only null options are supported. Basename validation uses the existing sysmodule invalid-value code; failed kernel loads preserve the initializer-result output. Console search paths, error ordering, repeated-load bookkeeping and PS5 equivalence are unverified. Other options and a nonzero argument size with a null pointer throw.
