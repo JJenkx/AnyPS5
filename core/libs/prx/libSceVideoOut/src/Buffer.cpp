@@ -190,6 +190,13 @@ int APS5_VABI sceVideoOutUnregisterBuffers(int handle, int setIndex) try {
     LibcAwaitExit_nid_postfix();
 }
 
+int APS5_VABI sceVideoOutSubmitEopFlip(int handle, int index, int flipMode, int64_t flipArg, std::uint32_t* token) try {
+    if (token == nullptr) return VIDEO_OUT_ERROR_INVALID_ADDRESS;
+    return VideoOutDriver::Get().SubmitEopFlip(handle, index, flipMode, flipArg, token);
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
+}
+
 int APS5_VABI sceVideoOutSubmitFlip(int handle, int index, int flipMode, int64_t flipArg) try {
     auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {

@@ -453,6 +453,11 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
             require(packet.size() >= 5, "WRITE_DATA has no data");
             require((packet[1] & ~(0x40110f00u | WriteDataCachePolicy)) == 0, "WRITE_DATA engine or reserved fields are not implemented");
             const auto destination = (packet[1] >> 8u) & 0xfu;
+            if (destination == 0) {
+                const auto count = (packet[1] & 0x10000u) != 0 ? 1u : packet.size() - 4;
+                require(packet[3] == 0 && packet[2] >= 0xc340u && packet[2] <= 0xc347u && count <= 0xc348u - packet[2], "WRITE_DATA register destination outside the thread-trace user-data registers is not implemented");
+                break;
+            }
             require(destination == 1 || destination == 2 || destination == 3 || destination == 5, "WRITE_DATA register destination is not implemented");
             require((packet[2] & 3u) == 0, "misaligned WRITE_DATA destination");
             break;
@@ -578,6 +583,7 @@ std::optional<LabelWrite> DecodeLabelWrite(std::span<const std::uint32_t> packet
         return label;
     }
     if (opcode == 0x37 && packet.size() > 4) {
+        if (((packet[1] >> 8u) & 0xfu) == 0) return std::nullopt;
         const auto destination = address(packet[2], packet[3]);
         if (destination == 0) return std::nullopt;
         // WR_ONE_ADDR stores every value at the same address: the last one remains.
@@ -928,6 +934,11 @@ void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
             return;
         }
         case 0x37: {
+            if (((packet[1] >> 8u) & 0xfu) == 0) {
+                const bool repeat = (packet[1] & 0x10000u) != 0;
+                for (std::size_t i = 4; i < packet.size(); ++i) writeRegister(queue, 0x79, packet[2] - 0xc000u + (repeat ? 0u : static_cast<std::uint32_t>(i - 4)), packet[i]);
+                return;
+            }
             const auto destination = address(packet[2], packet[3]);
             if ((packet[1] & 0x10000u) != 0) {
                 for (const auto& value : packet.subspan(4)) GuestMemory::Write(destination, std::as_bytes(std::span(&value, 1)), 4);

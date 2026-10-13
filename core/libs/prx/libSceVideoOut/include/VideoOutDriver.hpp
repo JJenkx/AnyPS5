@@ -221,6 +221,7 @@ public:
 
     // 0, or VIDEO_OUT_ERROR_FLIP_QUEUE_FULL when the title has VIDEO_OUT_FLIP_QUEUE_CAPACITY flips pending.
     int SubmitFlip(int handle, int index, int flipMode, int64_t flipArg);
+    int SubmitEopFlip(int handle, int index, int flipMode, int64_t flipArg, std::uint32_t* token);
 
 private:
     bool close(int handle);

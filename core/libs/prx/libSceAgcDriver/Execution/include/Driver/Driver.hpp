@@ -51,6 +51,7 @@ public:
     void ReportFailure(std::exception_ptr error);
     void Submit(const Packet* packet, std::uint32_t queue);
     void SuspendPoint();
+    std::uint32_t ReserveEopFlip(const FlipInfo& info);
     void RegisterVideoOutput(std::uint32_t handle, const std::shared_ptr<IVideoOutput>& output);
     void UnregisterVideoOutput(std::uint32_t handle, const std::shared_ptr<IVideoOutput>& output);
     void AttachWindow(const PresentationWindow& window);
@@ -321,6 +322,12 @@ private:
 
     std::map<std::uint32_t, QueueState> queues;
     std::map<std::uint32_t, std::shared_ptr<IVideoOutput>> outputs;
+    struct EopFlip {
+        std::uint32_t handle;
+        std::shared_ptr<IFlipRequest> request;
+    };
+    std::map<std::uint32_t, EopFlip> eopFlips;
+    std::uint32_t nextEopToken = EopFlipTokenBase;
     DevicePointer device;
 
     std::mutex labelStoresMutex;
