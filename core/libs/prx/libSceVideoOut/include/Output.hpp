@@ -11,6 +11,7 @@ extern "C" {
 
 int APS5_VABI sceVideoOutOpen(int user_id, int bus_type, int index, const void* param);
 int APS5_VABI sceVideoOutClose(int handle);
+int APS5_VABI sceVideoOutSysGetBus(int handle);
 int APS5_VABI sceVideoOutConfigureOutput(int handle, uint64_t mode, const VideoOutOutputOptions* options, void* reserved_ptr, uint64_t reserved);
 int APS5_VABI sceVideoOutIsOutputSupported(int handle, uint64_t mode, const VideoOutOutputOptions* options, void* reserved_ptr, uint64_t reserved);
 int APS5_VABI sceVideoOutInitializeOutputOptions(VideoOutOutputOptions* options);
