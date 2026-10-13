@@ -12,6 +12,7 @@
 #include "Optimization/SrtWalker/SrtFlatSlotClasses.hpp"
 #include "Optimization/SrtWalker.hpp"
 #include "IntermediateRepresentation/IrBuilder.hpp"
+#include "IntermediateRepresentation/IrProgram.hpp"
 #include "SpirvBackend/SpirvAnalysis.hpp"
 #if ANYPS5_ENABLE_SPIRV_TOOLS
 #include "SpirvBackend/SpirvOptimizer.hpp"
@@ -1660,6 +1661,22 @@ void verifyMeshConfiguration() {
     request.graphics = GraphicsCompileContext{0u, {}, mesh, std::nullopt, {}};
     const auto replay = RequestSerializer{}.Deserialize(RequestSerializer{}.Serialize(request));
     require(replay.request.graphics.has_value() && replay.request.graphics->mesh.has_value() && replay.request.graphics->mesh->esgsItemSize == 12u && replay.request.graphics->mesh->primitivesPerGroup == 21u, "mesh configuration was lost in serialization");
+    {
+        RecompileRequest vertex{};
+        vertex.shader = {ShaderStage::Vertex, 0x10000u, code, 0, {}};
+        vertex.context.waveSize = 64;
+        ShaderVertexStageInfo info{};
+        info.paClVsOutCntl = 0x0040000fu;
+        vertex.context.vertex = info;
+        const auto back = RequestSerializer{}.Deserialize(RequestSerializer{}.Serialize(vertex));
+        require(back.request.context.vertex.has_value() && back.request.context.vertex->paClVsOutCntl == 0x0040000fu, "PA_CL_VS_OUT_CNTL was lost in serialization");
+        std::vector<std::uint64_t> clipped;
+        RecompileCacheKey::Build(vertex, clipped);
+        vertex.context.vertex->paClVsOutCntl = 0;
+        std::vector<std::uint64_t> unclipped;
+        RecompileCacheKey::Build(vertex, unclipped);
+        require(clipped != unclipped, "PA_CL_VS_OUT_CNTL is not part of the recompile cache key");
+    }
     std::vector<std::uint64_t> key;
     RecompileCacheKey::Build(request, key);
     const auto first = key;
@@ -1809,13 +1826,13 @@ void verifyPixelRequestSerialization() {
     minimal.context.pixel = ShaderPixelStageInfo{};
     minimal.context.pixel->rasterPrimitive = RasterPrimitive::Rectangle;
     const auto encoded = serializer.Serialize(minimal);
-    require(requestPrefix(encoded, 8u) == "NVNQQRMAAAA=", "new requests did not use serialization version 19");
+    require(requestPrefix(encoded, 8u) == "NVNQQRUAAAA=", "new requests did not use serialization version 21");
     require(serializer.Deserialize(encoded).request.context.pixel->rasterPrimitive == RasterPrimitive::Rectangle, "the pixel primitive class did not round-trip");
     constexpr std::size_t mappingOffset = 8u + 37u + 18u + 163u;
     for (std::size_t bytes = 0; bytes < 20u; ++bytes) {
         expectFailure([&] { static_cast<void>(serializer.Deserialize(requestPrefix(encoded, mappingOffset + bytes))); }, "truncated data", "a truncated pixel mapping, packing, dual-source, alpha-to-coverage, stencil reference export flag or primitive class was accepted");
     }
-    for (const auto unsupported : {"NVNQQQAAAAA=", "NVNQQRQAAAA="}) {
+    for (const auto unsupported : {"NVNQQQAAAAA=", "NVNQQRYAAAA="}) {
         expectFailure([&] { static_cast<void>(serializer.Deserialize(unsupported)); }, "serialization version", "an unsupported request version was accepted");
     }
     static constexpr std::string_view version18Request{
@@ -1827,6 +1844,110 @@ void verifyPixelRequestSerialization() {
     const auto version18 = serializer.Deserialize(version18Request);
     require(version18.request.context.pixel.has_value() && version18.request.context.pixel->rasterPrimitive == RasterPrimitive::Triangle, "a version 18 request read a primitive class");
     require(version18.request.target.registrationModules && version18.request.target.registrationWordLimit == 1234u && version18.request.target.vertexSubgroups, "a version 18 request trailer was misread");
+}
+
+void verifyPositionExportComponents() {
+    constexpr std::uint32_t none = 0xffffffffu;
+    struct Case {
+        std::uint32_t control;
+        std::array<std::uint32_t, 4> clip;
+        std::array<std::uint32_t, 4> cull;
+    };
+    const std::array<Case, 6> cases{{
+        {0x00400000u, {none, none, none, none}, {none, none, none, none}},
+        {0x00400001u, {0u, none, none, none}, {none, none, none, none}},
+        {0x00400002u, {none, 0u, none, none}, {none, none, none, none}},
+        {0x00400005u, {0u, none, 1u, none}, {none, none, none, none}},
+        {0x00400100u, {none, none, none, none}, {0u, none, none, none}},
+        {0x00400400u, {none, none, none, none}, {none, none, 0u, none}},
+    }};
+    for (const auto& test : cases) {
+        for (std::uint32_t component = 0; component < 4; ++component) {
+            const auto output = ShaderRecompiler::DecodePositionExportComponent(test.control, 1u, component);
+            require(output.clipDistance == test.clip[component] && output.cullDistance == test.cull[component], "PA_CL_VS_OUT_CNTL decoded a position component to the wrong clip or cull distance");
+        }
+    }
+}
+
+std::vector<std::uint8_t> decodeBase64(std::string_view text) {
+    constexpr std::string_view alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::vector<std::uint8_t> bytes;
+    std::uint32_t chunk = 0;
+    std::size_t bits = 0;
+    for (const char symbol : text) {
+        if (symbol == '=') break;
+        const auto value = alphabet.find(symbol);
+        require(value != std::string_view::npos, "invalid base64 symbol");
+        chunk = ((chunk << 6u) | static_cast<std::uint32_t>(value)) & 0xffffffu;
+        bits += 6u;
+        if (bits >= 8u) {
+            bits -= 8u;
+            bytes.push_back(static_cast<std::uint8_t>((chunk >> bits) & 0xffu));
+        }
+    }
+    return bytes;
+}
+
+std::string encodeBase64(const std::vector<std::uint8_t>& bytes) {
+    constexpr std::string_view alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string text;
+    for (std::size_t index = 0; index < bytes.size(); index += 3u) {
+        const std::size_t count = std::min<std::size_t>(3u, bytes.size() - index);
+        std::uint32_t chunk = static_cast<std::uint32_t>(bytes[index]) << 16u;
+        if (count > 1u) chunk |= static_cast<std::uint32_t>(bytes[index + 1u]) << 8u;
+        if (count > 2u) chunk |= bytes[index + 2u];
+        for (std::size_t symbol = 0; symbol < 4u; ++symbol) {
+            text.push_back(symbol <= count ? alphabet[(chunk >> (18u - 6u * symbol)) & 0x3fu] : '=');
+        }
+    }
+    return text;
+}
+
+void verifyVertexInfoVersion19() {
+    using namespace ShaderRecompiler;
+    const std::array<std::uint32_t, 1> code{0xbf810000u};
+    const RequestSerializer serializer;
+    RecompileRequest vertex{};
+    vertex.shader = {ShaderStage::Vertex, 0x10000u, code, 0, {}};
+    vertex.context.waveSize = 64;
+    vertex.context.vertex = ShaderVertexStageInfo{};
+    const auto unmarked = serializer.Serialize(vertex);
+    vertex.context.vertex->paClVsOutCntl = 0x89abcdefu;
+    const auto marked = serializer.Serialize(vertex);
+    const auto plain = decodeBase64(unmarked);
+    const auto flagged = decodeBase64(marked);
+    require(plain.size() == flagged.size(), "PA_CL_VS_OUT_CNTL changed the request size");
+    std::size_t offset = 0;
+    while (offset < plain.size() && plain[offset] == flagged[offset]) ++offset;
+    require(offset + 4u <= plain.size() && flagged[offset] == 0xefu && flagged[offset + 1u] == 0xcdu && flagged[offset + 2u] == 0xabu && flagged[offset + 3u] == 0x89u, "PA_CL_VS_OUT_CNTL is not the four bytes the version 20 vertex info adds");
+    require(std::equal(plain.begin() + offset + 4u, plain.end(), flagged.begin() + offset + 4u), "PA_CL_VS_OUT_CNTL moved the fields after it");
+    auto version20 = flagged;
+    version20[4] = 20u;
+    const auto replay20 = serializer.Deserialize(encodeBase64(version20));
+    require(replay20.request.context.vertex.has_value() && replay20.request.context.vertex->paClVsOutCntl == 0x89abcdefu, "a version 20 vertex info lost its position export layout");
+    require(serializer.Serialize(replay20.request) == marked, "a version 20 vertex info misread the fields after its position export layout");
+    vertex.context.vertex->paClVsOutCntl = (1u << 18u) | (1u << 21u) | 0xfu;
+    const auto layered = serializer.Deserialize(serializer.Serialize(vertex));
+    require(layered.request.context.vertex.has_value() && layered.request.context.vertex->paClVsOutCntl == vertex.context.vertex->paClVsOutCntl, "a layered vertex info lost its clip distances or render target index");
+    auto legacy = plain;
+    legacy.erase(legacy.begin() + offset, legacy.begin() + offset + 4u);
+    for (const auto version : {16u, 17u, 18u, 19u}) {
+        legacy[4] = static_cast<std::uint8_t>(version);
+        const auto replay = serializer.Deserialize(encodeBase64(legacy));
+        require(replay.request.context.vertex.has_value() && replay.request.context.vertex->paClVsOutCntl == 0u, "a legacy vertex info read a PA_CL_VS_OUT_CNTL word");
+        require(serializer.Serialize(replay.request) == unmarked, "a legacy vertex info misread the fields after it");
+    }
+    RecompileRequest pixel{};
+    pixel.shader = {ShaderStage::Fragment, 0x20000u, code, 0, {}};
+    pixel.context.waveSize = 64;
+    pixel.context.pixel = ShaderPixelStageInfo{};
+    pixel.context.pixel->rasterPrimitive = RasterPrimitive::Rectangle;
+    const auto encodedPixel = serializer.Serialize(pixel);
+    auto legacyPixel = decodeBase64(encodedPixel);
+    legacyPixel[4] = 19u;
+    const auto replayPixel = serializer.Deserialize(encodeBase64(legacyPixel));
+    require(replayPixel.request.context.pixel.has_value() && replayPixel.request.context.pixel->rasterPrimitive == RasterPrimitive::Rectangle, "a main version 19 request lost its pixel primitive class");
+    require(serializer.Serialize(replayPixel.request) == encodedPixel, "a main version 19 request misread the fields after its pixel primitive class");
 }
 
 void verifyLegacyPixelRequests() {
@@ -2521,9 +2642,9 @@ void verifyUnnormalizedSamplers() {
     require(proven(plain, false), "unnormalized samplers: a normalized S# was flagged");
     require(plain.variantId == accepted.variantId && plain.spirv.Words() == accepted.spirv.Words(), "unnormalized samplers: the unnormalized S# compiled another variant");
 
-    for (const std::uint32_t mimg : {0xf0900f08u, 0xf0800f08u, 0xf0940f08u, 0xf0840f08u}) {
+    for (const std::uint32_t mimg : {0xf0900f08u, 0xf0800f08u, 0xf0940f08u, 0xf0840f08u, 0xf0880f08u}) {
         const auto result = recompile(program(mimg), userData(unnormalized));
-        require(proven(result, true), "unnormalized samplers: a compute image_sample_l, image_sample, image_sample_b or image_sample_cl was not flagged");
+        require(proven(result, true), "unnormalized samplers: a compute image_sample_l, image_sample, image_sample_b, image_sample_cl or image_sample_d was not flagged");
         auditSpirv(result.spirv.Words());
     }
 
@@ -2533,7 +2654,6 @@ void verifyUnnormalizedSamplers() {
     reject(0xf0bc0f08u, imageData(unnormalized, Type2D, Format32Float, 0u), "unnormalized guest sampler is used with depth comparison, which is not implemented", "unnormalized samplers: image_sample_c_lz was accepted");
     reject(0xf11c0108u, userData(unnormalized), "unnormalized guest sampler is used by a gather, which is not implemented", "unnormalized samplers: image_gather4_lz was accepted");
     reject(0xf1800308u, userData(unnormalized), "unnormalized guest sampler is used by image_get_lod, which is not implemented", "unnormalized samplers: image_get_lod was accepted");
-    reject(0xf0880f08u, userData(unnormalized), "unnormalized guest sampler is used by a sample with derivatives, which is not implemented", "unnormalized samplers: image_sample_d was accepted");
     reject(0xf0800f09u, userData(unnormalized), "unnormalized guest sampler is used by an image_sample_*_a variant, which is not implemented", "unnormalized samplers: image_sample_a was accepted");
     reject(0xf09c0f18u, imageData(unnormalized, TypeCube, Format8888UNorm, 5u), "unnormalized guest sampler samples a 1D-array, 2D-array, 3D, cube or multisampled image", "unnormalized samplers: a cube T# was accepted");
     reject(0xf09c0f10u, imageData(unnormalized, Type3D, Format8888UNorm, 3u), "unnormalized guest sampler samples a 1D-array, 2D-array, 3D, cube or multisampled image", "unnormalized samplers: a 3D T# was accepted");
@@ -2608,6 +2728,14 @@ void verifyUnnormalizedSamplers() {
         require(!masks.empty() && std::ranges::all_of(masks, [](std::uint32_t mask) { return (mask & spv::ImageOperandsOffsetMask) != 0u; }), "unnormalized texel offsets: a normalized computed offset lost its Offset operand");
     }
 
+    const auto gradient = program(0xf0880f08u);
+    const auto gradientAddress = nextAddress += 0x1000u;
+    const auto gradientUnnormalized = recompile(gradient, userData(unnormalized), gradientAddress);
+    const auto gradientNormalized = recompile(gradient, userData(normalized), gradientAddress);
+    require(proven(gradientNormalized, false) && gradientNormalized.variantId == gradientUnnormalized.variantId && gradientNormalized.PipelineVariantId() != gradientUnnormalized.PipelineVariantId(), "unnormalized samplers: a normalized image_sample_d did not get its own specialization of the shared artifact");
+    require(sampleMasks(gradientNormalized.spirv.Words()) == std::vector<std::uint32_t>{spv::ImageOperandsGradMask}, "unnormalized samplers: a normalized image_sample_d lost its derivatives");
+    require(sampleMasks(gradientUnnormalized.spirv.Words()) == std::vector<std::uint32_t>{spv::ImageOperandsLodMask}, "unnormalized samplers: an unnormalized image_sample_d kept its derivatives");
+
     const std::array<std::uint32_t, 5> pixelCode{0xf0800f08u, 0x00400801u, 0xf800180fu, 0x0b0a0908u, 0xbf810000u};
     const auto pixelData = userData(unnormalized);
     RecompileRequest pixel{};
@@ -2621,7 +2749,23 @@ void verifyUnnormalizedSamplers() {
     pixel.target.subgroupSize = 64;
     pixel.layout.pushConstantSizeBytes = 128;
     pixel.useCache = false;
-    expectFailure([&] { static_cast<void>(Recompile(pixel)); }, "unnormalized guest sampler is used by an implicit-LOD sample, which is not implemented", "unnormalized samplers: a pixel image_sample was accepted");
+    const auto implicitSamples = [](const std::vector<std::uint32_t>& words) {
+        std::size_t samples = 0;
+        for (std::size_t cursor = 5; cursor < words.size();) {
+            const auto count = words[cursor] >> 16u;
+            require(count != 0 && count <= words.size() - cursor, "unnormalized samplers: truncated SPIR-V instruction");
+            if ((words[cursor] & 0xffffu) == spv::OpImageSampleImplicitLod) ++samples;
+            cursor += count;
+        }
+        return samples;
+    };
+    const auto pixelUnnormalized = Recompile(pixel);
+    require(proven(pixelUnnormalized, true), "unnormalized samplers: a pixel image_sample through an unnormalized S# was not flagged");
+    auditSpirv(pixelUnnormalized.spirv.Words());
+    const auto normalizedPixelData = userData(normalized);
+    pixel.context.userData = normalizedPixelData;
+    const auto pixelNormalized = Recompile(pixel);
+    require(proven(pixelNormalized, false) && implicitSamples(pixelNormalized.spirv.Words()) == 1u, "unnormalized samplers: a pixel image_sample through a normalized S# is not an implicit-LOD sample");
 }
 
 void verifyUnusedUnnormalizedSampler() {
@@ -2837,11 +2981,16 @@ void verifyBdaReadFallbackFunctions() {
             std::map<std::string, std::uint32_t> definitions;
             const auto reader = std::string("read_bda_dword_bytes") + (barrier ? "" : "_stop") + (coherent ? "_coherent" : "");
             const auto span = std::string("read_bda_span") + (barrier ? "" : "_stop") + (coherent ? "_coherent" : "");
+            const auto loader = std::string("load_bda_span") + (coherent ? "_coherent" : "");
             std::string function;
             std::size_t compareExchanges = 0;
             std::size_t mainLookups = 0;
             std::size_t mainProbes = 0;
             std::size_t spanCalls = 0;
+            std::size_t spanLoads = 0;
+            std::size_t spanLoaderCalls = 0;
+            std::size_t loaderLoads = 0;
+            std::size_t loaderCalls = 0;
             std::array<std::size_t, 2> readerLoads{};
             for (std::size_t cursor = 5; cursor < five.size();) {
                 const auto length = five[cursor] >> 16u;
@@ -2850,7 +2999,7 @@ void verifyBdaReadFallbackFunctions() {
                 if (op == spv::OpName) names[five[cursor + 1]] = reinterpret_cast<const char*>(&five[cursor + 2]);
                 if (op == spv::OpFunction) {
                     function = names[five[cursor + 2]];
-                    if (function == "record_bda_fault" || function.starts_with("read_bda_dword_bytes") || function.starts_with("read_bda_span")) {
+                    if (function == "record_bda_fault" || function.starts_with("read_bda_dword_bytes") || function.starts_with("read_bda_span") || function.starts_with("load_bda_span")) {
                         require((five[cursor + 3] & spv::FunctionControlDontInlineMask) != 0u, "BDA read functions: a fault, byte read or span read function may be inlined");
                         ++definitions[function];
                     }
@@ -2862,10 +3011,16 @@ void verifyBdaReadFallbackFunctions() {
                     if (callee == "probe_bda_pointer" || callee.starts_with("read_bda_dword_bytes")) ++mainProbes;
                     if (callee == span) ++spanCalls;
                 }
+                if ((op == spv::OpLoad || op == spv::OpAtomicLoad) && function == span) ++spanLoads;
+                if (op == spv::OpFunctionCall && function == span && names[five[cursor + 3]] == loader) ++spanLoaderCalls;
+                if ((op == spv::OpLoad || op == spv::OpAtomicLoad) && function == loader) ++loaderLoads;
+                if (op == spv::OpFunctionCall && function == loader) ++loaderCalls;
                 if (op == spv::OpLoad && function == reader) ++readerLoads[length > 4u && (five[cursor + 4] & spv::MemoryAccessVolatileMask) != 0u];
                 cursor += length;
             }
             require(definitions["record_bda_fault"] == 1u && definitions[reader] == 1u && definitions[span] == 1u, "BDA read functions: the fault, byte read and span read functions are not defined");
+            require(definitions[loader] == 1u && loaderLoads == 4u && loaderCalls == 0u, "BDA read functions: the span load function does not hold the four in-place loads and nothing else");
+            require(spanLoads == 0u && spanLoaderCalls == 1u, "BDA read functions: a span read function loads in place itself");
             for (const auto& [name, count] : definitions) require(count == 1u, "BDA read functions: a function is defined twice");
             require(compareExchanges == 1u, "BDA read functions: a fault is recorded outside record_bda_fault");
             require(mainLookups == 0u, "BDA read functions: a read site looks up its bytes inline");
@@ -3361,6 +3516,8 @@ int main(int argc, char** argv) {
         verifyMeshConfiguration();
         verifyPixelInputs();
         verifyPixelRequestSerialization();
+        verifyVertexInfoVersion19();
+        verifyPositionExportComponents();
         verifyLegacyPixelRequests();
         verifyPixelExportReplay();
         verifyPixelParameterSlots();
