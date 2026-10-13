@@ -4795,6 +4795,9 @@ void multisampleGuestAccessTests(const Device& device, Recorder& recorder) {
     {
         std::lock_guard gpu(GpuMutex());
         Require(MultisampleTargetView(context, target) != VK_NULL_HANDLE, "the tiled multisampled target has no view");
+        recorder.Submit();
+        device.WaitQueue();
+        recorder.Sync();
     }
     refused([&] { AgcDriver::GuestMemory::Read(address + targetBytes - texels.size(), texels); }, "a CPU read", "a CPU read inside the tiled multisampled target");
     AgcDriver::GuestMemory::Read(address + targetBytes, texels);
@@ -4806,6 +4809,9 @@ void multisampleGuestAccessTests(const Device& device, Recorder& recorder) {
         {
             std::lock_guard gpu(GpuMutex());
             Require(MultisampleTargetView(context, target) != VK_NULL_HANDLE, "the 2x tiled multisampled target has no view");
+            recorder.Submit();
+            device.WaitQueue();
+            recorder.Sync();
         }
         refused([&] { AgcDriver::GuestMemory::Read(address + 2u * targetBytes - texels.size(), texels); }, "a CPU read", "a CPU read inside the 2x tile-height padding");
         AgcDriver::GuestMemory::Read(address + 2u * targetBytes, texels);
@@ -4818,6 +4824,9 @@ void multisampleGuestAccessTests(const Device& device, Recorder& recorder) {
         {
             std::lock_guard gpu(GpuMutex());
             Require(MultisampleTargetView(context, target) != VK_NULL_HANDLE, "the 8x tiled multisampled target has no view");
+            recorder.Submit();
+            device.WaitQueue();
+            recorder.Sync();
         }
         refused([&] { AgcDriver::GuestMemory::Read(address + 2u * targetBytes - texels.size(), texels); }, "a CPU read", "a CPU read inside the 8x tile-height padding");
         AgcDriver::GuestMemory::Read(address + 2u * targetBytes, texels);

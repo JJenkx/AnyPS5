@@ -36,6 +36,7 @@ public:
     explicit MultisampledColorFill(const ColorTarget& target);
     void NoteFill(std::uint64_t fillAddress, std::size_t fillBytes, std::uint32_t pattern);
     std::optional<std::uint32_t> TakeFill();
+    void Discard();
 
 private:
     std::uint64_t address = 0;
@@ -46,6 +47,7 @@ private:
 
 std::uint64_t MultisampledColorBytes(const ColorTarget& target);
 bool MultisampledFillClearColor(const ColorTarget& target, std::uint32_t fill, VkClearColorValue& clear);
+bool TakeMultisampledClear(MultisampledCmask& cmask, MultisampledColorFill& colorFill, const ColorTarget& use, VkClearColorValue& clear);
 VkImageView MultisampleTargetView(const Context& context, const ColorTarget& target);
 void ResolveMultisampleTarget(const Context& context, const ColorTarget& source, StorageTexture& destination, VkImageView destinationView);
 void NoteColorMetadataFill(std::uint64_t address, std::size_t bytes, std::uint32_t pattern);

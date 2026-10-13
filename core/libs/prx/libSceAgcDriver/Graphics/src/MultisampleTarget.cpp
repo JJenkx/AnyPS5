@@ -109,15 +109,8 @@ public:
     MultisampleTarget& operator=(const MultisampleTarget&) = delete;
 
     void ApplyFastClear(const ColorTarget& use) {
-        const auto fill = colorFill.TakeFill();
         VkClearColorValue clear{};
-        if (cmask.TakeClear()) {
-            clear = fastClearColor(use);
-        } else if (fill) {
-            Require(MultisampledFillClearColor(use, *fill, clear), "a fill over the color memory of a multisampled target has no exact clear value in its format");
-        } else {
-            return;
-        }
+        if (!TakeMultisampledClear(cmask, colorFill, use, clear)) return;
         recordCommands(context, [&](VkCommandBuffer commands, Recorder* recorder) {
             RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
             const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -355,6 +348,23 @@ void MultisampledColorFill::NoteFill(std::uint64_t fillAddress, std::size_t fill
 std::optional<std::uint32_t> MultisampledColorFill::TakeFill() {
     Require(refusal.empty(), refusal);
     return std::exchange(filled, std::nullopt);
+}
+
+void MultisampledColorFill::Discard() {
+    refusal.clear();
+    filled.reset();
+}
+
+bool TakeMultisampledClear(MultisampledCmask& cmask, MultisampledColorFill& colorFill, const ColorTarget& use, VkClearColorValue& clear) {
+    if (cmask.TakeClear()) {
+        colorFill.Discard();
+        clear = fastClearColor(use);
+        return true;
+    }
+    const auto fill = colorFill.TakeFill();
+    if (!fill) return false;
+    Require(MultisampledFillClearColor(use, *fill, clear), "a fill over the color memory of a multisampled target has no exact clear value in its format");
+    return true;
 }
 
 VkImageView MultisampleTargetView(const Context& context, const ColorTarget& target) {

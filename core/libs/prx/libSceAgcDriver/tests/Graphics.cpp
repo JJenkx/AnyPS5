@@ -2231,6 +2231,22 @@ void multisampleTests() {
     Require(MultisampledFillClearColor(srgb, 0, clear) && clear.float32[0] == 0.0f && clear.float32[3] == 0.0f, "an sRGB fill of 0 did not clear to 0");
     Require(MultisampledFillClearColor(srgb, 0x80ffffffu, clear) && clear.float32[2] == 1.0f && clear.float32[3] == 128.0f / 255.0f, "an sRGB fill of white with linear alpha 0x80 did not clear to it");
     Require(!MultisampledFillClearColor(srgb, 0x00000080u, clear), "an sRGB fill whose color decodes inexactly cleared");
+
+    using AgcDriver::Graphics::TakeMultisampledClear;
+    halfFloat.clearWords = {0x3c003c00u, 0x3c003c00u};
+    MultisampledCmask clearedCmask(0x50000000, 0x1000);
+    MultisampledColorFill pending(halfFloat);
+    Require(!TakeMultisampledClear(clearedCmask, pending, halfFloat, clear), "a target with no CMASK clear and no fill cleared");
+    pending.NoteFill(0x40000000, 0xff0000, 0);
+    Require(TakeMultisampledClear(clearedCmask, pending, halfFloat, clear) && clear.float32[0] == 0.0f, "a fill of the whole color memory did not clear to its value");
+    pending.NoteFill(0x40000000, 0xfe0000, 0);
+    expectFailure([&] { TakeMultisampledClear(clearedCmask, pending, halfFloat, clear); }, "partly covers");
+    clearedCmask.NoteFill(0x50000000, 0x1000, 0);
+    Require(TakeMultisampledClear(clearedCmask, pending, halfFloat, clear) && clear.float32[0] == 1.0f, "a pending CMASK clear did not take precedence over a partial fill of the color memory");
+    Require(!TakeMultisampledClear(clearedCmask, pending, halfFloat, clear), "a partial fill of the color memory outlived the CMASK clear over it");
+    pending.NoteFill(0x40000000, 0xff0000, 0);
+    clearedCmask.NoteFill(0x50000000, 0x1000, 0);
+    Require(TakeMultisampledClear(clearedCmask, pending, halfFloat, clear) && clear.float32[0] == 1.0f && !TakeMultisampledClear(clearedCmask, pending, halfFloat, clear), "a pending CMASK clear and a whole fill did not clear once to the CMASK clear color");
 }
 
 void DepthClipTests() {
