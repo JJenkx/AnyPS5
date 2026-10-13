@@ -47,6 +47,7 @@ int APS5_VABI mprotect_nid_postfix(void*, std::size_t, int) noexcept;
 int APS5_VABI madvise_nid_postfix(void*, std::size_t, int);
 int* APS5_VABI __error_nid_postfix();
 int APS5_VABI sceKernelMapNamedFlexibleMemory(void**, std::size_t, int, int, const char*);
+int APS5_VABI sceKernelMapNamedSystemFlexibleMemory(void**, std::size_t, int, int, const char*);
 int APS5_VABI sceKernelMapNamedFlexibleMemoryInternal(void**, std::size_t, int, int, const char*);
 int APS5_VABI sceKernelAvailableFlexibleMemorySize(std::size_t*);
 int APS5_VABI sceKernelInternalMemoryGetAvailableSize(std::size_t*);
@@ -222,6 +223,52 @@ static void CheckInternalNamedFlexibleMapping() {
     void* unknown = nullptr;
     try { sceKernelMapNamedFlexibleMemoryInternal(&unknown, length, 3, 0x20000, "internal mapping"); } catch (const std::exception&) { rejected = true; }
     Require(rejected && unknown == nullptr);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+}
+
+static void CheckNamedSystemFlexibleMapping() {
+    constexpr std::size_t page = 0x4000;
+    std::size_t before = 0, available = 0;
+    Require(sceKernelAvailableFlexibleMemorySize(&before) == 0 && before >= page * 3);
+    void* invalid = reinterpret_cast<void*>(0x1234);
+    for (const auto length : {std::size_t{0}, page + 1}) {
+        Require(sceKernelMapNamedSystemFlexibleMemory(&invalid, length, 3, 0, "invalid system") == SCE_KERNEL_ERROR_EINVAL);
+        Require(invalid == reinterpret_cast<void*>(0x1234));
+    }
+    void* mapped = nullptr;
+    Require(sceKernelMapNamedSystemFlexibleMemory(&mapped, page * 3, 0x33, 0, "AGC system mapping") == 0);
+    Require(mapped != nullptr && (reinterpret_cast<std::uintptr_t>(mapped) & (page - 1)) == 0);
+    auto* bytes = static_cast<unsigned char*>(mapped);
+    Require(bytes[0] == 0 && bytes[page * 3 - 1] == 0);
+    bytes[0] = 17;
+    bytes[page * 3 - 1] = 29;
+    VirtualQueryInfo info{};
+    Require(sceKernelVirtualQuery(mapped, 0, &info, sizeof(info)) == 0);
+    Require(std::strcmp(info.name, "AGC system mapping") == 0 && info.protection == 0x33 && info.is_flexible && !info.is_direct);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+    Require(sceKernelMprotect(bytes + page, page, 1) == 0);
+    Require(sceKernelVirtualQuery(bytes + page, 0, &info, sizeof(info)) == 0 && info.protection == 1);
+    Require(sceKernelMunmap(bytes + page, page) == 0);
+    Require(sceKernelVirtualQuery(bytes + page, 0, &info, sizeof(info)) == SCE_KERNEL_ERROR_EACCES);
+    Require(std::strcmp(NameAt(bytes), "AGC system mapping") == 0 && std::strcmp(NameAt(bytes + page * 2), "AGC system mapping") == 0);
+    Require(bytes[0] == 17 && bytes[page * 3 - 1] == 29);
+    Require(sceKernelMunmap(bytes, page) == 0 && sceKernelMunmap(bytes + page * 2, page) == 0);
+    void* application = nullptr;
+    Require(sceKernelMapFlexibleMemory(&application, page * 3, 3, 0) == 0);
+    void* replaced = static_cast<unsigned char*>(application) + page;
+    Require(sceKernelMapNamedSystemFlexibleMemory(&replaced, page, 3, 0x10, "system replacement") == 0 && replaced == static_cast<unsigned char*>(application) + page);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before - page * 2);
+    Require(std::strcmp(NameAt(replaced), "system replacement") == 0);
+    Require(sceKernelMunmap(application, page * 3) == 0);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
+    void* exhausted = nullptr;
+    Require(sceKernelMapFlexibleMemory(&exhausted, before, 3, 0) == 0);
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == 0);
+    void* system = nullptr;
+    Require(sceKernelMapNamedSystemFlexibleMemory(&system, page, 3, 0, nullptr) == 0 && system != nullptr);
+    static_cast<unsigned char*>(system)[page - 1] = 31;
+    Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == 0);
+    Require(sceKernelMunmap(system, page) == 0 && sceKernelMunmap(exhausted, before) == 0);
     Require(sceKernelAvailableFlexibleMemorySize(&available) == 0 && available == before);
 }
 
@@ -2027,6 +2074,7 @@ int main() {
     CheckPageTableStats();
     CheckNamedAndHintedMappings();
     CheckInternalNamedFlexibleMapping();
+    CheckNamedSystemFlexibleMapping();
     CheckGuestModuleUsesFlexibleMemory();
     CheckBatchMapStopsAtInvalidEntry();
     CheckCheckedReleaseDirectMemory();

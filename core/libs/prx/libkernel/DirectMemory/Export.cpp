@@ -106,8 +106,7 @@ int _mapFlexible(void** addr, size_t len, int prot, int flags) {
     return result;
 }
 
-void _releaseFlexible(uintptr_t start, size_t len) {
-    std::lock_guard lock(g_flexibleLock);
+void _releaseFlexibleLocked(uintptr_t start, size_t len) {
     const uintptr_t end = start + len;
     auto it = g_flexibleRanges.upper_bound(start);
     if (it != g_flexibleRanges.begin()) --it;
@@ -119,6 +118,18 @@ void _releaseFlexible(uintptr_t start, size_t len) {
         if (rangeStart < start) g_flexibleRanges[rangeStart] = start - rangeStart;
         if (rangeEnd > end) g_flexibleRanges[end] = rangeEnd - end;
     }
+}
+
+void _releaseFlexible(uintptr_t start, size_t len) {
+    std::lock_guard lock(g_flexibleLock);
+    _releaseFlexibleLocked(start, len);
+}
+
+int _mapSystemFlexible(void** addr, size_t len, int prot, int flags) {
+    std::lock_guard lock(g_flexibleLock);
+    const int result = DoMapAnon(addr, len, prot, flags);
+    if (result == 0) _releaseFlexibleLocked(reinterpret_cast<uintptr_t>(*addr), len);
+    return result;
 }
 
 }
@@ -202,6 +213,12 @@ int APS5_VABI sceKernelMapNamedDirectMemory(void** addr, size_t len, int prot, i
 
 int32_t APS5_VABI sceKernelMapNamedFlexibleMemory(void** addr_in_out, size_t len, int prot, int flags, const char* name) {
  const int result = _mapFlexible(addr_in_out, len, prot, flags);
+ if (result == 0 && name) sceKernelSetVirtualRangeName(*addr_in_out, len, name);
+ return result;
+}
+
+int32_t APS5_VABI sceKernelMapNamedSystemFlexibleMemory(void** addr_in_out, size_t len, int prot, int flags, const char* name) {
+ const int result = _mapSystemFlexible(addr_in_out, len, prot, flags);
  if (result == 0 && name) sceKernelSetVirtualRangeName(*addr_in_out, len, name);
  return result;
 }
