@@ -144,6 +144,7 @@ void StartHostExecutable(HostLaunch& launch) {
 struct HostLaunch {
     std::string executable;
     std::vector<std::string> arguments;
+    bool legacyCompanion = false;
 };
 
 HostLaunch PrepareLaunch(const char* path, const char* const* arguments) {
@@ -155,17 +156,30 @@ HostLaunch PrepareLaunch(const char* path, const char* const* arguments) {
         const char* main = std::getenv(MainExecutableVariable);
         launch.executable = main != nullptr && *main != '\0' ? main : own.string();
     } else {
-        const auto target = own.parent_path() / (ConvertedExecutableName(path) + own.extension().string());
-        if (!std::filesystem::is_regular_file(target)) {
-            UnconvertedExecutable(std::string(path) + " without its converted executable; relink with --executable " + (path + std::size(ApplicationRoot) - 1));
+        auto companion = ResolvePath_nid_no_patch(path);
+        companion += ".guest.elf";
+        if (std::string_view(path).starts_with(ApplicationRoot)) {
+            const auto target = own.parent_path() / (ConvertedExecutableName(path) + own.extension().string());
+            if (std::filesystem::is_regular_file(target)) {
+                launch.executable = target.string();
+            } else if (std::filesystem::is_regular_file(companion)) {
+                launch.executable = companion.string();
+                launch.legacyCompanion = true;
+            } else {
+                UnconvertedExecutable(std::string(path) + " without its converted executable; relink with --executable " + (path + std::size(ApplicationRoot) - 1));
+            }
+        } else {
+            if (!std::filesystem::exists(companion)) throw std::system_error(ENOENT, std::generic_category(), "sceSystemServiceLoadExec: " + companion.string());
+            launch.executable = companion.string();
+            launch.legacyCompanion = true;
         }
-        launch.executable = target.string();
     }
     if (setenv(MainExecutableVariable, own.c_str(), 0) != 0) {
         throw std::runtime_error(std::string("sceSystemServiceLoadExec: cannot set ") + MainExecutableVariable);
     }
-    launch.arguments.push_back(launch.executable);
+    if (!launch.legacyCompanion) launch.arguments.push_back(launch.executable);
     for (std::size_t index = 0; arguments != nullptr && arguments[index] != nullptr; ++index) launch.arguments.emplace_back(arguments[index]);
+    if (launch.arguments.empty()) launch.arguments.emplace_back(path);
     return launch;
 }
 
@@ -174,7 +188,9 @@ void StartHostExecutable(HostLaunch& launch) {
     for (auto& argument : launch.arguments) argv.push_back(argument.data());
     argv.push_back(nullptr);
     ::execv(launch.executable.c_str(), argv.data());
-    throw std::runtime_error("sceSystemServiceLoadExec: execv failed: " + std::string(std::strerror(errno)));
+    const int error = errno;
+    if (launch.legacyCompanion) throw std::system_error(error, std::generic_category(), "sceSystemServiceLoadExec: " + launch.executable);
+    throw std::runtime_error("sceSystemServiceLoadExec: execv failed: " + std::string(std::strerror(error)));
 }
 #else
 struct HostLaunch {};
@@ -191,40 +207,20 @@ void StartHostExecutable(HostLaunch&) {}
 extern "C" {
 
 int APS5_VABI sceSystemServiceLoadExec(const char* path, const char* const* arguments) {
-#if defined(__linux__)
-    if (!path || !*path) return SYSTEM_SERVICE_ERROR_PARAMETER;
-    if (std::strcmp(path, "exit") != 0) {
-#ifdef __linux__
-        auto native = ResolvePath_nid_no_patch(path);
-        native += ".guest.elf";
-        const auto executable = native.string();
-        std::vector<char*> argv;
-        if (arguments) for (const auto* argument = arguments; *argument; ++argument) argv.push_back(const_cast<char*>(*argument));
-        if (argv.empty()) argv.push_back(const_cast<char*>(path));
-        argv.push_back(nullptr);
-        if (std::getenv("APS5_TRACE_LOAD_EXEC")) {
-            std::fprintf(stderr, "[load-exec] %s -> %s argc=%zu\n", path, executable.c_str(), argv.size() - 1);
-            for (std::size_t index = 0; index + 1 < argv.size(); ++index) std::fprintf(stderr, "[load-exec] argv[%zu]=%s\n", index, argv[index]);
-        }
-        ::execv(executable.c_str(), argv.data());
-        const int error = errno;
-        throw std::system_error(error, std::generic_category(), "sceSystemServiceLoadExec: " + executable);
-#else
-        NotImplemented_nid_no_patch("sceSystemServiceLoadExec: executable replacement");
-#endif
-    }
-    (void)arguments;
-    LibcRunShutdown_nid_postfix();
-    std::exit(0);
-#else
     if (!path || !*path) return SYSTEM_SERVICE_ERROR_PARAMETER;
     if (std::strcmp(path, "exit") == 0) LibcExit_nid_no_patch(0);
     auto launch = PrepareLaunch(path, arguments);
+#if defined(__linux__)
+    if (std::getenv("APS5_TRACE_LOAD_EXEC")) {
+        std::fprintf(stderr, "[load-exec] %s -> %s argc=%zu layout=%s\n", path, launch.executable.c_str(), launch.arguments.size(), launch.legacyCompanion ? "companion" : "current");
+        for (std::size_t index = 0; index < launch.arguments.size(); ++index) std::fprintf(stderr, "[load-exec] argv[%zu]=%s\n", index, launch.arguments[index].c_str());
+    }
+    if (launch.legacyCompanion) StartHostExecutable(launch);
+#endif
     LibcRunShutdown_nid_postfix();
     std::fflush(nullptr);
     StartHostExecutable(launch);
     LibcTerminate_nid_no_patch(0);
-#endif
 }
 
 int APS5_VABI sceSystemServiceDisableNoticeScreenSkipFlagAutoSet(void) {

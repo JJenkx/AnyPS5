@@ -27,7 +27,8 @@ void ExpectFailure(const char* path, int expected) {
 }
 
 int main(int argc, char** argv) {
-    const std::string guest = "/exec-fixture/next.bin";
+    const bool companion = std::strcmp(argv[0], "/app0/next.bin") == 0 || (argc > 1 && std::strcmp(argv[1], "--app0-companion") == 0);
+    const std::string guest = companion ? "/app0/next.bin" : "/exec-fixture/next.bin";
     const auto root = std::filesystem::temp_directory_path() / ("anyps5-exec-" + std::to_string(getpid()));
     marker = root / "shutdown-marker";
     if (std::strcmp(argv[0], guest.c_str()) == 0 || (argc > 1 && std::strcmp(argv[1], "--replacement") == 0)) {
@@ -46,6 +47,7 @@ int main(int argc, char** argv) {
     }
     std::filesystem::create_directories(root);
     AddPathAlias_nid_no_patch("exec-fixture", root.c_str());
+    if (companion) AddPathAlias_nid_no_patch("app0", root.c_str());
     const auto next = root / "next.bin.guest.elf";
     std::filesystem::copy_file(std::filesystem::canonical("/proc/self/exe"), next);
     ExpectFailure("/exec-fixture/missing.bin", ENOENT);
