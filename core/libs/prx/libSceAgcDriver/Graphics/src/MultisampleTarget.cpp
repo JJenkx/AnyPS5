@@ -180,8 +180,16 @@ struct GuardedRange {
     std::shared_ptr<std::atomic<bool>> active;
 };
 
+class PrimedSharedMutex : public std::shared_mutex {
+public:
+    PrimedSharedMutex() {
+        lock();
+        unlock();
+    }
+};
+
 std::shared_mutex& guardedMutex() {
-    static std::shared_mutex mutex;
+    static PrimedSharedMutex mutex;
     return mutex;
 }
 
