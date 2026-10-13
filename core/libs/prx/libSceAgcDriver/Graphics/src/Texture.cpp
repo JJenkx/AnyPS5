@@ -4387,7 +4387,7 @@ void StorageTexture::writeBackLayers(const std::vector<bool>& layers) {
     adjacent = adjacentPendingUnchanged(firstBlock, lastBlock);
     if (keep.empty()) {
         emptyWriteBacks.fetch_add(1, std::memory_order_relaxed);
-        originalValid = false;
+        forgetStored();
         settle(false);
         return;
     }
