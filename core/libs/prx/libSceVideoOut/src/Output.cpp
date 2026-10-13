@@ -103,6 +103,18 @@ int APS5_VABI sceVideoOutAllowOutputResolutionWqhdDetection(int handle) try {
     LibcAwaitExit_nid_postfix();
 }
 
+int APS5_VABI sceVideoOutSysGetBus(int handle) try {
+    auto& driver = VideoOutDriver::Get();
+    if (!driver.HasConfig(handle)) return VIDEO_OUT_ERROR_INVALID_HANDLE;
+    auto cfg = driver.GetConfig(handle);
+    std::lock_guard lock(cfg->mutex);
+    cfg->CheckAlive();
+    if (cfg->Closed()) return VIDEO_OUT_ERROR_INVALID_HANDLE;
+    return cfg->busType;
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
+}
+
 int APS5_VABI sceVideoOutSetFlipRate(int handle, int rate) try {
     auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
