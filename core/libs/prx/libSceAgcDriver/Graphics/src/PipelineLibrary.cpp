@@ -156,12 +156,15 @@ VkPipeline LinkPipelineFromLibraries(const Context& context, const VkGraphicsPip
     const std::array<std::uint32_t, 3> attachments{shaderRendering.viewMask, static_cast<std::uint32_t>(shaderRendering.depthAttachmentFormat), static_cast<std::uint32_t>(shaderRendering.stencilAttachmentFormat)};
     const auto attachmentBytes = std::as_bytes(std::span(attachments));
     const Key attachmentKey(attachmentBytes.begin(), attachmentBytes.end());
-    const auto preRasterizationContext = Combined(keys.preRasterizationLayout, attachmentKey);
+    const auto shaderFlags = info.flags & VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+    auto preRasterizationContext = Combined(keys.preRasterizationLayout, attachmentKey);
+    const auto shaderFlagBytes = std::as_bytes(std::span(&shaderFlags, 1));
+    preRasterizationContext.insert(preRasterizationContext.end(), shaderFlagBytes.begin(), shaderFlagBytes.end());
     const auto fragmentContext = Combined(keys.fragmentLayout, attachmentKey);
     const std::array<const Key*, 4> contextKeys{&none, &preRasterizationContext, &fragmentContext, &keys.renderPass};
     VkPipelineDepthStencilStateCreateInfo dynamicDepth{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
     static const bool backgroundLinking = std::getenv("APS5_NO_PIPELINE_LTO") == nullptr;
-    const bool optimize = backgroundLinking && context.pipelineLinkTimeOptimization;
+    const bool optimize = backgroundLinking && context.pipelineLinkTimeOptimization && shaderFlags == 0;
     std::vector<VkPipeline> libraries;
     for (std::size_t part = 0; part < flags.size(); ++part) {
         if (part == 0 && mesh) continue;
@@ -185,6 +188,7 @@ VkPipeline LinkPipelineFromLibraries(const Context& context, const VkGraphicsPip
             create.layout = VK_NULL_HANDLE;
             break;
         case VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT:
+            create.flags |= shaderFlags;
             create.stageCount = static_cast<std::uint32_t>(preRasterization.size());
             create.pStages = preRasterization.data();
             create.pViewportState = info.pViewportState;
@@ -232,6 +236,7 @@ VkPipeline LinkPipelineFromLibraries(const Context& context, const VkGraphicsPip
     linked.libraryCount = static_cast<std::uint32_t>(libraries.size());
     linked.pLibraries = libraries.data();
     VkGraphicsPipelineCreateInfo create{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, &linked};
+    create.flags = shaderFlags;
     create.layout = info.layout;
     VkPipeline pipeline = VK_NULL_HANDLE;
     Check(context.Function<PFN_vkCreateGraphicsPipelines>("vkCreateGraphicsPipelines")(context.device, context.pipelineCache, 1, &create, nullptr, &pipeline), "vkCreateGraphicsPipelines link");

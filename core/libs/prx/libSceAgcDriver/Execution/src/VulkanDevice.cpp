@@ -264,6 +264,7 @@ struct VulkanDevice::State {
     std::vector<std::string_view> spirvExtensions;
     std::unique_ptr<const ShaderDeviceProfile> shaderProfile;
     bool tessellationShader = false;
+    bool disableTessellationOptimization = false;
     bool meshShader = false;
     bool fragmentShaderBarycentric = false;
     bool geometryShader = false;
@@ -1051,6 +1052,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window, bool compileOnly) :
         VkPhysicalDeviceProperties2 driverProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver};
         state->InstanceFunction<PFN_vkGetPhysicalDeviceProperties2>("vkGetPhysicalDeviceProperties2")(selected, &driverProperties);
         state->driverInfo = std::string(driver.driverName) + " " + driver.driverInfo;
+        state->disableTessellationOptimization = driver.driverID == VK_DRIVER_ID_MESA_RADV && state->properties.driverVersion == VK_MAKE_API_VERSION(0, 26, 2, 4);
     }
     auto byteFeatures = QueryBdaByteFeatures(selected, state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2"), availableExtensions);
     auto bdaFeatures = QueryBdaFeatures(selected, state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2"), availableExtensions);
@@ -2653,9 +2655,13 @@ bool VulkanDevice::AcquireImage() {
     std::uint32_t index = 0;
     timing.Mark("fence_reset");
     // An out-of-date swapchain (the window changed) drops this frame; the next Resize recreates it.
-    const auto acquired = state->DeviceFunction<PFN_vkAcquireNextImageKHR>("vkAcquireNextImageKHR")(state->device, state->swapchain, 5'000'000'000ULL, VK_NULL_HANDLE, state->acquireFence, &index);
+    const auto acquired = state->DeviceFunction<PFN_vkAcquireNextImageKHR>("vkAcquireNextImageKHR")(state->device, state->swapchain, 0, VK_NULL_HANDLE, state->acquireFence, &index);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
         state->extent = {0, 0};
+        return false;
+    }
+    if (acquired == VK_NOT_READY || acquired == VK_TIMEOUT) {
+        ++presentCounters.acquireDrops;
         return false;
     }
     if (acquired != VK_SUBOPTIMAL_KHR) check(acquired, "vkAcquireNextImageKHR");
@@ -3157,6 +3163,7 @@ Graphics::Context VulkanDevice::buildContext() const {
     context.memoryProperties2 = state->memoryBudget ? state->InstanceFunction<PFN_vkGetPhysicalDeviceMemoryProperties2>("vkGetPhysicalDeviceMemoryProperties2") : nullptr;
     context.integratedGpu = state->properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
     context.singlePassStorage = state->storageImageWithoutFormat;
+    context.disableTessellationOptimization = state->disableTessellationOptimization;
     return context;
 }
 
