@@ -23,6 +23,7 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
+#include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "prx/libc/include/PreciseWait.hpp"
 #include "prx/libc/include/Shutdown.hpp"
@@ -556,6 +557,11 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
     req.cfg->flipStatus.processTime = sceKernelGetProcessTime();
     req.cfg->flipStatus.processTimeCounter = sceKernelGetProcessTimeCounter();
     req.cfg->flipStatus.flipArg = req.flipArg;
+    const auto previous = req.cfg->flipStatus.currentBuffer;
+    if (previous >= 0) {
+        auto& label = req.cfg->bufferLabels[previous];
+        AgcDriverStoreGuestLabel_nid_postfix(&label, 0);
+    }
     req.cfg->flipStatus.currentBuffer = req.index;
     req.cfg->width = req.width;
     req.cfg->height = req.height;
