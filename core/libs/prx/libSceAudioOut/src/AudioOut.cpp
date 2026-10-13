@@ -325,7 +325,7 @@ static int allocatePort(int type, std::uint32_t len, std::uint32_t freq, Format 
                 openDevice(port);
             }
             static const bool trace = std::getenv("APS5_TRACE_AUDIOOUT") != nullptr;
-            if (trace) std::fprintf(stderr, "[audioout] port %d: type %d, %u samples at %u Hz, format %d, device %u\n", i + 1, type, len, freq, static_cast<int>(format), static_cast<unsigned>(port.device));
+            if (trace) std::fprintf(stderr, "[audioout] port %d: type %d, %u samples at %u Hz, format %d (%d %s ch), device %u (%d Hz, format 0x%x, %u ch)\n", i + 1, type, len, freq, static_cast<int>(format), port.channels, formatIsFloat(format) ? "float" : "int16", static_cast<unsigned>(port.device), port.spec.freq, static_cast<unsigned>(port.spec.format), static_cast<unsigned>(port.spec.channels));
             return i + 1;
         }
     }

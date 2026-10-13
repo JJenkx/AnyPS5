@@ -215,9 +215,9 @@ int APS5_VABI sceAudioOut2PortCreate(AudioOut2ContextHandle ctx, const AudioOut2
     }
     entry.int16 = sampleType == 1;
     *port = static_cast<AudioOut2PortHandle>(index) + 1;
-    AUDIOOUT2_TRACE("t=%.3f PortCreate ctx=%llx -> port %llu: type=0x%x data_format=0x%x (%u float ch) sampling_freq=%u flags=0x%x user=%llx\n",
+    AUDIOOUT2_TRACE("t=%.3f PortCreate ctx=%llx -> port %llu: type=0x%x data_format=0x%x (%u %s ch) sampling_freq=%u flags=0x%x user=%llx\n",
         AudioOut2TraceSeconds(), static_cast<unsigned long long>(ctx), static_cast<unsigned long long>(*port), params->port_type, params->data_format,
-        entry.channels, params->sampling_freq, params->flags, static_cast<unsigned long long>(params->user_handle));
+        entry.channels, entry.int16 ? "int16" : "float", params->sampling_freq, params->flags, static_cast<unsigned long long>(params->user_handle));
     return 0;
 }
 
