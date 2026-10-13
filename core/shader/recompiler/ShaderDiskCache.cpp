@@ -686,6 +686,8 @@ void decodeAllocation(Reader& reader, CompiledBindingLayout& allocation) {
 
 constexpr std::string_view NeutralSwitches[] = {
     "APS5_PROFILE_DRAW",
+    // Compares the compact resource walk with the IR walk without changing its output.
+    "APS5_VERIFY_SRT_COMPACT",
     "APS5_DUMP_IR",
     "APS5_NO_CODE_HASH_KEY",
     "APS5_NO_FAILURE_MEMO",

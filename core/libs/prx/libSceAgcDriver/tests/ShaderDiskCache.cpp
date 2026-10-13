@@ -635,6 +635,8 @@ void verifyAcrossProcesses(const char* self) {
     require(!compiled.spirv.empty(), "the compile produced no SPIR-V");
     const std::string command = "\"" + std::string(self) + "\" --load";
     require(std::system(command.c_str()) == 0, "the loading process failed");
+    require(std::system((command + " --verify-compact").c_str()) == 0, "compact verification prevented loading the stored variant");
+    require(std::system((command + " --no-verify-compact").c_str()) == 0, "disabling compact verification prevented loading the stored variant");
 }
 
 struct ClockRequest {
@@ -1097,6 +1099,21 @@ void verifyDefaultDirectory(const char* self) {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 3 && std::string_view(argv[1]) == "--load") {
+            const std::string_view mode(argv[2]);
+            if (mode == "--verify-compact") {
+                setEnvironment("APS5_VERIFY_SRT_COMPACT", "1");
+            } else if (mode == "--no-verify-compact") {
+#ifdef _WIN32
+                _putenv_s("APS5_VERIFY_SRT_COMPACT", "");
+#else
+                unsetenv("APS5_VERIFY_SRT_COMPACT");
+#endif
+            } else {
+                throw std::runtime_error("unknown compact verification mode");
+            }
+            return runLoadingProcess();
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--load") return runLoadingProcess();
         if (argc == 2 && std::string_view(argv[1]) == "--no-failure-memo") return runWithoutFailureMemo();
         const auto directory = std::filesystem::temp_directory_path() / ("aps5-shader-disk-cache-test-" + std::to_string(std::random_device{}()));
