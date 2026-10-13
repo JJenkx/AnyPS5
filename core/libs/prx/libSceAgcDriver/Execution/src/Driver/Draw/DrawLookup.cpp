@@ -177,10 +177,14 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
                 phaseMs[DrawRowKeyLookupValidate] -= waited;
                 phaseMs[DrawRowValidateWait] += waited;
                 counters.validateUs += phaseMs[DrawRowKeyLookupValidate] * 1000;
-                if (std::chrono::steady_clock::now() - counters.lastReport > std::chrono::seconds(10)) {
-                    counters.lastReport = std::chrono::steady_clock::now();
-                    reportDrawCache(counters);
-                }
+            }
+        }
+        if (profile) {
+            std::lock_guard cacheLock(drawCacheMutex);
+            auto& counters = drawEntryCounters;
+            if (std::chrono::steady_clock::now() - counters.lastReport > std::chrono::seconds(10)) {
+                counters.lastReport = std::chrono::steady_clock::now();
+                reportDrawCache(counters);
             }
         }
         phaseTiming.Phase(DrawRowKeyLookupValidate);
