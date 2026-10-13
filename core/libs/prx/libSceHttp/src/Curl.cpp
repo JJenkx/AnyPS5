@@ -128,7 +128,7 @@ private:
         headers.append(line);
         std::string name(line.substr(0, line.find(':')));
         std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c; });
-        if (name == "location") redirectLocation = true;
+        if (name == "location" && line.substr(line.find(':') + 1).find_first_not_of(" \t\r\n") != std::string_view::npos) redirectLocation = true;
         if (name == "content-length") {
             auto text = line.substr(line.find(':') + 1);
             while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) text.remove_prefix(1);
