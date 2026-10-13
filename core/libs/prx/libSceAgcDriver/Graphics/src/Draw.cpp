@@ -16,6 +16,7 @@
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
+#include "prx/libc/include/HostThreadLocal.hpp"
 #include "Optimization/include/Optimization/ShaderStageInputInfo.hpp"
 #include <algorithm>
 #include <array>
@@ -1249,8 +1250,7 @@ std::shared_ptr<StorageTexture> refreshResidentTarget(const Context& context, co
 // stages repeat, or a fresh build.
 struct ResolvedResources {
     static ResourceCache::Key& Scratch_nid_no_patch() {
-        static thread_local ResourceCache::Key key;
-        return key;
+        return HostThreadLocal<ResourceCache::Key, ResolvedResources>();
     }
     ResolvedResources() : contentKey(std::move(Scratch_nid_no_patch())) { contentKey.clear(); }
     ResolvedResources(const ResolvedResources&) = delete;
