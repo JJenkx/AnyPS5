@@ -107,7 +107,7 @@ void CheckUnwindInfo() {
 int main() {
     ModuleInfoForUnwind kernelUnwind{};
     ModuleInfoForUnwind sysmoduleUnwind{};
-    const auto mainAddress = reinterpret_cast<std::uint64_t>(&main);
+    const auto mainAddress = reinterpret_cast<std::uint64_t>(&Require);
     Require(sceKernelGetModuleInfoForUnwind(mainAddress, 0, &kernelUnwind) == 0);
     Require(sceSysmoduleGetModuleInfoForUnwind(mainAddress, 0, &sysmoduleUnwind) == 0);
     Require(kernelUnwind.st_size == sysmoduleUnwind.st_size && kernelUnwind.seg0_addr == sysmoduleUnwind.seg0_addr && kernelUnwind.seg0_size == sysmoduleUnwind.seg0_size);
