@@ -1,5 +1,7 @@
 # Relinker usage
 
+[**Online relinker**](https://boykopovar.github.io/AnyPS5/) - files stay on your device.
+
 ## Input and conversion
 
 Use a clean ELF executable. Place its bundled ELF modules in `sce_module/`, `sce_modules/`, or `prx/` beside the input executable, or under the parent directory selected with `--sce-module-path <path>`. The option accepts absolute paths and paths relative to the current working directory; do not include the `sce_module` directory itself. Only files directly inside the module directories are processed. A bundled module in a SELF container is an error, as the executable is. `prx/` can coexist with either `sce_module/` or `sce_modules/`. Both `sce_module/` and `sce_modules/` present, or all three absent, is an error.
@@ -48,6 +50,7 @@ All switches are disabled by default. `unused-filter` defaults to `0`; `--rpath`
 | `--macos`                     | Produce an x86-64 Mach-O executable, with bundled modules as Mach-O libraries in `app0/sce_module`. Conflicts with `--windows`.                                                                                                                                                                                                                                                                                                                                             |
 | `--windows-diagnostics`       | Include startup dependency diagnostics. Requires `--windows`.                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `--windows-gui`               | Select the Windows GUI subsystem instead of the console subsystem. Requires `--windows`.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `--windows-fixed-base <address>` | Map the lowest ELF load page at this fixed Windows address, given in decimal or hexadecimal (`0x`). Requires `--windows`, a 64 KiB-aligned address from `0x20000` through `0x7fffffff0000`, and a complete image fitting in the user address space. The main executable has no ASLR or base relocations; an occupied address fails to load. Bundled modules keep their normal placement. |
 | `--to-intel`                  | Convert supported AMD-only instructions in the executable and bundled modules. Unsupported instructions or unreachable conversion stubs cause an error.                                                                                                                                                                                                                                                                                                                     |
 | `--to-rosetta`                | Convert as `--to-intel` does and also lower what Rosetta lacks: RDSEED becomes RDRAND, CLWB a NOP, and RDPID returns processor 0. Implies `--to-intel`. Independent of `--macos`: `--macos` alone leaves these instructions as they are. Conflicts with `--windows`.                                                    |
 | `unused-filter=0`             | Keep all imported NID references.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -80,6 +83,8 @@ The backend supports blocking requests, binary bodies, response headers and stat
 With the host backend enabled, certificate-loading calls, epoll calls, enabling nonblocking requests and registering a nonnull request-status callback throw. Titles that load custom certificates during initialization may stop before their first request. Automatic proxy configuration, cookies, authentication, other guest callbacks, explicit TLS versions and chunked uploads also throw when requested. Console behavior and title compatibility remain unverified; see [technical debt](../dev/debt/libSceHttp.md).
 
 ## Runtime layout
+
+For an executable that assumes its image starts at `0x400000`, use `relinker --windows --windows-fixed-base 0x400000 source/input.elf app.exe`. This maps its lowest ELF load page there; the PE headers occupy the preceding 64 KiB. Use this option only when the executable requires a fixed address. Without it, Windows placement and relocation behavior are unchanged. This option does not change Linux or macOS output.
 
 Paths are relative to the output executable:
 
@@ -115,6 +120,8 @@ Windows PowerShell:
 ```powershell
 .\app.exe
 ```
+
+A Windows executable started without a standard output or error handle, such as a `--windows-gui` build started from Explorer, writes that output to `anyps5.log` beside it, replacing the previous run's file. Without write access to that directory it runs without the log.
 
 ### Controller input for test runs
 
