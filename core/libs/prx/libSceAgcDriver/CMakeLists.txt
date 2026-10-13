@@ -1099,6 +1099,7 @@ foreach(agcExecutionTestSource IN LISTS agcExecutionTestSources)
     configure_windows_unwind(${agcExecutionTest})
     list(APPEND agcExecutionTests ${agcExecutionTest})
 endforeach()
+target_include_directories(agc_driver_specialized_atomic_fault_tests PRIVATE $<TARGET_PROPERTY:shader_recompiler_agc_driver,INTERFACE_INCLUDE_DIRECTORIES>)
 target_link_libraries(agc_driver_direct_memory_transfers_tests PRIVATE libkernel)
 
 target_link_libraries(agc_driver_dma_buf_import_footprint_tests PRIVATE libkernel)
