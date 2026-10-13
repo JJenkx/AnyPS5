@@ -20,6 +20,7 @@ int APS5_VABI sceSysmoduleLoadModuleInternal(std::uint32_t id);
 int APS5_VABI sceSysmoduleUnloadModuleInternal(std::uint32_t id);
 int APS5_VABI sceSysmoduleLoadModuleInternalWithArg(std::uint32_t id, int argc, void* argv, std::uint64_t unk, int* ret);
 int APS5_VABI sceSysmoduleGetModuleInfoForUnwind(std::uint64_t addr, int flags, ModuleInfoForUnwind* info);
+int APS5_VABI sceKernelGetModuleInfoForUnwind(std::uint64_t addr, int flags, ModuleInfoForUnwind* info);
 int APS5_VABI sceSysmoduleGetModuleHandleInternal(std::uint32_t id, std::int32_t* handle);
 int APS5_VABI sceKernelDlsym(std::int32_t handle, const char* symbol, void** addr);
 }
@@ -77,7 +78,9 @@ void RequireUnwindMatchesMaps(const void* pointer) {
     Require(info.st_size == sizeof(ModuleInfoForUnwind));
     Require(info.seg0_addr == expected.start && info.seg0_size == expected.end - expected.start);
     Require(std::string(info.name) == expected.path.substr(0, sizeof(info.name) - 1));
-    Require(info.eh_frame_hdr_addr == 0 && info.eh_frame_addr == 0 && info.eh_frame_size == 0);
+    ModuleInfoForUnwind kernel{};
+    Require(sceKernelGetModuleInfoForUnwind(address, 0, &kernel) == 0);
+    Require(info.eh_frame_hdr_addr == kernel.eh_frame_hdr_addr && info.eh_frame_addr == kernel.eh_frame_addr && info.eh_frame_size == kernel.eh_frame_size);
 }
 
 void CheckUnwindInfo() {
@@ -93,19 +96,26 @@ void CheckUnwindInfo() {
     void* gap = mmap(nullptr, page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     Require(gap != MAP_FAILED && munmap(gap, page) == 0);
     ModuleInfoForUnwind info{};
-    bool threw = false;
-    try {
-        sceSysmoduleGetModuleInfoForUnwind(reinterpret_cast<std::uint64_t>(gap), 0, &info);
-    } catch (const std::runtime_error&) {
-        threw = true;
-    }
-    Require(threw);
+    info.st_size = 0x5a5a;
+    Require(sceSysmoduleGetModuleInfoForUnwind(reinterpret_cast<std::uint64_t>(gap), 0, &info) == static_cast<int>(0x80020003u));
+    Require(info.st_size == 0x5a5a);
 }
 #endif
 
 }
 
 int main() {
+    ModuleInfoForUnwind kernelUnwind{};
+    ModuleInfoForUnwind sysmoduleUnwind{};
+    const auto mainAddress = reinterpret_cast<std::uint64_t>(&main);
+    Require(sceKernelGetModuleInfoForUnwind(mainAddress, 0, &kernelUnwind) == 0);
+    Require(sceSysmoduleGetModuleInfoForUnwind(mainAddress, 0, &sysmoduleUnwind) == 0);
+    Require(kernelUnwind.st_size == sysmoduleUnwind.st_size && kernelUnwind.seg0_addr == sysmoduleUnwind.seg0_addr && kernelUnwind.seg0_size == sysmoduleUnwind.seg0_size);
+    Require(kernelUnwind.eh_frame_hdr_addr == sysmoduleUnwind.eh_frame_hdr_addr && kernelUnwind.eh_frame_addr == sysmoduleUnwind.eh_frame_addr && kernelUnwind.eh_frame_size == sysmoduleUnwind.eh_frame_size);
+#ifdef __linux__
+    Require(sysmoduleUnwind.eh_frame_hdr_addr != 0 && sysmoduleUnwind.eh_frame_addr != 0 && sysmoduleUnwind.eh_frame_size != 0);
+#endif
+    Require(sceSysmoduleGetModuleInfoForUnwind(mainAddress, 0, nullptr) == static_cast<int>(0x8002000eu));
     Require(sceSysmoduleIsLoaded(0) == kInvalidValue);
     Require(sceSysmoduleLoadModule(0) == kInvalidValue);
     Require(sceSysmoduleUnloadModule(0) == kInvalidValue);
