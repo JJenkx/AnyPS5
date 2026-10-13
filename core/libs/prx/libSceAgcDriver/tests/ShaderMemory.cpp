@@ -3648,6 +3648,25 @@ int main(int argc, char** argv) {
         AgcDriver::ShaderMemory memory({});
         const auto capture = memory.Capture(request);
         {
+            // Pipelined draws move a populated capture to the committer. Destroy the source,
+            // then capture different bytes so returning its pages to the pool too soon is visible.
+            auto movedMemory = [&] {
+                AgcDriver::ShaderMemory source({});
+                static_cast<void>(source.Capture(request));
+                return AgcDriver::ShaderMemory(std::move(source));
+            }();
+            const auto savedPayload = payload;
+            payload = 0x40000000u;
+            {
+                AgcDriver::ShaderMemory replacement({});
+                static_cast<void>(replacement.Capture(request));
+            }
+            payload = savedPayload;
+            const auto movedCapture = movedMemory.Capture(request);
+            require(movedCapture->snapshot.flattenedSrt == capture->snapshot.flattenedSrt, "moving shader memory recycled its captured pages before the committer read them");
+            require(movedCapture->readTrace.leaves == capture->readTrace.leaves && movedCapture->readTrace.otherReads == capture->readTrace.otherReads, "moving shader memory lost its captured read trace");
+        }
+        {
             // The payload slot is consumed by the export alone: pure, its leaf traced at the
             // payload's address; the table pointer's words (the payload's address cone) are among
             // the other reads.
