@@ -473,6 +473,7 @@ Pipeline::Pipeline(const Context& context, const State& state, const VertexInput
         if (state.rectList || state.stages.tessellation) {
             tessellation.patchControlPoints = state.rectList ? 3u : state.stages.tessellation->inputControlPoints;
             pipelineInfo.pTessellationState = &tessellation;
+            if (context.disableTessellationOptimization) pipelineInfo.flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
         }
         pipelineInfo.pVertexInputState = state.stages.mesh ? nullptr : &input;
         pipelineInfo.pInputAssemblyState = state.stages.mesh ? nullptr : &assembly;
@@ -820,6 +821,7 @@ void pipelineKey(std::vector<std::byte>& key, const Context& context, const Stat
         append(key, mesh.provokingVertex);
     }
     append(key, state.stages.tessellation.has_value());
+    append(key, context.disableTessellationOptimization);
     if (state.stages.tessellation) {
         const auto& tessellation = *state.stages.tessellation;
         append(key, tessellation.inputControlPoints);
