@@ -31,7 +31,9 @@
 
 extern "C" int* APS5_VABI __error_nid_postfix();
 
+static constexpr int GUEST_EFAULT = 14;
 static constexpr int GUEST_EINVAL = 22;
+static constexpr int GUEST_CLOCK_REALTIME = 0;
 static constexpr int GUEST_CLOCK_THREAD_CPUTIME_ID = 14;
 
 static bool IsCpuClock(int clockId) {
@@ -550,6 +552,20 @@ int APS5_VABI clock_getres_nid_postfix(int clockId, KernelTimespec* res) {
 #endif
 }
 
+int APS5_VABI clock_settime_nid_postfix(int clockId, const KernelTimespec* tp) {
+    if (tp == nullptr) {
+        *__error_nid_postfix() = GUEST_EFAULT;
+        return -1;
+    }
+    if (clockId != GUEST_CLOCK_REALTIME || tp->tv_nsec < 0 || tp->tv_nsec >= 1000000000 || tp->tv_sec < 0) {
+        *__error_nid_postfix() = GUEST_EINVAL;
+        return -1;
+    }
+    char requested[48];
+    std::snprintf(requested, sizeof(requested), "%lld.%09lld", static_cast<long long>(tp->tv_sec), static_cast<long long>(tp->tv_nsec));
+    throw std::runtime_error(std::string("clock_settime: setting CLOCK_REALTIME to ") + requested + " is not supported, the host clock is not changed");
+}
+
 // ---------------------------------------------------------------------------
 // Moved as-is (not yet implemented) from the monolithic libkernel/Export.cpp.
 // ---------------------------------------------------------------------------
@@ -612,6 +628,10 @@ uint64_t APS5_VABI sceKernelGetTscFrequency(void) {
         return static_cast<std::uint64_t>(static_cast<long double>(elapsedTicks) * 1000000000.0L / static_cast<long double>(elapsedNanos));
     }();
     return frequency;
+}
+
+std::int64_t APS5_VABI sceKernelGetCpuFrequency(void) {
+    return static_cast<std::int64_t>(sceKernelGetTscFrequency());
 }
 
 unsigned int APS5_VABI sceKernelSleep(unsigned int seconds) {
