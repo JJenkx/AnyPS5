@@ -141,6 +141,16 @@ int main(int argc, char** argv) {
     const auto bodyAbort = Get(connection, "/slowbody/body-abort");
     Require(sceHttpAbortRequest(bodyAbort) == 0 && sceHttpReadData(bodyAbort, small, sizeof(small)) == aborted, "abort a pending response body");
     Require(sceHttpDeleteRequest(bodyAbort) == 0, "body abort cleanup");
+#ifdef __linux__
+    const auto truncated = sceHttpCreateRequest(connection, 0, "/truncated", 0);
+    Require(sceHttpSendRequest(truncated, nullptr, 0) == 0, "truncated response lost its complete headers");
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    char partial[16]{};
+    Require(sceHttpReadData(truncated, partial, sizeof(partial)) == 5 && std::memcmp(partial, "short", 5) == 0, "truncated response discarded received bytes");
+    Require(sceHttpReadData(truncated, partial, sizeof(partial)) < 0, "truncated body became successful EOF");
+    Require(sceHttpReadData(truncated, partial, sizeof(partial)) < 0, "truncated body failure was not retained");
+    Require(sceHttpDeleteRequest(truncated) == 0, "truncated cleanup");
+#endif
     const auto post = sceHttpCreateRequestWithURL2(connection, "POST", (std::string(argv[1]) + "/echo").c_str(), 0);
     const std::string payload("post\0bytes", 10);
     Require(sceHttpSendRequest(post, payload.data(), payload.size()) == invalidValue, "body length mismatch");

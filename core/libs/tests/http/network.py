@@ -69,6 +69,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.response(200, b"abc\0tail", [("X-Test", "local")])
             elif self.path == "/redirect-report":
                 self.response(200, b"GET")
+            elif self.path == "/truncated":
+                self.send_response(200)
+                self.send_header("Content-Length", "10")
+                self.end_headers()
+                self.wfile.write(b"short")
+                self.wfile.flush()
+                self.close_connection = True
             elif self.path == "/stream":
                 self.response(200, bytes(range(256)) * 512)
             elif self.path == "/final":
