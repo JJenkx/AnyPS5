@@ -3,12 +3,14 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 
 struct ParsedParamJson {
     std::string title;
     std::string titleId;
     std::uint64_t downloadDataSizeMiB = 0;
+    std::optional<std::uint32_t> applicationCategoryType;
     std::int32_t userDefinedParams[4] = {};
 };
 
