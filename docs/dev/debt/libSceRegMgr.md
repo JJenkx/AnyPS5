@@ -1,0 +1,5 @@
+# libSceRegMgr technical debt
+
+### Unknown function info
+
+- [sceRegMgrNonSysGetInt](../../../core/libs/prx/libSceRegMgr/Export.cpp) supports scope 0 read-only integer lookups. Its 64-bit encoded request, 32-bit scope and four-byte output are observed in PPSA21564's bundled AGC module. Checksum/key decoding and errors `0x800d0203` (missing key) and `0x800d0204` (checksum mismatch) follow [Obliteration regmgr](https://github.com/obhq/obliteration/blob/2a53d5c4dec2ffc5c61b077a426240292fc45c08/legacy/src/regmgr/mod.rs). The optional host file named by `APS5_REGMGR_INTS` supplies one decoded unsigned key and signed integer per line, with decimal keys or a `0x` prefix. The file is read once on the first valid lookup; absent configuration means an empty store. Console defaults, persistence, access permissions and PS5 error equivalence are unverified. Nonzero scopes, unknown request formats, null outputs and malformed configuration throw; writes and other value types are not implemented. No developer-setting values are inferred from a title's requests.
