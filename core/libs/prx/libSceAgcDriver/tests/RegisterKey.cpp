@@ -57,6 +57,7 @@ void testFingerprints() {
     const auto compare = [&] {
         const auto expected = baselineRegisterStateKey(queue);
         const auto actual = RegisterStateKey(queue);
+        check(RegisterShapeKey(queue) == RegisterShapeKey(queue, false), "incremental shape fingerprint missed a mutation");
         check(actual == RegisterStateKey(queue, false, false), "incremental fingerprint missed a mutation");
         check(RegisterStateKey(queue, true) == RegisterStateKey(queue, true, false), "all-user fingerprint missed a mutation");
         check((expected == reference) == (actual == tracked), "exact key changed its dependency set");
@@ -100,6 +101,15 @@ void testFingerprints() {
         }
         compare();
     }
+    QueueState runtime;
+    runtime.shader[0x8b] = 4;
+    runtime.shader[0x8c] = 17;
+    const auto shape = RegisterShapeKey(runtime);
+    const auto exact = RegisterStateKey(runtime);
+    runtime.shader[0x8c] = 29;
+    check(RegisterShapeKey(runtime) == shape && RegisterStateKey(runtime) != exact, "runtime probe did not isolate user-data churn");
+    runtime.shader[0x8b] = 6;
+    check(RegisterShapeKey(runtime) != shape, "shape probe dropped the user-data count");
     queue.shader[0x8b] = 0; compare();
     queue.shader[0x8c] = random(); compare();
     queue.shader[0x8b] = 2; compare();

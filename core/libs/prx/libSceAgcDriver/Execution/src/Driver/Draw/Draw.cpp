@@ -70,7 +70,24 @@ DrawVerdict Driver::draw(QueueState& queue, std::span<const std::uint32_t> packe
     if (registerKey) {
         const auto keyStart = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         drawKey = drawRegisterKey(queue, *submission.shaders, localDevice->Serial());
+        const auto shapeKey = profile ? drawRegisterKey(queue, *submission.shaders, localDevice->Serial(), false) : 0;
         std::lock_guard cacheLock(drawCacheMutex);
+        if (profile) {
+            ++drawEntryCounters.shapeLookups;
+            const auto previous = drawShapeLastExact.find(shapeKey);
+            if (previous == drawShapeLastExact.end()) {
+                if (drawShapeLastExact.size() >= 16384) {
+                    drawShapeLastExact.clear();
+                    ++drawEntryCounters.shapeResets;
+                }
+                drawShapeLastExact.emplace(shapeKey, drawKey);
+                ++drawEntryCounters.shapeNew;
+            } else {
+                if (previous->second == drawKey) ++drawEntryCounters.shapeSameExact;
+                else ++drawEntryCounters.shapeDifferentExact;
+                previous->second = drawKey;
+            }
+        }
         ++drawEntryCounters.lookups;
         ++drawEntryCounters.registerKeyLookups;
         if (profile) drawEntryCounters.keyUs += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - keyStart).count();

@@ -33,7 +33,7 @@ const auto& registerMasks() {
 
 }
 
-std::uint64_t RegisterStateKey(const QueueState& queue, bool allUserWords, bool incremental) {
+std::uint64_t RegisterShapeKey(const QueueState& queue, bool incremental) {
     const auto& masks = registerMasks();
     const auto fingerprint = [&](const Registers& registers, Graphics::RegisterBank bank) {
         const auto& mask = masks[static_cast<std::size_t>(bank)];
@@ -42,7 +42,11 @@ std::uint64_t RegisterStateKey(const QueueState& queue, bool allUserWords, bool 
     auto shape = (0xcbf29ce484222325ull ^ fingerprint(queue.context, Graphics::RegisterBank::Context)) * 0x100000001b3ull;
     shape = (shape ^ fingerprint(queue.shader, Graphics::RegisterBank::Shader)) * 0x100000001b3ull;
     shape = (shape ^ fingerprint(queue.userConfig, Graphics::RegisterBank::UserConfig)) * 0x100000001b3ull;
-    auto exact = shape;
+    return shape;
+}
+
+std::uint64_t RegisterStateKey(const QueueState& queue, bool allUserWords, bool incremental) {
+    auto exact = RegisterShapeKey(queue, incremental);
     const auto words = [&](std::uint32_t base, std::uint32_t count) {
         for (auto it = queue.shader.lower_bound(base); it != queue.shader.end() && it->first < base + count; ++it) {
             exact = (exact ^ it->first) * 0x100000001b3ull;
@@ -60,11 +64,11 @@ std::uint64_t RegisterStateKey(const QueueState& queue, bool allUserWords, bool 
 }
 
 
-std::uint64_t Driver::drawRegisterKey(const QueueState& queue, const ShaderRegistry& registry, std::uint64_t deviceSerial) {
+std::uint64_t Driver::drawRegisterKey(const QueueState& queue, const ShaderRegistry& registry, std::uint64_t deviceSerial, bool includeRuntime) {
     static const bool allUserWords = std::getenv("APS5_DRAW_KEY_ALL_USER_WORDS") != nullptr;
     static const bool verify = std::getenv("APS5_VERIFY_REGISTER_KEYS") != nullptr;
-    auto key = RegisterStateKey(queue, allUserWords);
-    if (verify && key != RegisterStateKey(queue, allUserWords, false)) throw std::runtime_error("incremental register fingerprint disagrees with full state");
+    auto key = includeRuntime ? RegisterStateKey(queue, allUserWords) : RegisterShapeKey(queue);
+    if (verify && key != (includeRuntime ? RegisterStateKey(queue, allUserWords, false) : RegisterShapeKey(queue, false))) throw std::runtime_error("incremental register fingerprint disagrees with full state");
     const auto mix = [&](std::uint64_t value) {
         key ^= value;
         key *= 0x100000001b3ull;
