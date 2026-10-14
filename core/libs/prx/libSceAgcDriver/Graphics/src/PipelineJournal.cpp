@@ -35,7 +35,7 @@ static_assert(sizeof(VkStencilOpState) == 28, "VkStencilOpState changed: update 
 static_assert(sizeof(VkVertexInputBindingDescription) == 12, "VkVertexInputBindingDescription changed: update the recipe codec");
 static_assert(sizeof(VkVertexInputAttributeDescription) == 16, "VkVertexInputAttributeDescription changed: update the recipe codec");
 #if defined(__linux__) && defined(__x86_64__) && defined(__GLIBCXX__)
-static_assert(sizeof(State) == 664, "State changed: update CanonicalPipelineState and the recipe codec");
+static_assert(sizeof(State) == 688, "State changed: update CanonicalPipelineState and the recipe codec");
 static_assert(sizeof(ShaderStages) == 100, "ShaderStages changed: update the recipe codec");
 static_assert(sizeof(ShaderRecompiler::MeshConfiguration) == 36, "MeshConfiguration changed: update the recipe codec");
 static_assert(sizeof(ShaderRecompiler::TessellationConfiguration) == 32, "TessellationConfiguration changed: update the recipe codec");
@@ -207,6 +207,8 @@ void encodeState(Writer& writer, const State& state) {
     writer.U32(state.samples);
     for (const auto value : state.sampleLocations) writer.Raw(value);
     writer.Bool(state.customSampleLocations);
+    writer.Bool(state.sampleLocationGrid);
+    writer.Bool(state.perSampleShading);
 }
 
 void decodeState(Reader& reader, State& state) {
@@ -260,6 +262,8 @@ void decodeState(Reader& reader, State& state) {
     state.samples = reader.U32();
     for (auto& value : state.sampleLocations) value = reader.Raw<std::uint8_t>();
     state.customSampleLocations = reader.Bool();
+    state.sampleLocationGrid = reader.Bool();
+    state.perSampleShading = reader.Bool();
 }
 
 void encodeRecipe(Writer& writer, const GraphicsPipelineRecipe& recipe) {
@@ -993,6 +997,8 @@ State CanonicalPipelineState(const State& state) {
     canonical.samples = state.samples;
     canonical.sampleLocations = state.sampleLocations;
     canonical.customSampleLocations = state.customSampleLocations;
+    canonical.sampleLocationGrid = state.sampleLocationGrid;
+    canonical.perSampleShading = state.perSampleShading;
     return canonical;
 }
 
