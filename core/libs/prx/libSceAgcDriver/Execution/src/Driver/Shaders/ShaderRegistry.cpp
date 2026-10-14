@@ -369,7 +369,7 @@ static bool RelocatedRegisters(const ShaderSnapshot& snapshot, Shader used, cons
 }
 
 bool SameHeader(const ShaderSnapshot& snapshot, const Shader* shader) {
-    if (snapshot.headerAddress == reinterpret_cast<std::uintptr_t>(shader)) return true;
+    if (snapshot.headerSource == nullptr && snapshot.headerAddress == reinterpret_cast<std::uintptr_t>(shader)) return true;
     if (snapshot.header.size() < sizeof(Shader)) return false;
     GuestMemory::CheckRange(shader, sizeof(Shader), 1);
     Shader used;
@@ -384,7 +384,7 @@ std::shared_ptr<const ShaderSnapshot> RegisteredHeader(const ShaderRegistry& reg
     const auto found = registry.find(reinterpret_cast<std::uintptr_t>(const_cast<const void*>(GuestShaderFields(shader).code)));
     if (found == registry.end()) return {};
     for (const auto& snapshot : found->second) {
-        if (snapshot->headerAddress == reinterpret_cast<std::uintptr_t>(shader)) return snapshot;
+        if (snapshot->headerAddress == reinterpret_cast<std::uintptr_t>(shader) && (snapshot->headerSource == nullptr || SameHeader(*snapshot, shader))) return snapshot;
     }
     for (const auto& snapshot : found->second) {
         if (SameHeader(*snapshot, shader)) return snapshot;
@@ -434,6 +434,22 @@ void PublishRegisteredShader(std::shared_ptr<ShaderRegistry>& registry, const st
     headers.push_back(published);
     registry = std::move(next);
     transaction.Commit();
+}
+
+std::shared_ptr<const ShaderSnapshot> RelocateSnapshotHeader(std::shared_ptr<ShaderRegistry>& registry, const std::shared_ptr<const ShaderSnapshot>& snapshot, const Shader* shader) {
+    if (snapshot->headerAddress == reinterpret_cast<std::uintptr_t>(shader)) return snapshot;
+    const auto fields = GuestShaderFields(shader);
+    const auto address = reinterpret_cast<std::uintptr_t>(shader);
+    const auto userAddress = reinterpret_cast<std::uintptr_t>(fields.user_data);
+    if (userAddress < address || userAddress - address < sizeof(Shader) || userAddress - address > fields.header_size || fields.header_size - (userAddress - address) < sizeof(ShaderUserData)) return snapshot;
+    GuestMemory::CheckRange(shader, fields.header_size, 1);
+    auto relocated = std::make_shared<ShaderSnapshot>(*snapshot);
+    relocated->headerSource = snapshot;
+    relocated->headerAddress = reinterpret_cast<std::uintptr_t>(shader);
+    relocated->header.resize(fields.header_size);
+    std::memcpy(relocated->header.data(), static_cast<const void*>(shader), fields.header_size);
+    PublishRegisteredShader(registry, relocated);
+    return relocated;
 }
 
 namespace {
@@ -627,11 +643,13 @@ template<typename TValue>
 std::vector<TValue> ReadHeaderArray(const ShaderSnapshot& snapshot, const TValue* pointer, std::size_t count) {
     if (count == 0) return {};
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
-    if (address < snapshot.headerAddress || address - snapshot.headerAddress > snapshot.header.size()) throw std::runtime_error("AGC driver: shader metadata is outside the registered header");
-    const auto offset = static_cast<std::size_t>(address - snapshot.headerAddress);
-    if (count > (snapshot.header.size() - offset) / sizeof(TValue)) throw std::runtime_error("AGC driver: truncated shader metadata");
+    const auto* source = &snapshot;
+    while (source != nullptr && (address < source->headerAddress || address - source->headerAddress > source->header.size())) source = source->headerSource.get();
+    if (source == nullptr) throw std::runtime_error("AGC driver: shader metadata is outside the registered header");
+    const auto offset = static_cast<std::size_t>(address - source->headerAddress);
+    if (count > (source->header.size() - offset) / sizeof(TValue)) throw std::runtime_error("AGC driver: truncated shader metadata");
     std::vector<TValue> result(count);
-    std::memcpy(result.data(), snapshot.header.data() + offset, count * sizeof(TValue));
+    std::memcpy(result.data(), source->header.data() + offset, count * sizeof(TValue));
     return result;
 }
 
@@ -1114,8 +1132,10 @@ void Driver::ResolveGraphicsStagesAbi(std::span<const Shader* const> stages, std
             require(registry != nullptr && registry->contains(address), "graphics ABI refers to an unregistered shader");
             const auto selected = RegisteredHeader(*registry, shader);
             require(selected != nullptr, "graphics ABI refers to a replaced shader header");
-            if (owner == nullptr) owner = selected;
-            const auto& snapshot = *selected;
+            const auto relocated = RelocateSnapshotHeader(shaders, selected, shader);
+            if (relocated != selected) registry = shaders;
+            if (owner == nullptr) owner = relocated;
+            const auto& snapshot = *relocated;
             require(snapshot.registeredState != nullptr, "registered shader state is missing");
             const auto registered = DecodeRegisteredState(snapshot, {});
             registered.shader.ForEach([&](std::uint32_t offset, std::uint32_t value) { state.shader.insert_or_assign(offset, value); });
@@ -1191,6 +1211,7 @@ void Driver::ResolveShaderAbi(const Shader* shader, std::span<const ShaderRegist
         require(shaders != nullptr && shaders->contains(address), "static ABI refers to an unregistered shader");
         snapshot = RegisteredHeader(*shaders, shader);
         require(snapshot != nullptr, "static ABI refers to a replaced shader header");
+        snapshot = RelocateSnapshotHeader(shaders, snapshot, shader);
     }
     require(snapshot->registeredState != nullptr, "registered shader state is missing");
     QueueState state{};
@@ -1257,8 +1278,9 @@ void Driver::ResolveGraphicsAbi(const Shader* vertex, const Shader* pixel, std::
         const auto lookup = [&](const Shader* shader) {
             const auto address = reinterpret_cast<std::uintptr_t>(const_cast<const void*>(GuestShaderFields(shader).code));
             require(shaders != nullptr && shaders->contains(address), "rectangle ABI refers to an unregistered shader");
-            const auto snapshot = RegisteredHeader(*shaders, shader);
+            auto snapshot = RegisteredHeader(*shaders, shader);
             require(snapshot != nullptr, "rectangle ABI refers to a replaced shader header");
+            snapshot = RelocateSnapshotHeader(shaders, snapshot, shader);
             return snapshot;
         };
         front = lookup(vertex);
