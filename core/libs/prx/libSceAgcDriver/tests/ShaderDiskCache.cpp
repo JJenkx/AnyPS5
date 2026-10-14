@@ -339,6 +339,18 @@ std::vector<std::byte> packEntry(std::span<const std::byte> key, std::span<const
     return bytes;
 }
 
+void verifyPackEntryAlignment() {
+    SampleRequest sample;
+    const auto variant = sampleVariant();
+    for (std::size_t extra = 0; extra < 8; ++extra) {
+        auto key = sample.Key();
+        key.insert(key.end(), extra, std::byte{0x5a});
+        const auto entry = ShaderDiskCache::EncodeEntry(key, variant);
+        require(ShaderDiskCache::IsCurrentEntryHeader(std::span(entry).first(ShaderDiskCache::EntryHeaderBytes), entry.size()), "pack rejected current header for key alignment " + std::to_string(key.size() % 8));
+        require(std::ranges::equal(ShaderDiskCache::EntryKey(entry), key), "pack rejected current key alignment " + std::to_string(key.size() % 8));
+    }
+}
+
 void verifyPack(const std::filesystem::path& directory) {
     SampleRequest sample;
     const auto key = sample.Key();
@@ -1961,6 +1973,7 @@ int main(int argc, char** argv) {
         verifyResultRoundTrip();
         verifyEntryRoundTrip();
         verifyPack(directory);
+        verifyPackEntryAlignment();
         verifyArtifactStorageIsolation();
         verifyKeySensitivity();
         verifyFloatModeSerialization();

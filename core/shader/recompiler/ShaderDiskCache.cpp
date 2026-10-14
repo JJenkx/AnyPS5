@@ -1628,13 +1628,10 @@ std::vector<std::byte> EncodeEntry(std::span<const std::byte> key, const Compile
 }
 
 std::span<const std::byte> EntryKey(std::span<const std::byte> file) {
-    if (file.size() < sizeof(FileHeader)) return {};
+    if (!IsCurrentEntryHeader(file, file.size())) return {};
     FileHeader header;
     std::memcpy(&header, file.data(), sizeof(header));
-    if (header.magic != FileMagic || header.format != FormatVersion || header.sourceVersion != SourceVersion()) return {};
-    const auto body = file.size() - sizeof(header);
-    if (header.keyBytes == 0 || header.keyBytes > body || header.payloadBytes != body - header.keyBytes) return {};
-    const auto key = file.subspan(sizeof(header), header.keyBytes);
+    const auto key = file.subspan(sizeof(header), static_cast<std::size_t>(header.keyBytes));
     return HashBytes(key) == header.keyHash ? key : std::span<const std::byte>{};
 }
 
@@ -1642,8 +1639,10 @@ bool IsCurrentEntryHeader(std::span<const std::byte> bytes, std::uint64_t fileBy
     if (bytes.size() < sizeof(FileHeader) || fileBytes < sizeof(FileHeader)) return false;
     FileHeader header;
     std::memcpy(&header, bytes.data(), sizeof(header));
-    const auto body = fileBytes - sizeof(header);
-    return header.magic == FileMagic && header.format == FormatVersion && header.sourceVersion == SourceVersion() && header.keyBytes > 0 && header.keyBytes <= body && header.payloadBytes == body - header.keyBytes;
+    if (header.magic != FileMagic || header.format != FormatVersion || header.sourceVersion != SourceVersion()) return false;
+    if (header.keyBytes == 0 || header.keyBytes > fileBytes - sizeof(header)) return false;
+    const auto payloadOffset = PayloadOffset(static_cast<std::size_t>(header.keyBytes));
+    return payloadOffset >= header.keyBytes && payloadOffset <= fileBytes && header.payloadBytes == fileBytes - payloadOffset;
 }
 
 LoadStatus DecodeEntry(std::span<const std::byte> file, std::span<const std::byte> key, CompiledVariant& variant, std::shared_ptr<const void> owner) {
