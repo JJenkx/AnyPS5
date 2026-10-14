@@ -145,17 +145,13 @@ still match. A standalone archive variant may therefore miss a live request;
 replaying captured requests with `--offline` preserves their actual targets.
 
 The renderer maps each pack once, checks its small sorted index, and reads only
-requested entries. Windows uses positioned reads on the retained file handle
-and a reusable per-thread buffer; this avoids repeated file opens and performs
-better than mapped payload faults in the measured small batch. Linux uses mapped
-payloads. `ANYPS5_PREBUILT_MAPPED_READ=1` selects the mapped Windows path for paired
-measurements. Full keys and payload checksums are checked on a hit. Misses
-or rejected entries fall through to the existing writable cache and compiler.
-No all-shader decompression, directory scan or cache copying occurs per draw.
-`ANYPS5_PREBUILT_SHADER_CACHE` adds pack files or folders (semicolon-separated on
-Windows, colon-separated on Linux); normal loose cache files and versioned
-cache folders are supported. `ANYPS5_NO_PREBUILT_SHADERS=1` disables this path.
-Publish before launching; running processes keep their current mapped snapshot.
+requested entries from the mapped pack. Full keys and payload checksums are
+checked on a hit. Misses or rejected entries fall through to the existing
+writable cache and compiler. No all-shader decompression, directory scan or
+cache copying occurs per draw. The emulator reads packs and loose entry files
+only from `shader_cache/prebuilt` next to the writable cache; there is no
+environment-variable override. Publish before launching; running processes
+keep their current mapped snapshot.
 
 `[shader-prebuilt]` logs startup mapping time, the first exact hit, and interval
 hits/misses/rejections with lookup, file-read, decode, total and maximum load
