@@ -343,6 +343,8 @@ public:
             demuxEpoch = 1;
             minEpoch = 1;
             clockEpoch = 0;
+            loopWarningEpochs.clear();
+            loopWarningPending = false;
             audioDriving = false;
             presented = false;
             lastPresented = 0;
@@ -433,22 +435,30 @@ public:
 
     bool GetVideoData(AvPlayerFrameInfoEx& info) override {
         bool taken = false;
+        bool loopWarning = false;
         {
             std::lock_guard lock(mutex);
             taken = takeVideo(info);
+            loopWarning = loopWarningPending;
+            loopWarningPending = false;
         }
         condition.notify_all();
+        if (loopWarning) events.OnWarning(SCE_AVPLAYER_ERROR_WAR_LOOPING_BACK);
         return taken;
     }
 
     bool GetAudioData(AvPlayerFrameInfo& info) override {
         AvPlayerFrameInfoEx extended{};
         bool taken = false;
+        bool loopWarning = false;
         {
             std::lock_guard lock(mutex);
             taken = takeAudio(extended);
+            loopWarning = loopWarningPending;
+            loopWarningPending = false;
         }
         condition.notify_all();
+        if (loopWarning) events.OnWarning(SCE_AVPLAYER_ERROR_WAR_LOOPING_BACK);
         if (!taken) return false;
         info = {};
         info.p_data = static_cast<std::uint8_t*>(extended.p_data);
@@ -515,7 +525,7 @@ private:
         }
         if (synced || audioDriving) {
             const auto now = presentationClock.Now();
-            if (synced && static_cast<double>(front.info.timestamp) > now) return false;
+            if (static_cast<double>(front.info.timestamp) > now) return false;
             while (frames.size() > 1 && frames[1].epoch == frames.front().epoch && static_cast<double>(frames[1].info.timestamp) <= now) recycleFront(video);
         }
         present(video, info);
@@ -579,6 +589,8 @@ private:
             picture.luma_bit_depth = 8;
             picture.chroma_bit_depth = 8;
             picture.video_full_range_flag = parameters->color_range == AVCOL_RANGE_JPEG;
+            const auto rate = av_guess_frame_rate(format, const_cast<AVStream*>(&stream), nullptr);
+            picture.frame_rate = rate.num > 0 && rate.den > 0 ? av_q2d(rate) : 0.0;
         } else {
             auto& sound = info.details.audio;
             sound.channel_count = basic.details.audio.channel_count;
@@ -708,6 +720,11 @@ private:
     }
 
     void present(Decoder& decoder, AvPlayerFrameInfoEx& info) {
+        const auto& front = decoder.frames.front();
+        while (!loopWarningEpochs.empty() && front.epoch >= loopWarningEpochs.front()) {
+            loopWarningEpochs.pop_front();
+            loopWarningPending = true;
+        }
         if (decoder.current) decoder.handedOut.push_back(decoder.current->buffer);
         while (decoder.handedOut.size() > decoder.retained) {
             decoder.free.push_back(decoder.handedOut.front());
@@ -756,6 +773,8 @@ private:
                     presentationClock.Rebase(static_cast<double>(requested->target));
                     ++demuxEpoch;
                     minEpoch = demuxEpoch;
+                    loopWarningEpochs.clear();
+                    loopWarningPending = false;
                     for (auto* decoder : {&video, &audio}) {
                         if (decoder->stream < 0) continue;
                         for (auto& item : decoder->packets) av_packet_free(&item.packet);
@@ -788,10 +807,10 @@ private:
                     {
                         std::lock_guard lock(mutex);
                         ++demuxEpoch;
+                        loopWarningEpochs.push_back(demuxEpoch);
                         pushAll(PacketKind::Drain, demuxEpoch, 0);
                     }
                     condition.notify_all();
-                    events.OnWarning(SCE_AVPLAYER_ERROR_WAR_LOOPING_BACK);
                     continue;
                 }
                 {
@@ -980,6 +999,8 @@ private:
         info.details.video.luma_bit_depth = 8;
         info.details.video.chroma_bit_depth = 8;
         info.details.video.video_full_range_flag = frame.color_range == AVCOL_RANGE_JPEG;
+        const auto rate = av_guess_frame_rate(format, format->streams[index], nullptr);
+        info.details.video.frame_rate = rate.num > 0 && rate.den > 0 ? av_q2d(rate) : 0.0;
         publish(decoder, output);
         return true;
     }
@@ -1071,6 +1092,8 @@ private:
     std::uint64_t demuxEpoch = 0;
     std::uint64_t minEpoch = 0;
     std::uint64_t clockEpoch = 0;
+    std::deque<std::uint64_t> loopWarningEpochs;
+    bool loopWarningPending = false;
     bool audioDriving = false;
     bool presented = false;
     std::uint64_t lastPresented = 0;
