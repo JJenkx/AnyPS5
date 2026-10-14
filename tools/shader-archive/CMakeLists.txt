@@ -30,6 +30,7 @@ set_target_properties(agc_shader_archive shader_archive_io shader_archive_native
 configure_windows_unwind(agc_shader_archive)
 if(BUILD_TESTING)
     add_test_executable(shader_archive_tests Tests.cpp)
+    set_target_properties(shader_archive_tests PROPERTIES EXCLUDE_FROM_ALL OFF)
     target_link_libraries(shader_archive_tests PRIVATE shader_archive_native libc)
     configure_windows_unwind(shader_archive_tests)
     add_test(NAME shader_archive COMMAND shader_archive_tests)
