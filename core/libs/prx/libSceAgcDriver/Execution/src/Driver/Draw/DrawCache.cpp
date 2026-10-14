@@ -93,19 +93,19 @@ bool DrawKeySightings::SeenBefore(std::uint64_t key) {
     return false;
 }
 
-bool Driver::admitDrawKey(std::uint64_t key, std::optional<std::uint64_t> shape) {
+DrawAdmission Driver::admitDrawKey(std::uint64_t key, std::optional<std::uint64_t> shape) {
     std::lock_guard cacheLock(drawCacheMutex);
-    if (drawCache.contains(key)) return true;
+    if (drawCache.contains(key)) return {true, true};
     if (!drawKeySightings) drawKeySightings.emplace(drawCacheEntries() * DrawKeySightings::Ways);
     const bool keySeen = drawKeySightings->SeenBefore(key);
-    if (!shape) return keySeen;
-    if (drawShapes.contains(*shape)) return true;
+    if (!shape) return {keySeen, keySeen};
+    if (drawShapes.contains(*shape)) return {true, keySeen};
     if (!drawShapeSightings) drawShapeSightings.emplace(drawCacheEntries() * DrawKeySightings::Ways);
     const bool shapeSeen = drawShapeSightings->SeenBefore(*shape);
-    return keySeen || shapeSeen;
+    return {keySeen || shapeSeen, keySeen};
 }
 
-void Driver::insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape) {
+void Driver::insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape, bool repeatedKey) {
     std::lock_guard cacheLock(drawCacheMutex);
     auto& counters = drawEntryCounters;
     ++counters.inserts;
@@ -114,7 +114,9 @@ void Driver::insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<Disp
     replacement->stages.resize(fresh.size());
     replacement->decode = std::move(decode);
     replacement->shape = shape;
+    replacement->repeatedKey = repeatedKey;
     if (found != drawCache.end()) {
+        replacement->repeatedKey |= found->second->repeatedKey;
         if (found->second->stages.size() == fresh.size()) replacement->stages = found->second->stages;
         if (found->second->decode != nullptr) replacement->decode = found->second->decode;
         replacement->recipes.store(found->second->recipes.load());
@@ -135,6 +137,16 @@ void Driver::insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<Disp
             accountDrawVariant(*variants.back(), false);
             variants.pop_back();
             ++counters.variantsEvicted;
+        }
+    }
+    if (shape != 0) {
+        const auto previous = drawShapes.find(shape);
+        if (previous != drawShapes.end() && previous->second != key) {
+            const auto donor = drawCache.find(previous->second);
+            if (donor != drawCache.end() && !donor->second->repeatedKey) {
+                eraseDrawEntry(donor->first, donor->second);
+                ++counters.shapeReplacements;
+            }
         }
     }
     replacement->touched = drawCacheHits;

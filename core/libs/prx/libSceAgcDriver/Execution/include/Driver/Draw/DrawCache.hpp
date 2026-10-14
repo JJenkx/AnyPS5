@@ -69,6 +69,12 @@ struct DrawEntry {
     std::uint64_t touched = 0;
     std::list<std::uint64_t>::iterator order;
     std::uint64_t shape = 0;
+    bool repeatedKey = false;
+};
+
+struct DrawAdmission {
+    bool admitted;
+    bool repeatedKey;
 };
 
 using DrawDataCandidates = std::vector<std::vector<std::pair<std::shared_ptr<DispatchVariant>, std::vector<ShaderRecompiler::MemoryRegion>>>>;
@@ -85,7 +91,7 @@ struct DrawEntryCounters {
     double keyUs = 0;
     std::uint64_t absentNewRegisters = 0, absentUserWords = 0, absentEvicted = 0, absentNeverInserted = 0, evictions = 0;
     std::uint64_t differingSameRuns = 0, differingWords = 0, differingRunsChanged = 0;
-    std::uint64_t dataHits = 0, dataStagesReused = 0, dataStagesCompiled = 0, dataVerified = 0;
+    std::uint64_t dataHits = 0, dataStagesReused = 0, dataStagesCompiled = 0, dataVerified = 0, shapeReplacements = 0;
     std::chrono::steady_clock::time_point lastReport = std::chrono::steady_clock::now();
 };
 

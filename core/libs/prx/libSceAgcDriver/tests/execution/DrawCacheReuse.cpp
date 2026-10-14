@@ -10,6 +10,7 @@
 #include <exception>
 #include <initializer_list>
 #include <iostream>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -49,7 +50,7 @@ void Append(std::vector<std::uint32_t>& commands, std::uint32_t opcode, std::ini
     commands.insert(commands.end(), payload);
 }
 
-std::vector<std::uint32_t> DrawThrice(bool changingUserWords = false) {
+std::vector<std::uint32_t> Draws(std::span<const float> userWords = {}, std::uint32_t scissorLeft = 0) {
     const auto color = reinterpret_cast<std::uintptr_t>(ColorMemory.data());
     const auto vertex = reinterpret_cast<std::uintptr_t>(VertexCode.data());
     const auto pixel = reinterpret_cast<std::uintptr_t>(PixelCode.data());
@@ -82,9 +83,10 @@ std::vector<std::uint32_t> DrawThrice(bool changingUserWords = false) {
     Append(commands, 0x79, {0x242, 4});
     for (const auto& [offset, value] : context) Append(commands, 0x69, {offset, value});
     for (const auto& [offset, value] : shader) Append(commands, 0x76, {offset, value});
-    if (changingUserWords) Append(commands, 0x69, {0x81, 0x80000001});
-    for (std::uint32_t i = 0; i < 3; ++i) {
-        if (changingUserWords) Append(commands, 0x76, {0x8c, std::bit_cast<std::uint32_t>((i + 1u) * 0.125f)});
+    if (scissorLeft != 0) Append(commands, 0x69, {0x81, 0x80000000u | scissorLeft});
+    const auto count = userWords.empty() ? 3u : userWords.size();
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!userWords.empty()) Append(commands, 0x76, {0x8c, std::bit_cast<std::uint32_t>(userWords[i])});
         Append(commands, 0x2d, {3, 2});
     }
     return commands;
@@ -93,7 +95,7 @@ std::vector<std::uint32_t> DrawThrice(bool changingUserWords = false) {
 void ThirdDrawHitsTheCache(bool libraries) {
     Registered(VertexHeader, VertexCode.data(), sizeof(VertexCode), 2);
     Registered(PixelHeader, PixelCode.data(), sizeof(PixelCode), 1);
-    auto commands = DrawThrice();
+    auto commands = Draws();
     Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
     Require(sceAgcDriverSubmitDcb(&packet) == 0, "the draw submission failed");
     AgcDriverWaitIdle_nid_postfix();
@@ -108,7 +110,8 @@ void ThirdDrawHitsTheCache(bool libraries) {
 
 void ChangingUserWordsReuseDecode() {
     const auto before = AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
-    auto commands = DrawThrice(true);
+    constexpr std::array<float, 3> words{0.125f, 0.25f, 0.375f};
+    auto commands = Draws(words, 1);
     Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
     Require(sceAgcDriverSubmitDcb(&packet) == 0, "the changing-user-word draw submission failed");
     AgcDriverWaitIdle_nid_postfix();
@@ -118,6 +121,21 @@ void ChangingUserWordsReuseDecode() {
     const auto reused = after.decodeSkipped - before.decodeSkipped;
     Require(disabled ? reused == 0 : reused != 0, disabled ? "disabled data hits reused a decode" : "draws with changing user words never reused their shape's decode");
     Require(after.inserts - before.inserts == (disabled ? 0u : 2u), "changing-user-word draw admission did not preserve the key/shape second-sight policy");
+    Require(after.shapeReplacements - before.shapeReplacements == (disabled ? 0u : 1u), "a superseded one-off key kept its shape entry");
+}
+
+void RepeatedKeysSurviveShapeChanges() {
+    const auto before = AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
+    constexpr std::array<float, 8> words{0.125f, 0.125f, 0.25f, 0.25f, 0.5f, 0.625f, 0.125f, 0.25f};
+    auto commands = Draws(words, 2);
+    Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
+    Require(sceAgcDriverSubmitDcb(&packet) == 0, "the repeated-key shape submission failed");
+    AgcDriverWaitIdle_nid_postfix();
+    const auto after = AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
+    const bool disabled = std::getenv("APS5_NO_DRAW_DATA_HITS") != nullptr;
+    Require(after.hits - before.hits == (disabled ? 2u : 3u), "a repeated key was lost when one-off keys changed its shape");
+    Require(after.inserts - before.inserts == (disabled ? 2u : 4u), "stable and one-off keys did not follow their admission policies");
+    Require(after.shapeReplacements - before.shapeReplacements == (disabled ? 0u : 1u), "the stable-key case retained a one-off shape entry or retired a repeated key");
 }
 
 void SightingsKeepCollidingKeys() {
@@ -149,6 +167,7 @@ int main() {
         if (!libraries && std::getenv("APS5_NO_GPL") == nullptr) return VulkanTestSkipped;
         ThirdDrawHitsTheCache(libraries);
         ChangingUserWordsReuseDecode();
+        RepeatedKeysSurviveShapeChanges();
         AgcDriverShutdown_nid_postfix();
         std::cout << "A repeated draw reused the cached draw " << (libraries ? "with" : "without") << " graphics pipeline libraries\n";
         return 0;

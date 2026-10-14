@@ -80,6 +80,7 @@ DrawVerdict Driver::draw(QueueState& queue, std::span<const std::uint32_t> packe
         const auto found = drawCache.find(drawKey);
         if (found != drawCache.end()) {
             entry = found->second;
+            entry->repeatedKey = true;
             decode = entry->decode;
         } else {
             ++drawEntryCounters.absent;
