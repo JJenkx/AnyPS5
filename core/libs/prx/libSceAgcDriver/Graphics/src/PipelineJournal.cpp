@@ -35,16 +35,16 @@ static_assert(sizeof(VkStencilOpState) == 28, "VkStencilOpState changed: update 
 static_assert(sizeof(VkVertexInputBindingDescription) == 12, "VkVertexInputBindingDescription changed: update the recipe codec");
 static_assert(sizeof(VkVertexInputAttributeDescription) == 16, "VkVertexInputAttributeDescription changed: update the recipe codec");
 #if defined(__linux__) && defined(__x86_64__) && defined(__GLIBCXX__)
-static_assert(sizeof(State) == 688, "State changed: update CanonicalPipelineState and the recipe codec");
-static_assert(sizeof(ShaderStages) == 100, "ShaderStages changed: update the recipe codec");
+static_assert(sizeof(State) == 704, "State changed: update CanonicalPipelineState and the recipe codec");
+static_assert(sizeof(ShaderStages) == 108, "ShaderStages changed: update the recipe codec");
 static_assert(sizeof(ShaderRecompiler::MeshConfiguration) == 36, "MeshConfiguration changed: update the recipe codec");
-static_assert(sizeof(ShaderRecompiler::TessellationConfiguration) == 32, "TessellationConfiguration changed: update the recipe codec");
+static_assert(sizeof(ShaderRecompiler::TessellationConfiguration) == 40, "TessellationConfiguration changed: update the recipe codec");
 #endif
 
 constexpr std::uint32_t FileMagic = 0x4c4a5041u;
 // Bumped when the recipe codec, CanonicalPipelineState or the store key change in a way the
 // layout guards above do not catch (a field renumbered or reinterpreted at the same size).
-constexpr std::uint32_t FileFormat = 1u;
+constexpr std::uint32_t FileFormat = 2u;
 constexpr std::uint32_t ModuleRecord = 1u;
 constexpr std::uint32_t GraphicsRecord = 2u;
 constexpr std::uint32_t ComputeRecord = 3u;
@@ -157,11 +157,15 @@ void decodeMesh(Reader& reader, ShaderRecompiler::MeshConfiguration& mesh) {
 void encodeTessellation(Writer& writer, const ShaderRecompiler::TessellationConfiguration& tessellation) {
     for (const auto value : {tessellation.inputControlPoints, tessellation.outputControlPoints, tessellation.domain, tessellation.partitioning, tessellation.outputTopology, tessellation.patchesPerGroup, tessellation.primitiveGroupSize}) writer.U32(value);
     writer.Bool(tessellation.breakAtInstance);
+    writer.U32(tessellation.instancePatches);
+    writer.Bool(tessellation.drawParameters);
 }
 
 void decodeTessellation(Reader& reader, ShaderRecompiler::TessellationConfiguration& tessellation) {
     for (auto* value : {&tessellation.inputControlPoints, &tessellation.outputControlPoints, &tessellation.domain, &tessellation.partitioning, &tessellation.outputTopology, &tessellation.patchesPerGroup, &tessellation.primitiveGroupSize}) *value = reader.U32();
     tessellation.breakAtInstance = reader.Bool();
+    tessellation.instancePatches = reader.U32();
+    tessellation.drawParameters = reader.Bool();
 }
 
 void encodeState(Writer& writer, const State& state) {
@@ -185,6 +189,8 @@ void encodeState(Writer& writer, const State& state) {
     writer.Bool(state.stencilTest);
     writer.Raw(state.stencilFront);
     writer.Raw(state.stencilBack);
+    writer.Bool(state.stencilReplayReference.has_value());
+    if (state.stencilReplayReference) writer.U32(*state.stencilReplayReference);
     writer.U64(state.colors.size());
     for (const auto& color : state.colors) {
         writer.U32(static_cast<std::uint32_t>(color.format));
@@ -233,6 +239,7 @@ void decodeState(Reader& reader, State& state) {
     state.stencilTest = reader.Bool();
     state.stencilFront = reader.Raw<VkStencilOpState>();
     state.stencilBack = reader.Raw<VkStencilOpState>();
+    if (reader.Bool()) state.stencilReplayReference = reader.U32();
     const auto colors = reader.U64();
     if (!reader.Ok() || colors > 8u) {
         reader.Fail();
@@ -974,6 +981,7 @@ State CanonicalPipelineState(const State& state) {
     canonical.stencilTest = state.stencilTest;
     canonical.stencilFront = state.stencilFront;
     canonical.stencilBack = state.stencilBack;
+    if (state.stencilReplayReference) canonical.stencilReplayReference = 0u;
     for (const auto& color : state.colors) {
         ColorTarget canonicalColor{};
         canonicalColor.format = color.format;

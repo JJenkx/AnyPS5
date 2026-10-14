@@ -6831,7 +6831,7 @@ void pipelineJournalTests() {
         const std::array<CompiledShader, 2> shaders{{{Stage::Vertex, &vertex, 0}, {Stage::Fragment, &fragment, PipelinePushSlotBytes}}};
         State state{};
         state.stages = {ShaderPath::Vertex, 7u, 64u, 32u, std::nullopt, std::nullopt};
-        state.stages.tessellation = ShaderRecompiler::TessellationConfiguration{3, 3, 2, 1, 4, 128, 16, true};
+        state.stages.tessellation = ShaderRecompiler::TessellationConfiguration{3, 3, 2, 1, 4, 128, 16, true, 17, true};
         ColorTarget color{};
         color.address = 0x1000;
         color.extent = {64, 32};
@@ -6861,6 +6861,7 @@ void pipelineJournalTests() {
         state.stencilTest = true;
         state.stencilFront = {VK_STENCIL_OP_KEEP, VK_STENCIL_OP_REPLACE, VK_STENCIL_OP_KEEP, VK_COMPARE_OP_ALWAYS, 0xff, 0xff, 1};
         state.stencilBack = state.stencilFront;
+        state.stencilReplayReference = 37u;
         state.renderExtent = {64, 32};
         state.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
         state.viewport = {0, 32, 64, -32, 0, 1};
@@ -6877,6 +6878,8 @@ void pipelineJournalTests() {
         const auto bytes = EncodeGraphicsPipelineRecipe(recipe);
         GraphicsPipelineRecipe decoded;
         Require(DecodeGraphicsPipelineRecipe(bytes, decoded), "the recipe does not decode");
+        Require(decoded.state.stages.tessellation && decoded.state.stages.tessellation->instancePatches == 17u && decoded.state.stages.tessellation->drawParameters, "the recipe dropped instance-aware tessellation configuration");
+        Require(decoded.state.stencilReplayReference && *decoded.state.stencilReplayReference == 0u, "the recipe dropped dynamic stencil-reference state or retained its per-draw value");
         Require(EncodeGraphicsPipelineRecipe(decoded) == bytes, "the recipe does not round-trip byte for byte");
         for (std::size_t length = 0; length < bytes.size(); length += 7) {
             GraphicsPipelineRecipe scratch;
