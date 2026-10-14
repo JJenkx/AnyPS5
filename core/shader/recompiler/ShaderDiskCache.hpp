@@ -14,6 +14,7 @@
 namespace ShaderRecompiler::ShaderDiskCache {
 
 inline constexpr std::uint32_t FormatVersion = 33;
+inline constexpr std::size_t EntryHeaderBytes = 48;
 
 enum class LoadStatus {
     Loaded,
@@ -30,6 +31,14 @@ struct Counters {
     std::uint64_t writeFailures = 0;
     std::uint64_t bytesRead = 0;
     std::uint64_t bytesWritten = 0;
+    std::uint64_t prebuiltHits = 0;
+    std::uint64_t prebuiltMisses = 0;
+    std::uint64_t prebuiltRejected = 0;
+    std::uint64_t lookupNanoseconds = 0;
+    std::uint64_t readNanoseconds = 0;
+    std::uint64_t decodeNanoseconds = 0;
+    std::uint64_t loadNanoseconds = 0;
+    std::uint64_t maxLoadNanoseconds = 0;
     std::uint64_t planHits = 0;
     std::uint64_t planMisses = 0;
     std::uint64_t planWrites = 0;
@@ -46,6 +55,8 @@ void EncodeResult(const RecompileResult& result, std::vector<std::byte>& out);
 [[nodiscard]] bool DecodeResult(std::span<const std::byte> bytes, RecompileResult& result);
 
 [[nodiscard]] std::vector<std::byte> EncodeEntry(std::span<const std::byte> key, const CompiledVariant& variant);
+[[nodiscard]] bool IsCurrentEntryHeader(std::span<const std::byte> header, std::uint64_t fileBytes);
+[[nodiscard]] std::span<const std::byte> EntryKey(std::span<const std::byte> file);
 [[nodiscard]] LoadStatus DecodeEntry(std::span<const std::byte> file, std::span<const std::byte> key, CompiledVariant& variant, std::shared_ptr<const void> owner = nullptr);
 
 void BuildPlanKey(const RecompileRequest& request, std::uint32_t hostSubgroupSize, std::vector<std::byte>& key);

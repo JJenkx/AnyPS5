@@ -1,4 +1,5 @@
 #include "ShaderDiskCache.hpp"
+#include "ShaderCachePack.hpp"
 #include "CacheKey.hpp"
 #include "VertexInputSpecialization.hpp"
 #include "SpirvBackend/SpirvSpecialization.hpp"
@@ -339,6 +340,68 @@ void verifyResultRoundTrip() {
     bytes.clear();
     ShaderDiskCache::EncodeResult(incompatible, bytes);
     require(!ShaderDiskCache::DecodeResult(bytes, decoded), "an incompatible runtime ABI result decodes");
+}
+
+std::vector<std::byte> packEntry(std::span<const std::byte> key, std::span<const std::byte> entry) {
+    const ShaderDiskCache::PackRecord record{ShaderDiskCache::PackKeyHash(key), sizeof(ShaderDiskCache::PackHeader) + sizeof(ShaderDiskCache::PackRecord), entry.size()};
+    const ShaderDiskCache::PackHeader header{ShaderDiskCache::PackMagic, ShaderDiskCache::SourceVersion(), record.offset + record.size, 1, HashBytes(std::as_bytes(std::span(&record, 1)))};
+    std::vector<std::byte> bytes(header.fileBytes);
+    std::memcpy(bytes.data(), &header, sizeof(header));
+    std::memcpy(bytes.data() + sizeof(header), &record, sizeof(record));
+    std::copy(entry.begin(), entry.end(), bytes.begin() + record.offset);
+    return bytes;
+}
+
+void verifyPackEntryAlignment() {
+    SampleRequest sample;
+    const auto variant = sampleVariant();
+    for (std::size_t extra = 0; extra < 8; ++extra) {
+        auto key = sample.Key();
+        key.insert(key.end(), extra, std::byte{0x5a});
+        const auto entry = ShaderDiskCache::EncodeEntry(key, variant);
+        require(ShaderDiskCache::IsCurrentEntryHeader(std::span(entry).first(ShaderDiskCache::EntryHeaderBytes), entry.size()), "pack rejected current header for key alignment " + std::to_string(key.size() % 8));
+        require(std::ranges::equal(ShaderDiskCache::EntryKey(entry), key), "pack rejected current key alignment " + std::to_string(key.size() % 8));
+    }
+}
+
+void verifyPack(const std::filesystem::path& directory) {
+    SampleRequest sample;
+    const auto key = sample.Key();
+    const auto variant = sampleVariant();
+    const auto entry = ShaderDiskCache::EncodeEntry(key, variant);
+    const auto bytes = packEntry(key, entry);
+    const auto headerBytes = sizeof(ShaderDiskCache::PackHeader);
+    std::filesystem::create_directories(directory);
+    const auto path = directory / "fixture.pack";
+    require(WriteFileAtomically(path, bytes), "cannot write the fixture pack");
+    CompiledVariant loaded;
+    {
+        ShaderDiskCache::CachePack pack(path);
+        require(pack.Valid() && pack.Count() == 1, "valid pack was rejected");
+        ShaderDiskCache::PackLoadTimings timing;
+        require(pack.Load(key, loaded, timing) == ShaderDiskCache::LoadStatus::Loaded, "exact pack key missed");
+        requireSameVariant(variant, loaded, "pack round trip");
+        auto other = key;
+        other.back() ^= std::byte{1};
+        require(pack.Load(other, loaded, timing) == ShaderDiskCache::LoadStatus::Absent, "different pack key hit");
+    }
+    requireSameVariant(variant, loaded, "pack lifetime");
+    auto damaged = bytes;
+    damaged.back() ^= std::byte{1};
+    require(WriteFileAtomically(path, damaged), "cannot damage the pack payload");
+    {
+        ShaderDiskCache::CachePack pack(path);
+        require(pack.Valid(), "payload damage should be checked during lookup");
+        ShaderDiskCache::PackLoadTimings timing;
+        require(pack.Load(key, loaded, timing) == ShaderDiskCache::LoadStatus::Rejected, "damaged pack payload loaded");
+    }
+    damaged = bytes;
+    damaged[headerBytes] ^= std::byte{1};
+    require(WriteFileAtomically(path, damaged), "cannot damage the pack index");
+    require(!ShaderDiskCache::CachePack(path).Valid(), "damaged pack index accepted");
+    require(WriteFileAtomically(path, std::span(bytes).first(headerBytes - 1)), "cannot truncate the pack");
+    require(!ShaderDiskCache::CachePack(path).Valid(), "truncated pack accepted");
+    std::filesystem::remove(path);
 }
 
 void verifyEntryRoundTrip() {
@@ -695,6 +758,18 @@ void verifyAcrossProcesses(const char* self) {
     require(!compiled.spirv.empty(), "the compile produced no SPIR-V");
     const std::string command = "\"" + std::string(self) + "\" --load";
     require(std::system(command.c_str()) == 0, "the loading process failed");
+    std::vector<std::byte> key;
+    ShaderDiskCache::BuildKey(request.request, request.request.target.subgroupSize, key);
+    std::vector<std::byte> entry;
+    require(ReadWholeFile(ShaderDiskCache::EntryDirectory() / ShaderDiskCache::EntryName(key), entry), "cannot read compiled pack input");
+    const auto path = ShaderDiskCache::EntryDirectory().parent_path() / "prebuilt" / "compiled.pack";
+    std::filesystem::create_directories(path.parent_path());
+    require(WriteFileAtomically(path, packEntry(key, entry)), "cannot publish compiled pack fixture");
+    setEnvironment("ANYPS5_NO_PREBUILT_SHADERS", "0");
+    const std::string packed = "\"" + std::string(self) + "\" --load-pack";
+    const auto result = std::system(packed.c_str());
+    std::filesystem::remove(path);
+    require(result == 0, "the prebuilt loading process failed");
 }
 
 struct ClockRequest {
@@ -1905,6 +1980,11 @@ void verifyDefaultDirectory(const char* self) {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "--load-pack") {
+            const auto result = runLoadingProcess();
+            require(ShaderDiskCache::Totals().prebuiltHits == 1, "the compiled pack did not serve the request");
+            return result;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--load") return runLoadingProcess();
         if (argc == 2 && std::string_view(argv[1]) == "--no-failure-memo") return runWithoutFailureMemo();
         if (argc == 2 && std::string_view(argv[1]).starts_with("--load-plan")) return runPlanLoadingProcess(argv[1]);
@@ -1916,6 +1996,8 @@ int main(int argc, char** argv) {
         verifyAtomicReplacement(directory);
         verifyResultRoundTrip();
         verifyEntryRoundTrip();
+        verifyPack(directory);
+        verifyPackEntryAlignment();
         verifyArtifactStorageIsolation();
         verifyKeySensitivity();
         verifyFloatModeSerialization();
