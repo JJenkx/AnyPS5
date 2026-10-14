@@ -9,6 +9,7 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Draw/DrawRegisterKey.hpp"
 #include "prx/libSceAgcDriver/Execution/include/ProfileOutput.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libc/include/HostThreadLocal.hpp"
 #include <algorithm>
 #include <bit>
 #include <bitset>
@@ -723,8 +724,7 @@ struct StateDecodeCache {
 };
 
 StateDecodeCache& stateDecodeCache() {
-    static thread_local StateDecodeCache cache;
-    return cache;
+    return HostThreadLocal<StateDecodeCache, StateDecodeCache>();
 }
 
 void reportStateDecodeCache(const StateDecodeCache& cache) {
