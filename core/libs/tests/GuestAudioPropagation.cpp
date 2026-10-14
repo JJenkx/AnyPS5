@@ -190,12 +190,6 @@ int main() {
 
     float outputs[2][64];
     const auto fill = [&] { std::memset(outputs, 0xab, sizeof(outputs)); };
-    const auto zeroed = [&](int index) {
-        for (const float sample : outputs[index]) {
-            if (sample != 0.0f) return false;
-        }
-        return true;
-    };
     const auto untouched = [&] {
         const auto* bytes = reinterpret_cast<const std::uint8_t*>(outputs);
         for (std::size_t index = 0; index < sizeof(outputs); ++index) {
@@ -211,13 +205,13 @@ int main() {
     };
     reset();
     Require(sceAudioPropagationSourceRender(system, infos, 1) == 0, "render failed");
-    Require(zeroed(0), "render left the output unwritten");
+    Require(untouched(), "empty paths erased the existing mix");
     const auto* tail = reinterpret_cast<const std::uint8_t*>(outputs[1]);
     Require(tail[0] == 0xab, "render wrote past the output size");
     reset();
     infos[0].outputSize = sizeof(float) * 16;
     Require(sceAudioPropagationSourceRender(system, infos, 2) == 0, "render of two sources failed");
-    Require(outputs[0][15] == 0.0f && outputs[0][16] != 0.0f && zeroed(1), "render did not write each output for its size");
+    Require(untouched(), "empty paths changed the existing mix of multiple sources");
 
     reset();
     RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 0); }, "render without infos");
@@ -242,9 +236,19 @@ int main() {
     infos[0].outputSize = 0;
     RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 1); }, "render with an empty output");
     reset();
-    infos[1].format = 1;
+    infos[1].format = 3;
     RequireThrows<std::runtime_error>([&] { sceAudioPropagationSourceRender(system, infos, 2); }, "render with an unknown format");
     Require(untouched(), "render with an unknown format wrote an output");
+
+    for (const auto format : {0u, 1u, 2u, 4u, 5u}) {
+        reset();
+        infos[0].format = format;
+        infos[0].outputSize = format == 1 ? 9u * sizeof(float) : 16u * sizeof(float);
+        Require(sceAudioPropagationSourceRender(system, infos, 1) == 0 && untouched(), "empty-path format handling changed the existing mix");
+        infos[0].outputSize--;
+        RequireThrows<std::invalid_argument>([&] { sceAudioPropagationSourceRender(system, infos, 1); }, "partial output frame accepted");
+        Require(untouched(), "rejected partial-frame render wrote output");
+    }
 
     reset();
     configured.flags = 0;
