@@ -1687,8 +1687,8 @@ void EncodeResult(const RecompileResult& result, std::vector<std::byte>& out) {
     writer.Value(result.workgroupMemoryDwords);
 }
 
-bool DecodeResult(std::span<const std::byte> bytes, RecompileResult& result) {
-    Reader reader(bytes);
+bool DecodeResult(std::span<const std::byte> bytes, RecompileResult& result, std::shared_ptr<const void> owner) {
+    Reader reader(bytes, std::move(owner));
     decodeArtifact(reader, result);
     decodeInvocation(reader, result);
     reader.Value(result.workgroupMemoryDwords);
