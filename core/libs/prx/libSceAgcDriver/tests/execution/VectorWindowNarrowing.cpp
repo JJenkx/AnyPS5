@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <iostream>
 #include <span>
@@ -19,20 +20,20 @@ using ShaderRecompiler::ShaderStage;
 
 constexpr std::uint32_t MaxThreads = 64;
 constexpr std::uint32_t Results = 16;
-constexpr std::uint32_t Checked = 6;
+constexpr std::uint32_t Checked = 8;
 alignas(256) std::array<std::uint32_t, MaxThreads * Results> Output{};
 
-alignas(256) constexpr std::array<std::uint32_t, 54> Code{
+alignas(256) constexpr std::array<std::uint32_t, 62> Code{
     0x34020086, 0x34060088, 0x4a140680, 0x4a160681, 0x4a180682, 0x4a1a0683, 0x4a1c0684, 0x4a1e0685,
     0x4a200686, 0x4a220687, 0x4a240688, 0x4a260689, 0x4a28068a, 0x4a2a068b, 0x4a2c068c, 0x4a2e068d,
     0x4a30068e, 0x4a32068f, 0x4a340690, 0x4a360691, 0x4a380692, 0x4a3a0693, 0x4a3c0694, 0x4a3e0695,
     0x4a400696, 0x4a420697, 0x4a440698, 0x4a460699, 0x4a48069a, 0x4a4a069b, 0x4a4c069c, 0x4a4e069d,
     0x4a50069e, 0x4a52069f, 0x877c8308, 0x7e08870a, 0xbefc0309, 0x7e0a870a, 0x7e148504, 0x877c8308,
-    0x7e148505, 0xe0701000, 0x80010401, 0xe0701004, 0x80010501, 0xe0701008, 0x80010c01, 0xe070100c,
-    0x80010d01, 0xe0701010, 0x80011e01, 0xe0701014, 0x80012901, 0xbf810000,
+    0x7e148505, 0xbefc0309, 0x7e0c870a, 0x877c8308, 0x7e0e870a, 0xe0701000, 0x80010401, 0xe0701004, 0x80010501, 0xe0701008, 0x80010c01, 0xe070100c,
+    0x80010d01, 0xe0701010, 0x80011e01, 0xe0701014, 0x80012901, 0xe0701018, 0x80010601, 0xe070101c, 0x80010701, 0xbf810000,
 };
 
-constexpr const char* Names[Checked] = {"v4", "v5", "v12", "v13", "v30", "v41"};
+constexpr const char* Names[Checked] = {"v4", "v5", "v12", "v13", "v30", "v41", "indexed after write", "bounded after write"};
 
 std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
     const auto address = reinterpret_cast<std::uintptr_t>(data);
@@ -56,7 +57,7 @@ std::uint32_t FunctionVariables(std::span<const std::uint32_t> words) {
     return count;
 }
 
-void Run(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, std::uint32_t threads, std::uint32_t bounded, std::uint32_t data) {
+void Run(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, std::uint32_t threads, std::uint32_t bounded, std::uint32_t data, bool requireSplit) {
     Output.fill(0xdeadbeefu);
     std::vector<std::uint32_t> userData(10, 0u);
     const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size() * 4u));
@@ -74,7 +75,7 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, std::uint32_t 
     };
     request.useCache = false;
     const auto result = ShaderRecompiler::Recompile(request);
-    Require(FunctionVariables(result.spirv.Words()) > 8u, "vector window narrowing: wave" + std::to_string(waveSize) + " window was not split into separate slot variables");
+    if (requireSplit) Require(FunctionVariables(result.spirv.Words()) > 8u, "vector window narrowing: wave" + std::to_string(waveSize) + " window was not split into separate slot variables");
     device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
     device.WaitIdle();
 }
@@ -87,7 +88,7 @@ void Check(std::uint32_t waveSize, std::uint32_t threads, std::uint32_t bounded,
         const std::uint32_t v5 = window[data];
         window[data] = v4;
         window[bounded & 3u] = v5;
-        const std::array<std::uint32_t, Checked> expected{v4, v5, window[2], window[3], window[20], window[31]};
+        const std::array<std::uint32_t, Checked> expected{v4, v5, window[2], window[3], window[20], window[31], window[data], window[bounded & 3u]};
         const std::uint32_t* out = &Output[tid * Results];
         for (std::uint32_t index = 0; index < Checked; ++index) {
             Require(out[index] == expected[index], "vector window narrowing: wave" + std::to_string(waveSize) + " data index " + std::to_string(data) + " lane " + std::to_string(tid) + " " + Names[index] + " is " + Hex(out[index]) + ", expected " + Hex(expected[index]));
@@ -97,19 +98,24 @@ void Check(std::uint32_t waveSize, std::uint32_t threads, std::uint32_t bounded,
 
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        const bool requireSplit = argc == 1;
+        Require(requireSplit || (argc == 2 && std::string(argv[1]) == "--full-window"), "usage: vector-window-narrowing [--full-window]");
+        if (!requireSplit) Require(std::getenv("APS5_NO_WINDOW_NARROWING") != nullptr, "full-window control requires APS5_NO_WINDOW_NARROWING");
         const auto device = OpenVulkanTestDevice();
         if (!device) return VulkanTestSkipped;
         if (device->Target().subgroupSize < 32u) {
             std::printf("skipped, subgroup size %u cannot hold a wave32\n", device->Target().subgroupSize);
             return VulkanTestSkipped;
         }
-        for (const std::uint32_t data : {20u, 2u, 31u}) {
-            Run(*device, 32, 32, 7u, data);
-            Check(32, 32, 7u, data);
-            Run(*device, 64, 64, 7u, data);
-            Check(64, 64, 7u, data);
+        for (const std::uint32_t bounded : {0u, 1u, 2u, 7u}) {
+            for (std::uint32_t data = 0; data < 32u; ++data) {
+                Run(*device, 32, 32, bounded, data, requireSplit);
+                Check(32, 32, bounded, data);
+                Run(*device, 64, 64, bounded, data, requireSplit);
+                Check(64, 64, bounded, data);
+            }
         }
         std::puts("vector window narrowing tests passed");
         return 0;
