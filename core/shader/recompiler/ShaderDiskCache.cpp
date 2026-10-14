@@ -1292,5 +1292,530 @@ public:
         return loaded;
     }
 
+
     bool LoadPlan(std::span<const std::byte> key, IrResourcePlan& plan) {
         return load(key, [&](std::span<const std::byte> file, std::shared_ptr<const void>) { return DecodePlanEntry(file, key, plan); }, planHits, planMisses, planLoadFailures);
+    }
+
+    void Store(std::vector<std::byte> key, std::shared_ptr<const CompiledVariant> variant) {
+        enqueue({std::move(key), std::move(variant), nullptr});
+    }
+
+    void StorePlan(std::vector<std::byte> key, std::shared_ptr<const IrResourcePlan> plan) {
+        enqueue({std::move(key), nullptr, std::move(plan)});
+    }
+
+    std::shared_ptr<const CompiledVariant> Persist(std::span<const std::byte> key, const CompiledVariant& variant) {
+        const auto path = directory / EntryName(key);
+        const auto file = EncodeEntry(key, variant);
+        if (!WriteFileAtomically(path, file)) return nullptr;
+        writes.fetch_add(1, std::memory_order_relaxed);
+        bytesWritten.fetch_add(file.size(), std::memory_order_relaxed);
+        auto mapped = MapFile(path);
+        if (mapped == nullptr) return nullptr;
+        auto persisted = std::make_shared<CompiledVariant>();
+        const auto bytes = mapped->Bytes();
+        if (DecodeEntry(bytes, key, *persisted, std::move(mapped)) != LoadStatus::Loaded) return nullptr;
+        persisted->layout = variant.layout;
+        persisted->artifact.variantId = variant.artifact.variantId;
+        return persisted;
+    }
+
+    void Flush() {
+        std::unique_lock lock(mutex);
+        idle.wait(lock, [&] { return jobs.empty() && !writing; });
+    }
+
+    Counters Totals() const {
+        Counters counters;
+        counters.hits = hits.load(std::memory_order_relaxed);
+        counters.misses = misses.load(std::memory_order_relaxed);
+        counters.writes = writes.load(std::memory_order_relaxed);
+        counters.loadFailures = loadFailures.load(std::memory_order_relaxed);
+        counters.writeFailures = writeFailures.load(std::memory_order_relaxed);
+        counters.bytesRead = bytesRead.load(std::memory_order_relaxed);
+        counters.bytesWritten = bytesWritten.load(std::memory_order_relaxed);
+        counters.planHits = planHits.load(std::memory_order_relaxed);
+        counters.planMisses = planMisses.load(std::memory_order_relaxed);
+        counters.planWrites = planWrites.load(std::memory_order_relaxed);
+        counters.planLoadFailures = planLoadFailures.load(std::memory_order_relaxed);
+        counters.prebuiltHits = prebuiltHits.load(std::memory_order_relaxed);
+        counters.prebuiltMisses = prebuiltMisses.load(std::memory_order_relaxed);
+        counters.prebuiltRejected = prebuiltRejected.load(std::memory_order_relaxed);
+        counters.lookupNanoseconds = lookupNanoseconds.load(std::memory_order_relaxed);
+        counters.readNanoseconds = readNanoseconds.load(std::memory_order_relaxed);
+        counters.decodeNanoseconds = decodeNanoseconds.load(std::memory_order_relaxed);
+        counters.loadNanoseconds = loadNanoseconds.load(std::memory_order_relaxed);
+        counters.maxLoadNanoseconds = maxLoadNanoseconds.load(std::memory_order_relaxed);
+        return counters;
+    }
+
+private:
+    void discoverPrebuilt() {
+        const auto start = std::chrono::steady_clock::now();
+        std::size_t entries = 0;
+        const auto addPack = [&](const std::filesystem::path& path) {
+            auto pack = std::make_unique<CachePack>(path);
+            if (!pack->Valid()) {
+                std::fprintf(stderr, "[shader-prebuilt] ignored %s: %s\n", path.string().c_str(), pack->Error().c_str());
+                return;
+            }
+            entries += pack->Count();
+            packs.push_back(std::move(pack));
+        };
+        for (const auto& path : PrebuiltCachePaths(root)) {
+            std::error_code error;
+            if (std::filesystem::is_regular_file(path, error)) { addPack(path); continue; }
+            if (!std::filesystem::is_directory(path, error)) continue;
+            bool loose = false;
+            std::vector<std::filesystem::path> packPaths;
+            for (std::filesystem::directory_iterator it(path, error), end; !error && it != end; it.increment(error)) {
+                const auto extension = it->path().extension();
+                if (extension == ".pack") packPaths.push_back(it->path());
+                if (extension == ".bin" && it->path().stem().string().size() == 32) loose = true;
+            }
+            std::sort(packPaths.begin(), packPaths.end());
+            for (const auto& item : packPaths) addPack(item);
+            if (loose) looseDirectories.push_back(path);
+            const auto versioned = path / hex(SourceVersion());
+            if (std::filesystem::is_directory(versioned, error)) looseDirectories.push_back(versioned);
+        }
+        if (!packs.empty() || !looseDirectories.empty()) std::fprintf(stderr, "[shader-prebuilt] mapped %zu packs, %zu entries, %zu loose folders in %.3f ms; exact source/ABI/request keys required\n", packs.size(), entries, looseDirectories.size(), std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    }
+
+
+    struct Job {
+        std::vector<std::byte> key;
+        std::shared_ptr<const CompiledVariant> variant;
+        std::shared_ptr<const IrResourcePlan> plan;
+    };
+
+    template<typename TDecode>
+    bool load(std::span<const std::byte> key, TDecode&& decode, std::atomic<std::uint64_t>& hitCount, std::atomic<std::uint64_t>& missCount, std::atomic<std::uint64_t>& failureCount) {
+        const auto started = std::chrono::steady_clock::now();
+        const auto name = EntryName(key);
+        thread_local std::vector<std::byte>* fileSlot = nullptr;
+        auto& file = ThreadOwned(fileSlot);
+        bool loaded = false;
+        std::span<const std::byte> bytes;
+        std::shared_ptr<const void> owner;
+        if (auto mapped = MapFile(directory / name)) {
+            bytes = mapped->Bytes();
+            owner = std::move(mapped);
+        }
+        const bool present = owner != nullptr || ReadWholeFile(directory / name, file);
+        if (owner == nullptr) bytes = file;
+        if (!present) {
+            missCount.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            switch (decode(bytes, std::move(owner))) {
+                case LoadStatus::Loaded:
+                    hitCount.fetch_add(1, std::memory_order_relaxed);
+                    bytesRead.fetch_add(bytes.size(), std::memory_order_relaxed);
+                    loaded = true;
+                    break;
+                case LoadStatus::Absent:
+                case LoadStatus::KeyMismatch:
+                    missCount.fetch_add(1, std::memory_order_relaxed);
+                    break;
+                case LoadStatus::Rejected: {
+                    const auto failures = failureCount.fetch_add(1, std::memory_order_relaxed);
+                    if (failures < 8) std::fprintf(stderr, "[shader-disk-cache] rejected %s (%zu bytes): truncated, corrupt or another format; recompiling\n", name.c_str(), bytes.size());
+                    break;
+                }
+            }
+        }
+        if (file.capacity() > (4u << 20u)) std::vector<std::byte>().swap(file);
+        loadNanoseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count()), std::memory_order_relaxed);
+        report(false);
+        return loaded;
+    }
+
+    void enqueue(Job job) {
+        {
+            std::lock_guard lock(mutex);
+            jobs.push_back(std::move(job));
+        }
+        wake.notify_one();
+    }
+
+    void run() {
+        std::fprintf(stderr, "[shader-disk-cache] %s (source version %s, format %u)\n", directory.string().c_str(), hex(SourceVersion()).c_str(), FormatVersion);
+        housekeeping();
+        std::unique_lock lock(mutex);
+        while (true) {
+            wake.wait_for(lock, std::chrono::seconds(10), [&] { return !jobs.empty(); });
+            while (!jobs.empty()) {
+                auto job = std::move(jobs.front());
+                jobs.pop_front();
+                writing = true;
+                lock.unlock();
+                write(job);
+                job = {};
+                lock.lock();
+                writing = false;
+            }
+            idle.notify_all();
+            lock.unlock();
+            report(false);
+            lock.lock();
+        }
+    }
+
+    void write(const Job& job) {
+        const auto file = job.plan != nullptr ? EncodePlanEntry(job.key, *job.plan) : EncodeEntry(job.key, *job.variant);
+        if (!file.empty() && WriteFileAtomically(directory / EntryName(job.key), file)) {
+            (job.plan != nullptr ? planWrites : writes).fetch_add(1, std::memory_order_relaxed);
+            bytesWritten.fetch_add(file.size(), std::memory_order_relaxed);
+        } else {
+            const auto failures = writeFailures.fetch_add(1, std::memory_order_relaxed);
+            if (failures < 4) std::fprintf(stderr, "[shader-disk-cache] cannot write %s\n", (directory / EntryName(job.key)).string().c_str());
+        }
+    }
+
+    void housekeeping() {
+        std::error_code error;
+        std::filesystem::create_directories(directory, error);
+        const auto stamp = directory / "last-used";
+        std::ofstream(stamp, std::ios::binary | std::ios::trunc).close();
+        std::filesystem::last_write_time(stamp, std::filesystem::file_time_type::clock::now(), error);
+        const auto now = std::filesystem::file_time_type::clock::now();
+        for (std::filesystem::directory_iterator it(root, error), end; !error && it != end; it.increment(error)) {
+            const auto name = it->path().filename().string();
+            if (it->path() == directory || name.size() != 16 || name.find_first_not_of("0123456789abcdef") != std::string::npos || !it->is_directory(error)) continue;
+            std::error_code timeError;
+            auto used = std::filesystem::last_write_time(it->path() / "last-used", timeError);
+            if (timeError) used = std::filesystem::last_write_time(it->path(), timeError);
+            if (!timeError && now - used > std::chrono::hours(24 * 14)) {
+                std::error_code removeError;
+                std::filesystem::remove_all(it->path(), removeError);
+            }
+        }
+        error.clear();
+        for (std::filesystem::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
+            if (it->path().filename().string().find(".tmp.") == std::string::npos) continue;
+            std::error_code timeError;
+            const auto written = std::filesystem::last_write_time(it->path(), timeError);
+            if (!timeError && now - written > std::chrono::hours(1)) {
+                std::error_code removeError;
+                std::filesystem::remove(it->path(), removeError);
+            }
+        }
+    }
+
+    void report(bool force) {
+        const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+        auto last = lastReport.load(std::memory_order_relaxed);
+        if (last == 0) {
+            lastReport.compare_exchange_strong(last, now, std::memory_order_relaxed);
+            return;
+        }
+        if (!force && (now - last < std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::seconds(10)).count() || !lastReport.compare_exchange_strong(last, now, std::memory_order_relaxed))) return;
+        std::lock_guard lock(reportMutex);
+        const auto totals = Totals();
+        const auto loadNs = loadNanoseconds.load(std::memory_order_relaxed);
+        const auto delta = [](std::uint64_t after, std::uint64_t before) { return static_cast<unsigned long long>(after - before); };
+        if (totals.hits == reported.hits && totals.misses == reported.misses && totals.writes == reported.writes && totals.loadFailures == reported.loadFailures && totals.writeFailures == reported.writeFailures && totals.planHits == reported.planHits && totals.planMisses == reported.planMisses && totals.planWrites == reported.planWrites && totals.planLoadFailures == reported.planLoadFailures) return;
+        std::fprintf(stderr, "[shader-disk-cache] (10 s): %llu hits, %llu misses, %llu writes (%.1f MiB), %llu load failures, %llu write failures; resource plans: %llu hits, %llu misses, %llu writes, %llu load failures; %.1f MiB read in %.1f ms (totals: %llu hits, %llu misses, %llu writes; plans %llu hits, %llu misses)\n",
+                     delta(totals.hits, reported.hits), delta(totals.misses, reported.misses), delta(totals.writes, reported.writes), static_cast<double>(totals.bytesWritten - reported.bytesWritten) / (1024.0 * 1024.0),
+                     delta(totals.loadFailures, reported.loadFailures), delta(totals.writeFailures, reported.writeFailures),
+                     delta(totals.planHits, reported.planHits), delta(totals.planMisses, reported.planMisses), delta(totals.planWrites, reported.planWrites), delta(totals.planLoadFailures, reported.planLoadFailures),
+                     static_cast<double>(totals.bytesRead - reported.bytesRead) / (1024.0 * 1024.0), static_cast<double>(loadNs - reportedLoadNs) / 1e6,
+                     static_cast<unsigned long long>(totals.hits), static_cast<unsigned long long>(totals.misses), static_cast<unsigned long long>(totals.writes), static_cast<unsigned long long>(totals.planHits), static_cast<unsigned long long>(totals.planMisses));
+        if (!packs.empty() || !looseDirectories.empty()) std::fprintf(stderr, "[shader-prebuilt] mapped %zu packs, %zu entries, %zu loose folders in %.3f ms; exact source/ABI/request keys required\n", packs.size(), entries, looseDirectories.size(), std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+    }
+
+    struct Job {
+        std::vector<std::byte> key;
+        std::shared_ptr<const CompiledVariant> variant;
+    };
+
+    void run() {
+        std::fprintf(stderr, "[shader-disk-cache] %s (source version %s, format %u)\n", directory.string().c_str(), hex(SourceVersion()).c_str(), FormatVersion);
+        housekeeping();
+        std::unique_lock lock(mutex);
+        while (true) {
+            wake.wait_for(lock, std::chrono::seconds(10), [&] { return !jobs.empty(); });
+            while (!jobs.empty()) {
+                auto job = std::move(jobs.front());
+                jobs.pop_front();
+                writing = true;
+                lock.unlock();
+                write(job);
+                job = {};
+                lock.lock();
+                writing = false;
+            }
+            idle.notify_all();
+            lock.unlock();
+            report(false);
+            lock.lock();
+        }
+    }
+
+    void write(const Job& job) {
+        const auto file = EncodeEntry(job.key, *job.variant);
+        if (WriteFileAtomically(directory / EntryName(job.key), file)) {
+            writes.fetch_add(1, std::memory_order_relaxed);
+            bytesWritten.fetch_add(file.size(), std::memory_order_relaxed);
+        } else {
+            const auto failures = writeFailures.fetch_add(1, std::memory_order_relaxed);
+            if (failures < 4) std::fprintf(stderr, "[shader-disk-cache] cannot write %s\n", (directory / EntryName(job.key)).string().c_str());
+        }
+    }
+
+    void housekeeping() {
+        std::error_code error;
+        std::filesystem::create_directories(directory, error);
+        const auto stamp = directory / "last-used";
+        std::ofstream(stamp, std::ios::binary | std::ios::trunc).close();
+        std::filesystem::last_write_time(stamp, std::filesystem::file_time_type::clock::now(), error);
+        const auto now = std::filesystem::file_time_type::clock::now();
+        for (std::filesystem::directory_iterator it(root, error), end; !error && it != end; it.increment(error)) {
+            const auto name = it->path().filename().string();
+            if (it->path() == directory || name.size() != 16 || name.find_first_not_of("0123456789abcdef") != std::string::npos || !it->is_directory(error)) continue;
+            std::error_code timeError;
+            auto used = std::filesystem::last_write_time(it->path() / "last-used", timeError);
+            if (timeError) used = std::filesystem::last_write_time(it->path(), timeError);
+            if (!timeError && now - used > std::chrono::hours(24 * 14)) {
+                std::error_code removeError;
+                std::filesystem::remove_all(it->path(), removeError);
+            }
+        }
+        error.clear();
+        for (std::filesystem::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
+            if (it->path().filename().string().find(".tmp.") == std::string::npos) continue;
+            std::error_code timeError;
+            const auto written = std::filesystem::last_write_time(it->path(), timeError);
+            if (!timeError && now - written > std::chrono::hours(1)) {
+                std::error_code removeError;
+                std::filesystem::remove(it->path(), removeError);
+            }
+        }
+    }
+
+    void report(bool force) {
+        const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+        auto last = lastReport.load(std::memory_order_relaxed);
+        if (last == 0) {
+            lastReport.compare_exchange_strong(last, now, std::memory_order_relaxed);
+            return;
+        }
+        if (!force && (now - last < std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::seconds(10)).count() || !lastReport.compare_exchange_strong(last, now, std::memory_order_relaxed))) return;
+        std::lock_guard lock(reportMutex);
+        const auto totals = Totals();
+        const auto loadNs = loadNanoseconds.load(std::memory_order_relaxed);
+        const auto delta = [](std::uint64_t after, std::uint64_t before) { return static_cast<unsigned long long>(after - before); };
+        if (totals.hits == reported.hits && totals.misses == reported.misses && totals.writes == reported.writes && totals.loadFailures == reported.loadFailures && totals.writeFailures == reported.writeFailures) return;
+        std::fprintf(stderr, "[shader-disk-cache] (10 s): %llu hits, %llu misses, %llu writes (%.1f MiB), %llu load failures, %llu write failures; %.1f MiB read in %.1f ms (totals: %llu hits, %llu misses, %llu writes)\n",
+                     delta(totals.hits, reported.hits), delta(totals.misses, reported.misses), delta(totals.writes, reported.writes), static_cast<double>(totals.bytesWritten - reported.bytesWritten) / (1024.0 * 1024.0),
+                     delta(totals.loadFailures, reported.loadFailures), delta(totals.writeFailures, reported.writeFailures), static_cast<double>(totals.bytesRead - reported.bytesRead) / (1024.0 * 1024.0), static_cast<double>(loadNs - reportedLoadNs) / 1e6,
+                     static_cast<unsigned long long>(totals.hits), static_cast<unsigned long long>(totals.misses), static_cast<unsigned long long>(totals.writes));
+        if (!packs.empty() || !looseDirectories.empty()) std::fprintf(stderr, "[shader-prebuilt] interval: %llu hits, %llu misses, %llu rejected; lookup %.3f ms, file read %.3f ms, decode %.3f ms; total load %.3f ms, max %.3f ms (lifetime hits %llu)\n",
+                     delta(totals.prebuiltHits, reported.prebuiltHits), delta(totals.prebuiltMisses, reported.prebuiltMisses), delta(totals.prebuiltRejected, reported.prebuiltRejected),
+                     (totals.lookupNanoseconds - reported.lookupNanoseconds) / 1e6, (totals.readNanoseconds - reported.readNanoseconds) / 1e6, (totals.decodeNanoseconds - reported.decodeNanoseconds) / 1e6,
+                     (totals.loadNanoseconds - reported.loadNanoseconds) / 1e6, totals.maxLoadNanoseconds / 1e6, static_cast<unsigned long long>(totals.prebuiltHits));
+        reported = totals;
+        reportedLoadNs = loadNs;
+    }
+
+    std::filesystem::path root;
+    std::filesystem::path directory;
+    std::vector<std::unique_ptr<CachePack>> packs;
+    std::vector<std::filesystem::path> looseDirectories;
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::condition_variable idle;
+    std::deque<Job> jobs;
+    bool writing = false;
+    std::atomic<std::uint64_t> hits{0}, misses{0}, writes{0}, loadFailures{0}, writeFailures{0}, bytesRead{0}, bytesWritten{0}, loadNanoseconds{0};
+    std::atomic<std::uint64_t> planHits{0}, planMisses{0}, planWrites{0}, planLoadFailures{0};
+    std::atomic<std::uint64_t> prebuiltHits{0}, prebuiltMisses{0}, prebuiltRejected{0}, lookupNanoseconds{0}, readNanoseconds{0}, decodeNanoseconds{0}, maxLoadNanoseconds{0};
+    std::atomic<std::int64_t> lastReport{0};
+    std::mutex reportMutex;
+    Counters reported;
+    std::uint64_t reportedLoadNs = 0;
+};
+
+DiskStore& store() {
+    static DiskStore* instance = new DiskStore();
+    return *instance;
+}
+
+}
+
+std::uint64_t SourceVersion() {
+    return Generated::SourceVersion;
+}
+
+void BuildKey(const RecompileRequest& request, std::uint32_t hostSubgroupSize, std::vector<std::byte>& key) {
+    key.clear();
+    Writer writer(key);
+    writer.Value(FileMagic);
+    writer.Value(FormatVersion);
+    writer.Value(SourceVersion());
+    thread_local std::vector<std::uint64_t>* memoryKeySlot = nullptr;
+    auto& memoryKey = ThreadOwned(memoryKeySlot);
+    RecompileCacheKey::Build(request, memoryKey);
+    writer.Values(std::span<const std::uint64_t>(memoryKey));
+    writer.Values(request.shader.code);
+    writer.Value(hostSubgroupSize);
+    writer.Value(request.layout.descriptorSet);
+    writer.Value(request.layout.firstBinding);
+    writer.Value(request.layout.pushConstantOffsetBytes);
+    writer.Value(request.layout.pushConstantSizeBytes);
+    const auto& switches = switchKey();
+    key.insert(key.end(), switches.begin(), switches.end());
+}
+
+void BuildPlanKey(const RecompileRequest& request, std::uint32_t hostSubgroupSize, std::vector<std::byte>& key) {
+    key.clear();
+    Writer writer(key);
+    writer.Value(FileMagic);
+    writer.Value(FormatVersion);
+    writer.Value(SourceVersion());
+    writer.Value(PlanEntryKind);
+    thread_local std::vector<std::uint64_t>* memoryKeySlot = nullptr;
+    auto& memoryKey = ThreadOwned(memoryKeySlot);
+    RecompileCacheKey::Build(request, memoryKey);
+    writer.Values(std::span<const std::uint64_t>(memoryKey));
+    writer.Values(request.shader.code);
+    writer.Value(hostSubgroupSize);
+    const auto& switches = switchKey();
+    key.insert(key.end(), switches.begin(), switches.end());
+}
+
+std::string EntryName(std::span<const std::byte> key) {
+    return hex(HashBytes(key, 0x5eed0001ull)) + hex(HashBytes(key, 0x5eed0002ull)) + ".bin";
+}
+
+void EncodeResult(const RecompileResult& result, std::vector<std::byte>& out) {
+    Writer writer(out);
+    encodeArtifact(writer, result);
+    encodeInvocation(writer, result);
+    writer.Value(result.workgroupMemoryDwords);
+}
+
+bool DecodeResult(std::span<const std::byte> bytes, RecompileResult& result) {
+    Reader reader(bytes);
+    decodeArtifact(reader, result);
+    decodeInvocation(reader, result);
+    reader.Value(result.workgroupMemoryDwords);
+    result.cacheHit = false;
+    return reader.Done() && result.runtimeAbiVersion == RuntimeAbi::Version;
+}
+
+std::vector<std::byte> EncodeEntry(std::span<const std::byte> key, const CompiledVariant& variant) {
+    std::vector<std::byte> payload;
+    payload.reserve(variant.artifact.spirv.size() * sizeof(std::uint32_t) + 4096);
+    Writer writer(payload);
+    encodeArtifact(writer, variant.artifact);
+    encodeInfo(writer, variant.info);
+    encodeAllocation(writer, variant.bindings);
+    return wrapEntry(key, payload);
+}
+
+std::span<const std::byte> EntryKey(std::span<const std::byte> file) {
+    if (file.size() < sizeof(FileHeader)) return {};
+    FileHeader header;
+    std::memcpy(&header, file.data(), sizeof(header));
+    if (header.magic != FileMagic || header.format != FormatVersion || header.sourceVersion != SourceVersion()) return {};
+    const auto body = file.size() - sizeof(header);
+    if (header.keyBytes == 0 || header.keyBytes > body || header.payloadBytes != body - header.keyBytes) return {};
+    const auto key = file.subspan(sizeof(header), header.keyBytes);
+    return HashBytes(key) == header.keyHash ? key : std::span<const std::byte>{};
+}
+
+bool IsCurrentEntryHeader(std::span<const std::byte> bytes, std::uint64_t fileBytes) {
+    if (bytes.size() < sizeof(FileHeader) || fileBytes < sizeof(FileHeader)) return false;
+    FileHeader header;
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    const auto body = fileBytes - sizeof(header);
+    return header.magic == FileMagic && header.format == FormatVersion && header.sourceVersion == SourceVersion() && header.keyBytes > 0 && header.keyBytes <= body && header.payloadBytes == body - header.keyBytes;
+}
+
+LoadStatus DecodeEntry(std::span<const std::byte> file, std::span<const std::byte> key, CompiledVariant& variant, std::shared_ptr<const void> owner) {
+    std::span<const std::byte> payload;
+    const auto status = unwrapEntry(file, key, payload);
+    if (status != LoadStatus::Loaded) return status;
+    Reader reader(payload, std::move(owner));
+    CompiledVariant decoded;
+    decodeArtifact(reader, decoded.artifact);
+    decodeInfo(reader, decoded.info);
+    decodeAllocation(reader, decoded.bindings);
+    if (!reader.Done() || decoded.artifact.runtimeAbiVersion != RuntimeAbi::Version) return LoadStatus::Rejected;
+    variant.info = std::move(decoded.info);
+    variant.bindings = std::move(decoded.bindings);
+    variant.artifact = std::move(decoded.artifact);
+    return LoadStatus::Loaded;
+}
+
+bool EncodePlan(const IrResourcePlan& plan, std::vector<std::byte>& out) {
+    Writer writer(out);
+    return encodePlan(writer, plan);
+}
+
+bool DecodePlan(std::span<const std::byte> bytes, IrResourcePlan& plan) {
+    Reader reader(bytes);
+    IrResourcePlan decoded;
+    if (!decodePlan(reader, decoded)) return false;
+    plan = std::move(decoded);
+    return true;
+}
+
+std::vector<std::byte> EncodePlanEntry(std::span<const std::byte> key, const IrResourcePlan& plan) {
+    std::vector<std::byte> payload;
+    if (!EncodePlan(plan, payload)) return {};
+    return wrapEntry(key, payload);
+}
+
+LoadStatus DecodePlanEntry(std::span<const std::byte> file, std::span<const std::byte> key, IrResourcePlan& plan) {
+    std::span<const std::byte> payload;
+    const auto status = unwrapEntry(file, key, payload);
+    if (status != LoadStatus::Loaded) return status;
+    return DecodePlan(payload, plan) ? LoadStatus::Loaded : LoadStatus::Rejected;
+}
+
+bool Enabled() {
+    return store().Enabled();
+}
+
+std::filesystem::path EntryDirectory() {
+    return store().Directory();
+}
+
+bool Load(std::span<const std::byte> key, CompiledVariant& variant) {
+    auto& instance = store();
+    return instance.Enabled() && instance.Load(key, variant);
+}
+
+void Store(std::vector<std::byte> key, std::shared_ptr<const CompiledVariant> variant) {
+    auto& instance = store();
+    if (instance.Enabled()) instance.Store(std::move(key), std::move(variant));
+}
+
+bool LoadPlan(std::span<const std::byte> key, IrResourcePlan& plan) {
+    auto& instance = store();
+    return instance.Enabled() && instance.LoadPlan(key, plan);
+}
+
+void StorePlan(std::vector<std::byte> key, std::shared_ptr<const IrResourcePlan> plan) {
+    auto& instance = store();
+    if (instance.Enabled() && plan != nullptr) instance.StorePlan(std::move(key), std::move(plan));
+}
+
+std::shared_ptr<const CompiledVariant> Persist(std::span<const std::byte> key, const CompiledVariant& variant) {
+    auto& instance = store();
+    return instance.Enabled() ? instance.Persist(key, variant) : nullptr;
+}
+
+void Flush() {
+    auto& instance = store();
+    if (instance.Enabled()) instance.Flush();
+}
+
+Counters Totals() {
+    return store().Totals();
+}
+
+}
