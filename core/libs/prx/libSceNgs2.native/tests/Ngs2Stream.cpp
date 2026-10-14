@@ -39,6 +39,29 @@ static bool Throws(TFunction function) {
     return false;
 }
 
+static void TestEmptyBatchBeforeSetup() {
+    const auto system = CreateSystem();
+    const auto master = Mastering(system, 1);
+    const auto voice = RackVoice(CreateRack(system, SCE_NGS2_RACK_ID_SAMPLER), 0);
+    std::vector<std::int16_t> pcm(Grain, 8192);
+    Require(Throws([&] { AddBlock(voice, pcm.data(), pcm.size() * 2, Grain, 0); }));
+    const Ngs2WaveformBlock unused{};
+    Control(voice, SCE_NGS2_SAMPLER_VOICE_PARAM_ADD_WAVEFORM_BLOCKS,
+            Ngs2SamplerVoiceWaveformBlocksParam{{}, pcm.data(), 0, 0, &unused});
+    Ngs2SamplerVoiceState state{};
+    Require(sceNgs2VoiceGetState(voice, &state.voice_state, sizeof(state)) == SCE_NGS2_OK);
+    Require(state.voice_state.state_flags == 0 && state.num_decoded_samples == 0 &&
+            state.decoded_data_size == 0 && state.waveform_data == nullptr);
+    Control(voice, SCE_NGS2_SAMPLER_VOICE_PARAM_SETUP,
+            Ngs2SamplerVoiceSetupParam{{}, {SCE_NGS2_WAVEFORM_TYPE_PCM_I16L, 1, 48000, 0, 0, 0}});
+    Patch(voice, master);
+    AddBlock(voice, pcm.data(), pcm.size() * 2, Grain, 0);
+    Event(voice, SCE_NGS2_VOICE_EVENT_PLAY);
+    const auto out = RenderI16(system);
+    for (const auto sample : out) Require(sample == 8192);
+    Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
+}
+
 static void TestStreamEndsAtDeclaredSamples() {
     const auto system = CreateSystem();
     const auto master = Mastering(system, 1);
@@ -185,6 +208,7 @@ static void TestDrainedStreamReportsEmpty() {
 }
 
 int main() {
+    TestEmptyBatchBeforeSetup();
     TestStreamEndsAtDeclaredSamples();
     TestStreamClosedBeforeDeclaredSamples();
     TestStreamRejections();
