@@ -39,6 +39,9 @@ std::uint32_t EmitBdaAtomic(SpirvValueEmitContext& ctx, const IrValue& inst, std
 std::array<std::uint32_t, 4> EmitBdaDwordReads(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t address, std::uint32_t offset, std::uint32_t dwords, bool everyDword = false, std::uint32_t usedDwords = 0u);
 bool BdaByteReadsForced();
 std::uint32_t AddBdaAddress(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t address, std::uint32_t offset, bool subtract);
+bool RoutesApertures(const SpirvEmitterState& state, const MemoryInfo& mem);
+std::uint32_t UsedBdaDwords(const IrValue& inst, std::uint32_t dwords);
+std::vector<const IrValue*> BdaReadSites(const SpirvEmitterState& state);
 void CollectBdaAnchors(SpirvEmitterState& state);
 void DefineBdaAnchorFunction(SpirvEmitterState& state);
 void EmitBdaAnchors(SpirvEmitterState& state);
