@@ -3,6 +3,7 @@
 ### Build
 
 - winpthreads initializes a statically initialized rwlock on its first lock and fails a concurrent first lock with `EINVAL`, which `std::shared_mutex` and `std::shared_timed_mutex` ignore, so that lock does not exclude. The host `std::shared_mutex` objects in [Recompiler.cpp](../../../core/shader/recompiler/Recompiler.cpp) are locked once when created. A new host `std::shared_mutex` used on Windows needs the same.
+- [SPIR-V input validation](../../../core/shader/recompiler/SpirvBackend/src/SpirvOptimizer.cpp) runs before optimization with the same target and validator options as the optimizer. The optimizer's duplicate input validation is disabled; explicit input and output validation remain enabled. Native title startup and performance effects remain unverified.
 
 ### Unknown function info
 
