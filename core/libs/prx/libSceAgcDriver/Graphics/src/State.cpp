@@ -7,6 +7,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/TextureFormat.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Draw/DrawRegisterKey.hpp"
+#include "prx/libSceAgcDriver/Execution/include/ProfileOutput.hpp"
 #include "prx/libc/include/General.hpp"
 #include <algorithm>
 #include <bit>
@@ -726,6 +727,12 @@ StateDecodeCache& stateDecodeCache() {
     return cache;
 }
 
+void reportStateDecodeCache(const StateDecodeCache& cache) {
+    static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
+    if (!profile || ((cache.counters.hits + cache.counters.misses) & 16383u) != 0) return;
+    AgcDriver::ProfilePrint_nid_no_patch("[state-decode] %llu hits / %llu misses, %zu states held\n", static_cast<unsigned long long>(cache.counters.hits), static_cast<unsigned long long>(cache.counters.misses), cache.entries.size());
+}
+
 }
 
 StateDecodeCacheStats StateDecodeCacheCounters() {
@@ -748,6 +755,7 @@ State DecodeStateCached(const QueueState& queue, bool vertexWorkgroup) {
             if (color.cmaskAddress != 0 && color.samples == 1) GuestMemory::CheckRange(reinterpret_cast<const void*>(color.cmaskAddress), color.cmaskBytes, CmaskLayout::Alignment, true);
         }
         ++cache.counters.hits;
+        reportStateDecodeCache(cache);
         return state;
     }
     ++cache.counters.misses;
@@ -758,6 +766,7 @@ State DecodeStateCached(const QueueState& queue, bool vertexWorkgroup) {
     }
     cache.entries.emplace(key, result);
     cache.order.push_back(key);
+    reportStateDecodeCache(cache);
     return result;
 }
 
