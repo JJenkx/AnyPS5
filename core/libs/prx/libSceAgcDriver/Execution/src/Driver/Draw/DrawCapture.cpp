@@ -18,6 +18,16 @@ namespace AgcDriver::DriverDetail {
 
 namespace {
 
+std::uint64_t StageUserDataMask(std::uint64_t walked, const ShaderRecompiler::RecompileResult& compiled, const std::optional<ShaderRecompiler::ShaderVertexStageInfo>& vertexInfo) {
+    auto mask = walked == 0 ? ~std::uint64_t{0} : walked | compiled.userDataRegisterReads;
+    if (vertexInfo) {
+        for (const auto reg : {static_cast<std::uint32_t>(vertexInfo->fetchAttribReg), static_cast<std::uint32_t>(vertexInfo->fetchBufferReg)}) {
+            mask |= reg + 1u < 64u ? std::uint64_t{3} << reg : ~std::uint64_t{0};
+        }
+    }
+    return mask;
+}
+
 bool SameCompilation(const ShaderRecompiler::RecompileResult& a, const ShaderRecompiler::RecompileResult& b) {
     const auto sameBinding = [](const ShaderRecompiler::DescriptorBinding& x, const ShaderRecompiler::DescriptorBinding& y) { return x.kind == y.kind && x.role == y.role && x.descriptorSet == y.descriptorSet && x.binding == y.binding && x.count == y.count && x.guestDescriptor == y.guestDescriptor && x.bufferWritten == y.bufferWritten; };
     return a.variantId == b.variantId && a.specializationId == b.specializationId && a.pushConstants == b.pushConstants && std::ranges::equal(a.spirv.Words(), b.spirv.Words()) && std::ranges::equal(a.bindings, b.bindings, sameBinding);
@@ -43,6 +53,7 @@ std::shared_ptr<DispatchVariant> DrawStageVariant(const DrawProgram& program, co
     variant->shader = program.snapshot;
     variant->forgetSerial = capture.forgetSerial;
     variant->pushOffset = capture.pushOffset;
+    variant->userDataMask = capture.userDataMask;
     if (vertexInfo) variant->vertexInfo = std::make_shared<const ShaderRecompiler::ShaderVertexStageInfo>(*vertexInfo);
     std::vector<ShaderRecompiler::MemoryRegion> regions(capture.regions.begin(), capture.regions.end());
     for (const auto& read : decodeReads) regions.push_back({read.address, std::as_bytes(std::span(read.bytes))});
@@ -137,6 +148,7 @@ std::shared_ptr<const ShaderRecompiler::RecompileResult> Driver::materializeDraw
     }
     stageCapture.capture = capture;
     timing.Mark("materialize");
+    stageCapture.userDataMask = StageUserDataMask(shaderMemory.LastUserDataReads(), *stageCapture.compiled, vertexInfos[i]);
     phaseTiming.Phase(DrawRowRecompile);
     return stageCapture.compiled;
 }
@@ -222,6 +234,7 @@ bool Driver::compileDrawAhead(std::uint64_t key, std::uint64_t shape, const std:
         memory = shaderMemory.Regions();
         stageCapture.compiled = invocation.Materialize(*capture);
         stageCapture.capture = capture;
+        stageCapture.userDataMask = StageUserDataMask(shaderMemory.LastUserDataReads(), *stageCapture.compiled, vertexInfos[i]);
         const auto& result = *stageCapture.compiled;
         const auto slotEnd = (pushCursorBytes / Graphics::PipelinePushSlotBytes + 1u) * Graphics::PipelinePushSlotBytes;
         require(result.pushConstants.size() <= slotEnd - pushCursorBytes, "stage push constants exceed the pipeline push constant block");
