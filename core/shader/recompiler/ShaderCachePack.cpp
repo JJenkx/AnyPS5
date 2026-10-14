@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -95,7 +96,8 @@ void CachePack::Validate() {
     records = checked;
 }
 
-LoadStatus CachePack::Load(std::span<const std::byte> key, CompiledVariant& variant, PackLoadTimings& timings) const {
+template<typename TValue>
+LoadStatus CachePack::LoadValue(std::span<const std::byte> key, TValue& value, PackLoadTimings& timings) const {
     const auto start = Clock::now();
     const auto hash = PackKeyHash(key);
     const auto first = std::lower_bound(records.begin(), records.end(), hash, [](const auto& record, const auto& value) { return record.hash < value; });
@@ -104,7 +106,10 @@ LoadStatus CachePack::Load(std::span<const std::byte> key, CompiledVariant& vari
     for (auto it = first; it != records.end() && it->hash == hash; ++it) {
         const auto data = file.subspan(it->offset, it->size);
         const auto decode = Clock::now();
-        const auto result = DecodeEntry(data, key, variant);
+        const auto result = [&] {
+            if constexpr (std::is_same_v<TValue, CompiledVariant>) return DecodeEntry(data, key, value);
+            else return DecodePlanEntry(data, key, value);
+        }();
         timings.decodeNanoseconds += elapsed(decode);
         timings.bytes += data.size();
         if (result == LoadStatus::Loaded) return result;
@@ -112,4 +117,14 @@ LoadStatus CachePack::Load(std::span<const std::byte> key, CompiledVariant& vari
     }
     return status;
 }
+LoadStatus CachePack::Load(std::span<const std::byte> key, CompiledVariant& variant, PackLoadTimings& timings) const {
+    if (IsPlanKey(key)) return LoadStatus::KeyMismatch;
+    return LoadValue(key, variant, timings);
+}
+
+LoadStatus CachePack::LoadPlan(std::span<const std::byte> key, IrResourcePlan& plan, PackLoadTimings& timings) const {
+    if (!IsPlanKey(key)) return LoadStatus::KeyMismatch;
+    return LoadValue(key, plan, timings);
+}
+
 }

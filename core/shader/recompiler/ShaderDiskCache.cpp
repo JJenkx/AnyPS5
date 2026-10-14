@@ -1324,11 +1324,12 @@ public:
     [[nodiscard]] const std::filesystem::path& Directory() const { return directory; }
 
     bool Load(std::span<const std::byte> key, CompiledVariant& variant) {
-        if (loadPrebuilt(key, variant)) return true;
+        if (loadPrebuilt(key, variant, prebuiltHits, prebuiltMisses, prebuiltRejected)) return true;
         return load(key, [&](std::span<const std::byte> file, std::shared_ptr<const void> owner) { return DecodeEntry(file, key, variant, std::move(owner)); }, hits, misses, loadFailures);
     }
 
     bool LoadPlan(std::span<const std::byte> key, IrResourcePlan& plan) {
+        if (loadPrebuilt(key, plan, prebuiltPlanHits, prebuiltPlanMisses, prebuiltPlanRejected)) return true;
         return load(key, [&](std::span<const std::byte> file, std::shared_ptr<const void>) { return DecodePlanEntry(file, key, plan); }, planHits, planMisses, planLoadFailures);
     }
 
@@ -1377,6 +1378,9 @@ public:
         counters.prebuiltHits = prebuiltHits.load(std::memory_order_relaxed);
         counters.prebuiltMisses = prebuiltMisses.load(std::memory_order_relaxed);
         counters.prebuiltRejected = prebuiltRejected.load(std::memory_order_relaxed);
+        counters.prebuiltPlanHits = prebuiltPlanHits.load(std::memory_order_relaxed);
+        counters.prebuiltPlanMisses = prebuiltPlanMisses.load(std::memory_order_relaxed);
+        counters.prebuiltPlanRejected = prebuiltPlanRejected.load(std::memory_order_relaxed);
         counters.lookupNanoseconds = lookupNanoseconds.load(std::memory_order_relaxed);
         counters.readNanoseconds = readNanoseconds.load(std::memory_order_relaxed);
         counters.decodeNanoseconds = decodeNanoseconds.load(std::memory_order_relaxed);
@@ -1426,16 +1430,20 @@ private:
         std::shared_ptr<const IrResourcePlan> plan;
     };
 
-    bool loadPrebuilt(std::span<const std::byte> key, CompiledVariant& variant) {
+    template<typename TValue>
+    bool loadPrebuilt(std::span<const std::byte> key, TValue& value, std::atomic<std::uint64_t>& hitCount, std::atomic<std::uint64_t>& missCount, std::atomic<std::uint64_t>& rejectCount) {
         if (packs.empty() && looseDirectories.empty()) return false;
         const auto started = std::chrono::steady_clock::now();
         const auto elapsed = [](auto start) { return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count()); };
         bool loaded = false;
         PackLoadTimings timing;
         for (const auto& pack : packs) {
-            const auto status = pack->Load(key, variant, timing);
+            const auto status = [&] {
+                if constexpr (std::is_same_v<TValue, CompiledVariant>) return pack->Load(key, value, timing);
+                else return pack->LoadPlan(key, value, timing);
+            }();
             if (status == LoadStatus::Loaded) { loaded = true; break; }
-            if (status == LoadStatus::Rejected) prebuiltRejected.fetch_add(1, std::memory_order_relaxed);
+            if (status == LoadStatus::Rejected) rejectCount.fetch_add(1, std::memory_order_relaxed);
         }
         lookupNanoseconds.fetch_add(timing.lookupNanoseconds, std::memory_order_relaxed);
         decodeNanoseconds.fetch_add(timing.decodeNanoseconds, std::memory_order_relaxed);
@@ -1450,11 +1458,14 @@ private:
                 readNanoseconds.fetch_add(elapsed(start), std::memory_order_relaxed);
                 if (!read) continue;
                 const auto decode = std::chrono::steady_clock::now();
-                const auto status = DecodeEntry(file, key, variant);
+                const auto status = [&] {
+                    if constexpr (std::is_same_v<TValue, CompiledVariant>) return DecodeEntry(file, key, value);
+                    else return DecodePlanEntry(file, key, value);
+                }();
                 decodeNanoseconds.fetch_add(elapsed(decode), std::memory_order_relaxed);
                 prebuiltBytesRead.fetch_add(file.size(), std::memory_order_relaxed);
                 if (status == LoadStatus::Rejected) {
-                    const auto failures = prebuiltRejected.fetch_add(1, std::memory_order_relaxed);
+                    const auto failures = rejectCount.fetch_add(1, std::memory_order_relaxed);
                     if (failures < 8) std::fprintf(stderr, "[shader-prebuilt] rejected %s (%zu bytes): truncated, corrupt or another format; recompiling\n", name.c_str(), file.size());
                 }
                 if (status == LoadStatus::Loaded) { loaded = true; break; }
@@ -1462,9 +1473,9 @@ private:
             if (file.capacity() > (4u << 20u)) std::vector<std::byte>().swap(file);
         }
         if (loaded) {
-            const auto previous = prebuiltHits.fetch_add(1, std::memory_order_relaxed);
+            const auto previous = hitCount.fetch_add(1, std::memory_order_relaxed);
             if (previous == 0) std::fprintf(stderr, "[shader-prebuilt] first exact-key hit loaded in %.3f ms\n", elapsed(started) / 1e6);
-        } else prebuiltMisses.fetch_add(1, std::memory_order_relaxed);
+        } else missCount.fetch_add(1, std::memory_order_relaxed);
         if (loaded) {
             const auto duration = elapsed(started);
             prebuiltLoadNanoseconds.fetch_add(duration, std::memory_order_relaxed);
@@ -1601,7 +1612,7 @@ private:
         const auto loadNs = loadNanoseconds.load(std::memory_order_relaxed);
         const auto delta = [](std::uint64_t after, std::uint64_t before) { return static_cast<unsigned long long>(after - before); };
         const auto baseChanged = totals.hits != reported.hits || totals.misses != reported.misses || totals.writes != reported.writes || totals.loadFailures != reported.loadFailures || totals.writeFailures != reported.writeFailures || totals.planHits != reported.planHits || totals.planMisses != reported.planMisses || totals.planWrites != reported.planWrites || totals.planLoadFailures != reported.planLoadFailures;
-        const auto prebuiltChanged = totals.prebuiltHits != reported.prebuiltHits || totals.prebuiltMisses != reported.prebuiltMisses || totals.prebuiltRejected != reported.prebuiltRejected;
+        const auto prebuiltChanged = totals.prebuiltHits != reported.prebuiltHits || totals.prebuiltMisses != reported.prebuiltMisses || totals.prebuiltRejected != reported.prebuiltRejected || totals.prebuiltPlanHits != reported.prebuiltPlanHits || totals.prebuiltPlanMisses != reported.prebuiltPlanMisses || totals.prebuiltPlanRejected != reported.prebuiltPlanRejected;
         if (!baseChanged && !prebuiltChanged) return;
         if (baseChanged) std::fprintf(stderr, "[shader-disk-cache] (10 s): %llu hits, %llu misses, %llu writes (%.1f MiB), %llu load failures, %llu write failures; resource plans: %llu hits, %llu misses, %llu writes, %llu load failures; %.1f MiB read in %.1f ms (totals: %llu hits, %llu misses, %llu writes; plans %llu hits, %llu misses)\n",
                      delta(totals.hits, reported.hits), delta(totals.misses, reported.misses), delta(totals.writes, reported.writes), static_cast<double>(totals.bytesWritten - reported.bytesWritten) / (1024.0 * 1024.0),
@@ -1613,6 +1624,7 @@ private:
                      delta(totals.prebuiltHits, reported.prebuiltHits), delta(totals.prebuiltMisses, reported.prebuiltMisses), delta(totals.prebuiltRejected, reported.prebuiltRejected),
                      (totals.lookupNanoseconds - reported.lookupNanoseconds) / 1e6, (totals.readNanoseconds - reported.readNanoseconds) / 1e6, (totals.decodeNanoseconds - reported.decodeNanoseconds) / 1e6,
                      (totals.prebuiltLoadNanoseconds - reported.prebuiltLoadNanoseconds) / 1e6, totals.maxLoadNanoseconds / 1e6, static_cast<unsigned long long>(totals.prebuiltHits));
+        if (prebuiltChanged && (!packs.empty() || !looseDirectories.empty())) std::fprintf(stderr, "[shader-prebuilt] resource plans: %llu hits, %llu misses, %llu rejected (lifetime hits %llu)\n", delta(totals.prebuiltPlanHits, reported.prebuiltPlanHits), delta(totals.prebuiltPlanMisses, reported.prebuiltPlanMisses), delta(totals.prebuiltPlanRejected, reported.prebuiltPlanRejected), static_cast<unsigned long long>(totals.prebuiltPlanHits));
         reported = totals;
         reportedLoadNs = loadNs;
     }
@@ -1628,6 +1640,7 @@ private:
     bool writing = false;
     std::atomic<std::uint64_t> hits{0}, misses{0}, writes{0}, loadFailures{0}, writeFailures{0}, bytesRead{0}, bytesWritten{0}, loadNanoseconds{0};
     std::atomic<std::uint64_t> planHits{0}, planMisses{0}, planWrites{0}, planLoadFailures{0};
+    std::atomic<std::uint64_t> prebuiltPlanHits{0}, prebuiltPlanMisses{0}, prebuiltPlanRejected{0};
     std::atomic<std::uint64_t> prebuiltHits{0}, prebuiltMisses{0}, prebuiltRejected{0}, lookupNanoseconds{0}, readNanoseconds{0}, decodeNanoseconds{0}, maxLoadNanoseconds{0}, prebuiltBytesRead{0}, prebuiltLoadNanoseconds{0};
     std::atomic<std::int64_t> lastReport{0};
     std::mutex reportMutex;
@@ -1681,6 +1694,17 @@ void BuildPlanKey(const RecompileRequest& request, std::uint32_t hostSubgroupSiz
     writer.Value(hostSubgroupSize);
     const auto& switches = switchKey();
     key.insert(key.end(), switches.begin(), switches.end());
+}
+
+bool IsPlanKey(std::span<const std::byte> key) {
+    if (key.size() < 20) return false;
+    std::uint32_t magic, format, kind;
+    std::uint64_t version;
+    std::memcpy(&magic, key.data(), sizeof(magic));
+    std::memcpy(&format, key.data() + 4, sizeof(format));
+    std::memcpy(&version, key.data() + 8, sizeof(version));
+    std::memcpy(&kind, key.data() + 16, sizeof(kind));
+    return magic == FileMagic && format == FormatVersion && version == SourceVersion() && kind == PlanEntryKind;
 }
 
 std::string EntryName(std::span<const std::byte> key) {

@@ -64,7 +64,7 @@ Json::Value PackFolder(const fs::path& source, const fs::path& destination, std:
     }
     std::sort(paths.begin(), paths.end());
     PackWriter writer(destination, limit ? std::min(limit, paths.size()) : paths.size());
-    std::size_t rejected = 0, converted = 0, scanned = 0, accepted = 0;
+    std::size_t rejected = 0, converted = 0, scanned = 0, accepted = 0, plans = 0, variants = 0;
     const std::string receipt = std::string("archive-validated-v1:") + spvSoftwareVersionDetailsString();
     std::uint64_t bytesRead = 0;
     for (const auto& path : paths) {
@@ -86,8 +86,18 @@ Json::Value PackFolder(const fs::path& source, const fs::path& destination, std:
         bytesRead += bytes.size() - header.size();
         const auto file = std::as_bytes(std::span(bytes));
         auto key = Cache::EntryKey(file);
+        if (key.empty()) { ++rejected; continue; }
+        if (Cache::IsPlanKey(key)) {
+            ShaderRecompiler::IrResourcePlan plan;
+            if (Cache::DecodePlanEntry(file, key, plan) != Cache::LoadStatus::Loaded) { ++rejected; continue; }
+            writer.Add(file);
+            ++plans;
+            ++accepted;
+            continue;
+        }
         ShaderRecompiler::CompiledVariant variant;
-        if (key.empty() || Cache::DecodeEntry(file, key, variant) != Cache::LoadStatus::Loaded) { ++rejected; continue; }
+        if (Cache::DecodeEntry(file, key, variant) != Cache::LoadStatus::Loaded) { ++rejected; continue; }
+        ++variants;
         const std::string_view keyText(reinterpret_cast<const char*>(key.data()), key.size());
         if (keyText.ends_with(receipt)) {
             key = key.first(key.size() - receipt.size());
@@ -97,6 +107,8 @@ Json::Value PackFolder(const fs::path& source, const fs::path& destination, std:
         ++accepted;
     }
     auto result = writer.Finish();
+    result["resource_plans"] = Json::UInt64(plans);
+    result["compiled_variants"] = Json::UInt64(variants);
     result["candidates"] = Json::UInt64(paths.size());
     result["scanned"] = Json::UInt64(scanned);
     result["rejected"] = Json::UInt64(rejected);

@@ -135,6 +135,11 @@ cache folders can be converted without recompilation:
 & $tool pack --cache compiled-folder --out pkgout\shader_cache\prebuilt\game.pack
 ```
 
+The pack command retains resource-plan entries from a populated renderer cache
+alongside compiled variants. It reports their counts separately. Archive-only
+builds publish compiled variants; they do not synthesize plans for runtime
+requests they have not seen.
+
 Publication validates every entry. Stale source versions, damaged files and
 incompatible formats are counted as rejected; an entirely incompatible folder
 fails without replacing an existing pack. The validator receipt is removed from
@@ -156,7 +161,11 @@ keep their current mapped snapshot.
 `[shader-prebuilt]` logs startup mapping time, the first exact hit, and interval
 hits/misses/rejections with lookup, file-read, decode, total and maximum load
 times. These are CPU costs; mapped payload page faults are included in decoding.
-Normal resource-plan preparation and per-draw specialization still run as needed.
+Resource-plan lookups try prebuilt packs and loose files before the writable
+cache, using the plan request key and the normal plan decoder. A separate
+resource-plan line reports hits, misses and rejections. The timing and byte
+figures cover both entry kinds; writable-cache counters exclude prebuilt loads.
+Runtime capture and per-draw specialization still run as needed.
 The existing `[shader-disk-cache]` aggregate remains available. For a bounded
 read-only coverage/timing check, use the same environment as the game:
 

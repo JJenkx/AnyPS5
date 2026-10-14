@@ -1989,7 +1989,11 @@ int runPlanLoadingProcess(std::string_view mode) {
         std::cout << "a process with another switch value rebuilt all " << count << " plans\n";
         return 0;
     }
-    if (mode == "--load-plan") {
+    const bool prebuilt = mode == "--load-plan-pack" || mode == "--load-plan-loose";
+    if (prebuilt || mode == "--load-plan-pack-corrupt") {
+        require(builds == 0u && totals.planHits == (prebuilt ? 0u : count) && totals.planMisses == 0u && totals.planLoadFailures == 0u && totals.hits == count && totals.misses == 0u, "prebuilt plans did not preserve front-end reuse" + counts);
+        require(totals.prebuiltPlanHits == (prebuilt ? count : 0u) && totals.prebuiltPlanMisses == (prebuilt ? 0u : count) && totals.prebuiltPlanRejected == (prebuilt ? 0u : count), "prebuilt plan counters or rejection fallback differ");
+    } else if (mode == "--load-plan") {
         require(builds == 0u && totals.planHits == count && totals.planMisses == 0u && totals.planLoadFailures == 0u && totals.hits == count && totals.misses == 0u, "the second process ran the front end" + counts);
     } else if (mode == "--load-plan-off") {
         require(builds == count && totals.planHits == 0u && totals.planMisses == 0u && totals.planWrites == 0u && totals.hits == count && totals.misses == 0u, "APS5_NO_PERF_DISK_PLANS=1 used the stored plans or missed the stored variants" + counts);
@@ -2012,6 +2016,8 @@ int runPlanLoadingProcess(std::string_view mode) {
         std::cout << "second process prepared " << count << " shaders from stored plans without running the front end\n";
     } else if (mode == "--load-plan-off") {
         std::cout << "APS5_NO_PERF_DISK_PLANS=1 ran the front end for all " << count << " shaders with the same output\n";
+    } else if (prebuilt || mode == "--load-plan-pack-corrupt") {
+        std::cout << "prebuilt resource plans preserved the first process's outputs without front-end builds\n";
     } else {
         std::cout << "a damaged plan entry was rejected, rebuilt and stored again with the same output\n";
     }
@@ -2053,6 +2059,35 @@ void verifyPlanAcrossProcesses(const char* self) {
     };
     run("--load-plan");
     run("--load-plan-off");
+    const auto prebuiltRoot = ShaderDiskCache::EntryDirectory().parent_path() / "prebuilt";
+    std::filesystem::create_directories(prebuiltRoot);
+    std::vector<std::pair<std::filesystem::path, std::vector<std::byte>>> packedPlans;
+    for (std::size_t index = 0; index < fixtures.size(); ++index) {
+        std::vector<std::byte> key, entry;
+        ShaderDiskCache::BuildPlanKey(fixtures[index].Request(true), 32u, key);
+        require(ShaderDiskCache::IsPlanKey(key), "the plan key lost its entry kind");
+        require(ReadWholeFile(planEntryPath(fixtures[index]), entry), "cannot read plan pack input");
+        const auto pack = prebuiltRoot / ("plan-" + std::to_string(index) + ".pack");
+        auto bytes = packBytes({{key, entry}});
+        require(WriteFileAtomically(pack, bytes), "cannot write plan pack fixture");
+        packedPlans.emplace_back(pack, std::move(bytes));
+    }
+    run("--load-plan-pack");
+    for (auto& [path, bytes] : packedPlans) {
+        bytes.back() ^= std::byte{1};
+        require(WriteFileAtomically(path, bytes), "cannot corrupt plan pack fixture");
+    }
+    run("--load-plan-pack-corrupt");
+    for (const auto& [path, bytes] : packedPlans) std::filesystem::remove(path);
+    std::vector<std::filesystem::path> loosePlans;
+    for (auto& fixture : fixtures) {
+        const auto source = planEntryPath(fixture);
+        const auto loose = prebuiltRoot / source.filename();
+        std::filesystem::copy_file(source, loose);
+        loosePlans.push_back(loose);
+    }
+    run("--load-plan-loose");
+    for (const auto& path : loosePlans) std::filesystem::remove(path);
     std::vector<std::byte> entry;
     const auto damaged = planEntryPath(fixtures.front());
     require(ReadWholeFile(damaged, entry), "cannot read a stored plan entry");

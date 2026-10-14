@@ -38,6 +38,9 @@ struct Counters {
     std::uint64_t prebuiltHits = 0;
     std::uint64_t prebuiltMisses = 0;
     std::uint64_t prebuiltRejected = 0;
+    std::uint64_t prebuiltPlanHits = 0;
+    std::uint64_t prebuiltPlanMisses = 0;
+    std::uint64_t prebuiltPlanRejected = 0;
     std::uint64_t lookupNanoseconds = 0;
     std::uint64_t readNanoseconds = 0;
     std::uint64_t decodeNanoseconds = 0;
@@ -50,6 +53,8 @@ struct Counters {
 [[nodiscard]] std::uint64_t SourceVersion();
 
 void BuildKey(const RecompileRequest& request, std::uint32_t hostSubgroupSize, std::vector<std::byte>& key);
+
+[[nodiscard]] bool IsPlanKey(std::span<const std::byte> key);
 
 [[nodiscard]] std::string EntryName(std::span<const std::byte> key);
 

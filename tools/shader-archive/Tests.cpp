@@ -1,3 +1,6 @@
+#include "Pack.hpp"
+#include "ShaderCacheDirectory.hpp"
+#include "Optimization/ResourceProgram.hpp"
 #include "Archive.hpp"
 #include "Native.hpp"
 #include <iostream>
@@ -180,6 +183,57 @@ int main() {
                     throw std::runtime_error("worker");
             });
         });
+        {
+            namespace Cache = ShaderRecompiler::ShaderDiskCache;
+            const auto directory = fs::temp_directory_path() / ("anyps5-plan-pack-" + std::to_string(Clock::now().time_since_epoch().count()));
+            fs::create_directories(directory);
+            const std::array<std::uint32_t, 1> code{0xbf810000u};
+            ShaderRecompiler::RecompileRequest request{};
+            request.shader = {ShaderRecompiler::ShaderStage::Compute, 0x20000u, code, 0, {}};
+            request.context.waveSize = 64;
+            request.context.compute = ShaderRecompiler::ShaderComputeStageInfo{{64u, 1u, 1u}, 0u, {false, false, false}, false, 1u};
+            request.target.vulkanVersion = 0x00401000u;
+            request.target.spirvVersion = 0x00010300u;
+            request.target.subgroupSize = 32;
+            request.useCache = false;
+            const auto plan = ShaderRecompiler::GetResourcePlan(request);
+            std::vector<std::byte> key;
+            Cache::BuildPlanKey(request, 32u, key);
+            Check(Cache::IsPlanKey(key), "resource-plan key classification");
+            const auto entry = Cache::EncodePlanEntry(key, *plan);
+            Check(ShaderRecompiler::WriteFileAtomically(directory / "plan.bin", entry), "write plan fixture");
+            Check(ShaderRecompiler::WriteFileAtomically(directory / "pipeline.bin", std::vector<std::byte>(64)), "write non-entry fixture");
+            std::vector<std::byte> variantKey;
+            Cache::BuildKey(request, 32u, variantKey);
+            const ShaderRecompiler::CompiledVariant variant{};
+            Check(ShaderRecompiler::WriteFileAtomically(directory / "variant.bin", Cache::EncodeEntry(variantKey, variant)), "write variant fixture");
+            auto corruptPlan = entry;
+            corruptPlan.back() ^= std::byte{1};
+            Check(ShaderRecompiler::WriteFileAtomically(directory / "corrupt-plan.bin", corruptPlan), "write corrupt plan fixture");
+            auto foreignPlan = entry;
+            foreignPlan[8] ^= std::byte{1};
+            Check(ShaderRecompiler::WriteFileAtomically(directory / "foreign-plan.bin", foreignPlan), "write foreign-source plan fixture");
+            const auto packPath = directory / "result.pack";
+            const auto result = PackFolder(directory, packPath);
+            Check(result["resource_plans"].asUInt64() == 1 && result["compiled_variants"].asUInt64() == 1 && result["rejected"].asUInt64() == 3, "pack did not accept plans and reject non-entries");
+            ShaderRecompiler::IrResourcePlan restored;
+            {
+                Cache::CachePack pack(packPath);
+                Cache::PackLoadTimings timings;
+                Check(pack.Valid() && pack.LoadPlan(key, restored, timings) == Cache::LoadStatus::Loaded, "pack tool did not publish a loadable plan");
+                ShaderRecompiler::CompiledVariant loadedVariant;
+                Check(pack.Load(variantKey, loadedVariant, timings) == Cache::LoadStatus::Loaded, "mixed pack lost its compiled variant");
+                Check(pack.Load(key, loadedVariant, timings) == Cache::LoadStatus::KeyMismatch && pack.LoadPlan(variantKey, restored, timings) == Cache::LoadStatus::KeyMismatch, "mixed pack confused entry kinds");
+                auto mismatch = key;
+                mismatch.back() ^= std::byte{1};
+                Check(pack.LoadPlan(mismatch, restored, timings) == Cache::LoadStatus::Absent, "plan pack accepted another key");
+            }
+            std::vector<std::byte> expected, actual;
+            Check(Cache::EncodePlan(*plan, expected) && Cache::EncodePlan(restored, actual) && expected == actual, "packed plan changed after its mapping closed");
+            Cache::BuildKey(request, 32u, key);
+            Check(!Cache::IsPlanKey(key), "compiled key was classified as a plan");
+            fs::remove_all(directory);
+        }
         std::cout << "shader archive checks passed\n";
         return 0;
     } catch (const std::exception &e) {
