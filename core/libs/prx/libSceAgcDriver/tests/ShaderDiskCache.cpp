@@ -2072,7 +2072,27 @@ void verifyPlanAcrossProcesses(const char* self) {
         require(WriteFileAtomically(pack, bytes), "cannot write plan pack fixture");
         packedPlans.emplace_back(pack, std::move(bytes));
     }
-    run("--load-plan-pack");
+    const auto runWithoutWritablePlans = [&](const char* mode) {
+        std::vector<std::pair<std::filesystem::path, std::vector<std::byte>>> originals;
+        for (auto& fixture : fixtures) {
+            const auto path = planEntryPath(fixture);
+            std::vector<std::byte> bytes;
+            require(ReadWholeFile(path, bytes), "cannot preserve writable plan fixture");
+            originals.emplace_back(path, std::move(bytes));
+        }
+        const auto restore = [&] {
+            for (const auto& [path, bytes] : originals) require(WriteFileAtomically(path, bytes), "cannot restore writable plan fixture");
+        };
+        try {
+            for (const auto& [path, bytes] : originals) require(std::filesystem::remove(path), "cannot remove writable plan fixture");
+            run(mode);
+        } catch (...) {
+            restore();
+            throw;
+        }
+        restore();
+    };
+    runWithoutWritablePlans("--load-plan-pack");
     for (auto& [path, bytes] : packedPlans) {
         bytes.back() ^= std::byte{1};
         require(WriteFileAtomically(path, bytes), "cannot corrupt plan pack fixture");
@@ -2086,7 +2106,7 @@ void verifyPlanAcrossProcesses(const char* self) {
         std::filesystem::copy_file(source, loose);
         loosePlans.push_back(loose);
     }
-    run("--load-plan-loose");
+    runWithoutWritablePlans("--load-plan-loose");
     for (const auto& path : loosePlans) std::filesystem::remove(path);
     std::vector<std::byte> entry;
     const auto damaged = planEntryPath(fixtures.front());
