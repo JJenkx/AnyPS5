@@ -49,7 +49,7 @@ void Append(std::vector<std::uint32_t>& commands, std::uint32_t opcode, std::ini
     commands.insert(commands.end(), payload);
 }
 
-std::vector<std::uint32_t> DrawThrice() {
+std::vector<std::uint32_t> DrawThrice(bool changingUserWords = false) {
     const auto color = reinterpret_cast<std::uintptr_t>(ColorMemory.data());
     const auto vertex = reinterpret_cast<std::uintptr_t>(VertexCode.data());
     const auto pixel = reinterpret_cast<std::uintptr_t>(PixelCode.data());
@@ -82,9 +82,11 @@ std::vector<std::uint32_t> DrawThrice() {
     Append(commands, 0x79, {0x242, 4});
     for (const auto& [offset, value] : context) Append(commands, 0x69, {offset, value});
     for (const auto& [offset, value] : shader) Append(commands, 0x76, {offset, value});
-    Append(commands, 0x2d, {3, 2});
-    Append(commands, 0x2d, {3, 2});
-    Append(commands, 0x2d, {3, 2});
+    if (changingUserWords) Append(commands, 0x69, {0x81, 0x80000001});
+    for (std::uint32_t i = 0; i < 3; ++i) {
+        if (changingUserWords) Append(commands, 0x76, {0x8c, std::bit_cast<std::uint32_t>((i + 1u) * 0.125f)});
+        Append(commands, 0x2d, {3, 2});
+    }
     return commands;
 }
 
@@ -104,6 +106,20 @@ void ThirdDrawHitsTheCache(bool libraries) {
     Require(counters.hits == 1, mode + ": the repeated draw did not reuse the cached draw (" + std::to_string(counters.hits) + " hits)");
 }
 
+void ChangingUserWordsReuseDecode() {
+    const auto before = AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
+    auto commands = DrawThrice(true);
+    Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
+    Require(sceAgcDriverSubmitDcb(&packet) == 0, "the changing-user-word draw submission failed");
+    AgcDriverWaitIdle_nid_postfix();
+    const auto after = AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
+    Require(after.lookups - before.lookups == 3 && after.absent - before.absent == 3, "changing user words did not make three distinct draw keys");
+    const bool disabled = std::getenv("APS5_NO_DRAW_DATA_HITS") != nullptr;
+    const auto reused = after.decodeSkipped - before.decodeSkipped;
+    Require(disabled ? reused == 0 : reused != 0, disabled ? "disabled data hits reused a decode" : "draws with changing user words never reused their shape's decode");
+    Require(after.inserts - before.inserts == (disabled ? 0u : 2u), "changing-user-word draw admission did not preserve the key/shape second-sight policy");
+}
+
 void SightingsKeepCollidingKeys() {
     DrawKeySightings sightings(DrawKeySightings::Ways);
     Require(!sightings.SeenBefore(0) && sightings.SeenBefore(0), "draw key 0 was not admitted at its second sight");
@@ -118,6 +134,11 @@ void SightingsKeepCollidingKeys() {
 
 int main() {
     try {
+#ifdef _WIN32
+        _putenv_s("APS5_PROFILE_DRAW", "1");
+#else
+        setenv("APS5_PROFILE_DRAW", "1", 1);
+#endif
         SightingsKeepCollidingKeys();
         bool libraries = false;
         {
@@ -127,6 +148,7 @@ int main() {
         }
         if (!libraries && std::getenv("APS5_NO_GPL") == nullptr) return VulkanTestSkipped;
         ThirdDrawHitsTheCache(libraries);
+        ChangingUserWordsReuseDecode();
         AgcDriverShutdown_nid_postfix();
         std::cout << "A repeated draw reused the cached draw " << (libraries ? "with" : "without") << " graphics pipeline libraries\n";
         return 0;
