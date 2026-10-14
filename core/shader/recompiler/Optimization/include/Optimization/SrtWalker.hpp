@@ -35,6 +35,7 @@ struct SrtRuntime {
     SrtMemoryProbe accessible = nullptr;
     SrtMemoryProbe pendingWrite = nullptr;
     SrtMemoryBulkReader readWords = nullptr;
+    std::uint64_t* userDataReads = nullptr;
 };
 
 enum class RuntimeValueType {
