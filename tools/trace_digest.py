@@ -14,7 +14,7 @@ unless --summary names another file."""
 
 
 def is_wait(name):
-    return "wait" in name.rsplit(".", 1)[-1].lower()
+    return "wait" in name.lower()
 
 
 class Trace:
