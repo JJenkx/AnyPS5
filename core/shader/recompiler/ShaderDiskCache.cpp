@@ -1238,6 +1238,7 @@ public:
     [[nodiscard]] const std::filesystem::path& Directory() const { return directory; }
 
     bool Load(std::span<const std::byte> key, CompiledVariant& variant) {
+        if (packs.empty() && looseDirectories.empty()) return load(key, [&](std::span<const std::byte> file, std::shared_ptr<const void> owner) { return DecodeEntry(file, key, variant, std::move(owner)); }, hits, misses, loadFailures);
         const auto started = std::chrono::steady_clock::now();
         thread_local std::vector<std::byte>* fileSlot = nullptr;
         auto& file = ThreadOwned(fileSlot);
@@ -1522,95 +1523,6 @@ private:
                      delta(totals.planHits, reported.planHits), delta(totals.planMisses, reported.planMisses), delta(totals.planWrites, reported.planWrites), delta(totals.planLoadFailures, reported.planLoadFailures),
                      static_cast<double>(totals.bytesRead - reported.bytesRead) / (1024.0 * 1024.0), static_cast<double>(loadNs - reportedLoadNs) / 1e6,
                      static_cast<unsigned long long>(totals.hits), static_cast<unsigned long long>(totals.misses), static_cast<unsigned long long>(totals.writes), static_cast<unsigned long long>(totals.planHits), static_cast<unsigned long long>(totals.planMisses));
-        if (!packs.empty() || !looseDirectories.empty()) std::fprintf(stderr, "[shader-prebuilt] mapped %zu packs, %zu entries, %zu loose folders in %.3f ms; exact source/ABI/request keys required\n", packs.size(), entries, looseDirectories.size(), std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
-    }
-
-    struct Job {
-        std::vector<std::byte> key;
-        std::shared_ptr<const CompiledVariant> variant;
-    };
-
-    void run() {
-        std::fprintf(stderr, "[shader-disk-cache] %s (source version %s, format %u)\n", directory.string().c_str(), hex(SourceVersion()).c_str(), FormatVersion);
-        housekeeping();
-        std::unique_lock lock(mutex);
-        while (true) {
-            wake.wait_for(lock, std::chrono::seconds(10), [&] { return !jobs.empty(); });
-            while (!jobs.empty()) {
-                auto job = std::move(jobs.front());
-                jobs.pop_front();
-                writing = true;
-                lock.unlock();
-                write(job);
-                job = {};
-                lock.lock();
-                writing = false;
-            }
-            idle.notify_all();
-            lock.unlock();
-            report(false);
-            lock.lock();
-        }
-    }
-
-    void write(const Job& job) {
-        const auto file = EncodeEntry(job.key, *job.variant);
-        if (WriteFileAtomically(directory / EntryName(job.key), file)) {
-            writes.fetch_add(1, std::memory_order_relaxed);
-            bytesWritten.fetch_add(file.size(), std::memory_order_relaxed);
-        } else {
-            const auto failures = writeFailures.fetch_add(1, std::memory_order_relaxed);
-            if (failures < 4) std::fprintf(stderr, "[shader-disk-cache] cannot write %s\n", (directory / EntryName(job.key)).string().c_str());
-        }
-    }
-
-    void housekeeping() {
-        std::error_code error;
-        std::filesystem::create_directories(directory, error);
-        const auto stamp = directory / "last-used";
-        std::ofstream(stamp, std::ios::binary | std::ios::trunc).close();
-        std::filesystem::last_write_time(stamp, std::filesystem::file_time_type::clock::now(), error);
-        const auto now = std::filesystem::file_time_type::clock::now();
-        for (std::filesystem::directory_iterator it(root, error), end; !error && it != end; it.increment(error)) {
-            const auto name = it->path().filename().string();
-            if (it->path() == directory || name.size() != 16 || name.find_first_not_of("0123456789abcdef") != std::string::npos || !it->is_directory(error)) continue;
-            std::error_code timeError;
-            auto used = std::filesystem::last_write_time(it->path() / "last-used", timeError);
-            if (timeError) used = std::filesystem::last_write_time(it->path(), timeError);
-            if (!timeError && now - used > std::chrono::hours(24 * 14)) {
-                std::error_code removeError;
-                std::filesystem::remove_all(it->path(), removeError);
-            }
-        }
-        error.clear();
-        for (std::filesystem::directory_iterator it(directory, error), end; !error && it != end; it.increment(error)) {
-            if (it->path().filename().string().find(".tmp.") == std::string::npos) continue;
-            std::error_code timeError;
-            const auto written = std::filesystem::last_write_time(it->path(), timeError);
-            if (!timeError && now - written > std::chrono::hours(1)) {
-                std::error_code removeError;
-                std::filesystem::remove(it->path(), removeError);
-            }
-        }
-    }
-
-    void report(bool force) {
-        const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-        auto last = lastReport.load(std::memory_order_relaxed);
-        if (last == 0) {
-            lastReport.compare_exchange_strong(last, now, std::memory_order_relaxed);
-            return;
-        }
-        if (!force && (now - last < std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::seconds(10)).count() || !lastReport.compare_exchange_strong(last, now, std::memory_order_relaxed))) return;
-        std::lock_guard lock(reportMutex);
-        const auto totals = Totals();
-        const auto loadNs = loadNanoseconds.load(std::memory_order_relaxed);
-        const auto delta = [](std::uint64_t after, std::uint64_t before) { return static_cast<unsigned long long>(after - before); };
-        if (totals.hits == reported.hits && totals.misses == reported.misses && totals.writes == reported.writes && totals.loadFailures == reported.loadFailures && totals.writeFailures == reported.writeFailures) return;
-        std::fprintf(stderr, "[shader-disk-cache] (10 s): %llu hits, %llu misses, %llu writes (%.1f MiB), %llu load failures, %llu write failures; %.1f MiB read in %.1f ms (totals: %llu hits, %llu misses, %llu writes)\n",
-                     delta(totals.hits, reported.hits), delta(totals.misses, reported.misses), delta(totals.writes, reported.writes), static_cast<double>(totals.bytesWritten - reported.bytesWritten) / (1024.0 * 1024.0),
-                     delta(totals.loadFailures, reported.loadFailures), delta(totals.writeFailures, reported.writeFailures), static_cast<double>(totals.bytesRead - reported.bytesRead) / (1024.0 * 1024.0), static_cast<double>(loadNs - reportedLoadNs) / 1e6,
-                     static_cast<unsigned long long>(totals.hits), static_cast<unsigned long long>(totals.misses), static_cast<unsigned long long>(totals.writes));
         if (!packs.empty() || !looseDirectories.empty()) std::fprintf(stderr, "[shader-prebuilt] interval: %llu hits, %llu misses, %llu rejected; lookup %.3f ms, file read %.3f ms, decode %.3f ms; total load %.3f ms, max %.3f ms (lifetime hits %llu)\n",
                      delta(totals.prebuiltHits, reported.prebuiltHits), delta(totals.prebuiltMisses, reported.prebuiltMisses), delta(totals.prebuiltRejected, reported.prebuiltRejected),
                      (totals.lookupNanoseconds - reported.lookupNanoseconds) / 1e6, (totals.readNanoseconds - reported.readNanoseconds) / 1e6, (totals.decodeNanoseconds - reported.decodeNanoseconds) / 1e6,

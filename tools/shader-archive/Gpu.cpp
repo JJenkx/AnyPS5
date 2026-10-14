@@ -42,7 +42,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Debug(VkDebugUtilsMessageSeverityFlagBitsEXT seve
     std::fprintf(stderr, "[vulkan] %s\n", message->pMessage);
     return VK_FALSE;
 }
-std::vector<std::vector<VkDescriptorSetLayoutBinding>> Bindings(const std::vector<std::uint32_t> &w,
+std::vector<std::vector<VkDescriptorSetLayoutBinding>> Bindings(std::span<const std::uint32_t> w,
                                                                 VkShaderStageFlagBits stage) {
     Check(w.size() >= 5 && w[0] == spv::MagicNumber && w[3] < 16000000, "invalid SPIR-V reflection header");
     const auto bound = w[3];
