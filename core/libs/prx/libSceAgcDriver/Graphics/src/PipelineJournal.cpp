@@ -412,9 +412,15 @@ struct LoadedJournal {
 class Journal {
 public:
     static Journal& Instance() {
-        static auto* journal = new Journal();
+        static auto* journal = [] {
+            auto* created = new Journal();
+            existing.store(created, std::memory_order_release);
+            return created;
+        }();
         return *journal;
     }
+
+    static Journal* Existing() { return existing.load(std::memory_order_acquire); }
 
     [[nodiscard]] bool Enabled() const { return !path.empty() && !mismatched.load(std::memory_order_relaxed); }
     [[nodiscard]] const std::filesystem::path& Path() const { return path; }
@@ -523,6 +529,8 @@ public:
     };
 
 private:
+    inline static std::atomic<Journal*> existing{nullptr};
+
     struct PendingModule {
         ShaderRecompiler::PipelineIdentity identity;
         ShaderRecompiler::ShaderStage stage;
@@ -1081,7 +1089,7 @@ void RecordComputePipeline(const ShaderRecompiler::RecompileResult& shader, bool
 }
 
 void FlushPipelineJournal() {
-    if (Journal::Instance().Enabled()) Journal::Instance().Flush();
+    if (auto* journal = Journal::Existing()) journal->Flush();
 }
 
 void ReportPipelineJournal() {

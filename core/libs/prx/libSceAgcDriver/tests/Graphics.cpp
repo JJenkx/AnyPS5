@@ -6782,6 +6782,17 @@ void pipelineJournalTests() {
     setenv("ANYPS5_SHADER_CACHE_DIR", directory.string().c_str(), 1);
     setenv("APS5_PIPELINE_JOURNAL_THREADS", "2", 1);
 #endif
+#ifdef _WIN32
+    _putenv_s("APS5_PIPELINE_JOURNAL_MAX_MIB", "unused-flush-must-not-initialize");
+#else
+    setenv("APS5_PIPELINE_JOURNAL_MAX_MIB", "unused-flush-must-not-initialize", 1);
+#endif
+    FlushPipelineJournal();
+#ifdef _WIN32
+    _putenv_s("APS5_PIPELINE_JOURNAL_MAX_MIB", "");
+#else
+    unsetenv("APS5_PIPELINE_JOURNAL_MAX_MIB");
+#endif
     Require(PipelineJournalEnabled(), "the journal is disabled with a shader cache directory set");
     const auto module = [](std::uint32_t salt) {
         ShaderRecompiler::RecompileResult result;

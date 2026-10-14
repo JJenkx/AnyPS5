@@ -6,6 +6,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineSpecialization.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
+#include "prx/libc/include/HostThreadLocal.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -973,7 +974,8 @@ std::shared_ptr<Pipeline> CachedPipeline(const Context& context, const State& st
     if (created != nullptr) *created = false;
     if (disabled) return std::make_shared<Pipeline>(context, state, vertexInput, resources, shaders, attachmentLayout);
     auto& store = Pipelines();
-    thread_local std::vector<std::byte> key;
+    struct PipelineKeyTag {};
+    auto& key = HostThreadLocal<std::vector<std::byte>, PipelineKeyTag>();
     pipelineKey(key, context, state, vertexInput, resources, shaders, attachmentLayout);
     if (key.empty()) {
         std::lock_guard lock(store.mutex);
