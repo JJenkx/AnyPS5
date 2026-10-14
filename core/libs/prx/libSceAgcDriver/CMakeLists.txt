@@ -515,6 +515,17 @@ if(ANYPS5_ENABLE_SPIRV_TOOLS)
     target_link_libraries(agc_spirv_optimizer_tests PRIVATE shader_recompiler_agc_driver libc SPIRV-Tools-static)
     set_target_properties(agc_spirv_optimizer_tests PROPERTIES CXX_EXTENSIONS OFF)
     configure_windows_unwind(agc_spirv_optimizer_tests)
+    get_target_property(agcWrapKillPatched SPIRV-Tools-opt ANYPS5_WRAP_KILL_SCAN_PATCHED)
+    if(BUILD_TESTING AND agcWrapKillPatched)
+        add_test_executable(agc_spirv_wrap_kill_tests tests/SpirvWrapKill.cpp)
+        target_include_directories(agc_spirv_wrap_kill_tests PRIVATE
+                "${PROJECT_SOURCE_DIR}/3rdparty/SPIRV-Tools"
+                "${CMAKE_BINARY_DIR}/3rdparty/SPIRV-Tools"
+                "${ANYPS5_SPIRV_HEADERS_INCLUDE_DIR}")
+        target_link_libraries(agc_spirv_wrap_kill_tests PRIVATE SPIRV-Tools-opt SPIRV-Tools-static)
+        add_test(NAME agc_spirv_wrap_kill COMMAND agc_spirv_wrap_kill_tests)
+        set_tests_properties(agc_spirv_wrap_kill PROPERTIES TIMEOUT 30)
+    endif()
 endif()
 
 add_test_executable(agc_float16_conversion_tests EXCLUDE_FROM_ALL tests/Float16Conversion.cpp)

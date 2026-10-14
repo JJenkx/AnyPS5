@@ -3,6 +3,7 @@
 ### Build
 
 - winpthreads initializes a statically initialized rwlock on its first lock and fails a concurrent first lock with `EINVAL`, which `std::shared_mutex` and `std::shared_timed_mutex` ignore, so that lock does not exclude. The host `std::shared_mutex` objects in [Recompiler.cpp](../../../core/shader/recompiler/Recompiler.cpp) are locked once when created. A new host `std::shared_mutex` used on Windows needs the same.
+- [Bundled SPIRV-Tools WrapOpKill](../../../core/shader/recompiler/PatchWrapOpKill.cmake) scans function instructions before constructing structured CFG analysis. A module without `OpKill` or `OpTerminateInvocation` is unchanged; modules containing either instruction use the pinned pass. The build-directory patch refuses changed upstream source structure. System SPIRV-Tools is unaffected. Native title startup and performance effects remain unverified.
 
 ### Unknown function info
 
