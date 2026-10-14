@@ -33,7 +33,7 @@ const auto& registerMasks() {
 
 }
 
-std::uint64_t RegisterStateKey(const QueueState& queue, bool allUserWords, bool incremental) {
+std::uint64_t RegisterStateShapeKey(const QueueState& queue, bool incremental) {
     const auto& masks = registerMasks();
     const auto fingerprint = [&](const Registers& registers, Graphics::RegisterBank bank) {
         const auto& mask = masks[static_cast<std::size_t>(bank)];
@@ -42,7 +42,11 @@ std::uint64_t RegisterStateKey(const QueueState& queue, bool allUserWords, bool 
     auto shape = (0xcbf29ce484222325ull ^ fingerprint(queue.context, Graphics::RegisterBank::Context)) * 0x100000001b3ull;
     shape = (shape ^ fingerprint(queue.shader, Graphics::RegisterBank::Shader)) * 0x100000001b3ull;
     shape = (shape ^ fingerprint(queue.userConfig, Graphics::RegisterBank::UserConfig)) * 0x100000001b3ull;
-    auto exact = shape;
+    return shape;
+}
+
+std::uint64_t RegisterStateKey(const QueueState& queue, bool allUserWords, bool incremental) {
+    auto exact = RegisterStateShapeKey(queue, incremental);
     const auto words = [&](std::uint32_t base, std::uint32_t count) {
         for (auto it = queue.shader.lower_bound(base); it != queue.shader.end() && it->first < base + count; ++it) {
             exact = (exact ^ it->first) * 0x100000001b3ull;

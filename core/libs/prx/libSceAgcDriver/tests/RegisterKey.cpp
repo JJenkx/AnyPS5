@@ -52,6 +52,12 @@ void testFingerprints() {
     static_assert(!std::is_convertible_v<Registers::Reference, std::uint32_t&>);
     std::mt19937 random(42);
     QueueState queue;
+    const auto shape = RegisterStateShapeKey(queue);
+    queue.shader[0x00c] = 0x100;
+    check(RegisterStateShapeKey(queue) == shape, "user data changed the register shape");
+    queue.context[0x000] = 1;
+    check(RegisterStateShapeKey(queue) != shape, "context mutation did not change the register shape");
+    queue = QueueState{};
     auto reference = baselineRegisterStateKey(queue);
     auto tracked = RegisterStateKey(queue);
     const auto compare = [&] {

@@ -6,6 +6,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/DccMetadata.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureFormat.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver/Draw/DrawRegisterKey.hpp"
 #include "prx/libc/include/General.hpp"
 #include <algorithm>
 #include <bit>
@@ -16,6 +17,8 @@
 #include <span>
 #include <array>
 #include <sstream>
+#include <map>
+#include <deque>
 
 namespace AgcDriver::Graphics {
 namespace {
@@ -707,6 +710,55 @@ std::string DepthMaintenanceRejection(const QueueState& queue) {
     const bool colorMasks = find(queue.context, 0x8e) != queue.context.end() && find(queue.context, 0x8f) != queue.context.end();
     if ((control->second & ~0x2063u) == 0x10u && depthControl != queue.context.end() && (depthControl->second & 3u) == 0 && colorMasks && ColorWriteMask(queue.context) == 0) return {};
     return zeroMessage(0x000, control->second, "DB_RENDER_CONTROL depth copy, resummarize or decompress");
+}
+
+namespace {
+
+struct StateDecodeCache {
+    using Key = std::pair<std::uint64_t, bool>;
+    std::map<Key, State> entries;
+    std::deque<Key> order;
+    StateDecodeCacheStats counters;
+};
+
+StateDecodeCache& stateDecodeCache() {
+    static thread_local StateDecodeCache cache;
+    return cache;
+}
+
+}
+
+StateDecodeCacheStats StateDecodeCacheCounters() {
+    const auto& cache = stateDecodeCache();
+    auto result = cache.counters;
+    result.entries = cache.entries.size();
+    return result;
+}
+
+State DecodeStateCached(const QueueState& queue, bool vertexWorkgroup) {
+    static const bool disabled = std::getenv("APS5_NO_DRAW_STATE_CACHE") != nullptr;
+    if (disabled || RegisterReadLog() != nullptr) return DecodeState(queue, vertexWorkgroup);
+    auto& cache = stateDecodeCache();
+    const StateDecodeCache::Key key{DriverDetail::RegisterStateShapeKey(queue), vertexWorkgroup};
+    if (const auto found = cache.entries.find(key); found != cache.entries.end()) {
+        const auto& state = found->second;
+        for (const auto& color : state.colors) {
+            const ColorTargetLayout layout(color.extent.width, color.extent.height, color.tileMode, color.elementBytes);
+            GuestMemory::CheckRange(reinterpret_cast<const void*>(color.address), color.bytes, layout.Alignment(), true);
+            if (color.cmaskAddress != 0 && color.samples == 1) GuestMemory::CheckRange(reinterpret_cast<const void*>(color.cmaskAddress), color.cmaskBytes, CmaskLayout::Alignment, true);
+        }
+        ++cache.counters.hits;
+        return state;
+    }
+    ++cache.counters.misses;
+    auto result = DecodeState(queue, vertexWorkgroup);
+    if (cache.entries.size() == 512) {
+        cache.entries.erase(cache.order.front());
+        cache.order.pop_front();
+    }
+    cache.entries.emplace(key, result);
+    cache.order.push_back(key);
+    return result;
 }
 
 State DecodeState(const QueueState& queue, bool vertexWorkgroup) {

@@ -133,6 +133,13 @@ inline constexpr std::uint32_t PositionExportLayoutBits = 0xffffu | (1u << 21u) 
 
 ShaderStages DecodeShaderStages(const QueueState& queue, bool vertexWorkgroup = false);
 State DecodeState(const QueueState& queue, bool vertexWorkgroup = false);
+State DecodeStateCached(const QueueState& queue, bool vertexWorkgroup = false);
+struct StateDecodeCacheStats {
+    std::uint64_t hits = 0;
+    std::uint64_t misses = 0;
+    std::size_t entries = 0;
+};
+StateDecodeCacheStats StateDecodeCacheCounters();
 std::array<VkSampleLocationEXT, 8> SampleLocations(const State& state);
 std::array<std::uint8_t, 8> ExportMappings(const State& state);
 std::array<ShaderRecompiler::ColorExportPacking, 8> ExportPackings(const State& state);

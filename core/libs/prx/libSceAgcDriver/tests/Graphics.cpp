@@ -44,6 +44,9 @@
 #include <type_traits>
 #include <thread>
 #include <vector>
+#ifndef _WIN32
+#include <sys/mman.h>
+#endif
 
 extern "C" std::terminate_handler APS5_VABI _ZSt13set_terminatePFvvE_nid_postfix(std::terminate_handler handler);
 
@@ -99,6 +102,57 @@ void expectFailure(TAction action, std::string_view reason) {
         return;
     }
     throw std::runtime_error("expected graphics rejection: " + std::string(reason));
+}
+
+void stateDecodeCacheTests() {
+    using namespace AgcDriver::Graphics;
+    auto queue = makeState();
+    queue.shader[0x00b] = 2;
+    queue.shader[0x00c] = 0x100;
+    const auto before = StateDecodeCacheCounters();
+    const auto first = DecodeStateCached(queue);
+    const auto filled = StateDecodeCacheCounters();
+    Require(filled.misses == before.misses + 1, "new graphics state did not fill the decode cache");
+    queue.shader[0x00c] = 0x200;
+    queue.shader[0x08c] = 0x300;
+    const auto second = DecodeStateCached(queue);
+    Require(StateDecodeCacheCounters().hits == filled.hits + 1, "shader user-data changes defeated graphics state reuse");
+    Require(second.viewport.width == first.viewport.width && second.color.address == first.color.address, "user-data-only changes altered decoded graphics state");
+    queue.context[0x10f] = std::bit_cast<std::uint32_t>(33.0f);
+    const auto moved = DecodeStateCached(queue);
+    const auto fresh = DecodeState(queue);
+    Require(moved.viewport.width != first.viewport.width && moved.viewport.width == fresh.viewport.width && moved.viewport.x == fresh.viewport.x, "a viewport change reused stale graphics state");
+    std::vector<RegisterRead> reads;
+    RegisterReadLog() = &reads;
+    static_cast<void>(DecodeStateCached(queue));
+    RegisterReadLog() = nullptr;
+    Require(!reads.empty(), "graphics state reuse hid decoder dependency reads");
+    for (const auto read : reads) {
+        Require(DrawKeyCovers(read), "a graphics state dependency is absent from the key facade");
+        if (read.bank == RegisterBank::Shader) Require(!(read.offset - 0x00cu < 32u || read.offset - 0x08cu < 32u || read.offset - 0x10cu < 32u || read.offset == 0x082u || read.offset == 0x083u || read.offset == 0x102u || read.offset == 0x103u), "graphics state consumed an excluded runtime register");
+    }
+    expectFailure([&] { DecodeStateCached(queue, true); }, "missing register");
+    queue.context[0x30e] = 0;
+    expectFailure([&] { DecodeStateCached(queue); }, "sample masks");
+    queue = makeState();
+    for (std::uint32_t index = 0; index < 520; ++index) {
+        queue.context[0x110] = std::bit_cast<std::uint32_t>(32.0f + static_cast<float>(index));
+        const auto decoded = DecodeStateCached(queue);
+        Require(decoded.viewport.x == DecodeState(queue).viewport.x, "eviction lost a viewport dependency");
+    }
+    Require(StateDecodeCacheCounters().entries <= 512, "graphics state decode cache exceeded its bound");
+#ifndef _WIN32
+    void* page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    Require(page != MAP_FAILED, "cannot map a color target for decode cache checks");
+    queue = makeState();
+    const auto address = reinterpret_cast<std::uintptr_t>(page);
+    queue.context[0x318] = static_cast<std::uint32_t>(address >> 8u);
+    queue.context[0x390] = static_cast<std::uint32_t>(address >> 40u);
+    static_cast<void>(DecodeStateCached(queue));
+    Require(mprotect(page, 4096, PROT_READ) == 0, "cannot remove color target write permission");
+    expectFailure([&] { DecodeStateCached(queue); }, "no write permission");
+    Require(munmap(page, 4096) == 0, "cannot unmap the decode cache color target");
+#endif
 }
 
 void inactiveVertexPointSizeTests() {
@@ -5977,6 +6031,7 @@ int main(int argc, char** argv) {
         UnwrittenSampleLocationTests();
         ShaderStageTests();
         NggVertexWorkgroupTests();
+        stateDecodeCacheTests();
         inactiveVertexPointSizeTests();
         TuningFieldTests();
         PixelInputLayoutTests();
