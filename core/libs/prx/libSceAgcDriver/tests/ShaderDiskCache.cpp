@@ -735,11 +735,28 @@ struct ComputeRequest {
     }
 };
 
-int runLoadingProcess() {
+int runLoadingProcess(std::string_view mode = {}) {
     ComputeRequest cached(true);
     const auto loaded = Recompile(cached.request);
     const auto totals = ShaderDiskCache::Totals();
-    require(totals.hits == 1 && totals.misses == 0 && totals.loadFailures == 0, "the second process did not load the stored variant (hits " + std::to_string(totals.hits) + ", misses " + std::to_string(totals.misses) + ")");
+    const bool prebuilt = mode == "--load-pack" || mode == "--load-loose";
+    const bool recompiled = mode == "--load-prebuilt-compile";
+    const bool rejected = mode == "--load-prebuilt-rejected" || recompiled;
+    const bool missed = rejected || mode == "--load-prebuilt-miss";
+    require(totals.hits == (prebuilt || recompiled ? 0u : 1u) && totals.misses == (recompiled ? 1u : 0u) && totals.loadFailures == 0, "the second process has incorrect writable-cache counters (hits " + std::to_string(totals.hits) + ", misses " + std::to_string(totals.misses) + ")");
+    require(totals.prebuiltHits == (prebuilt ? 1u : 0u), "the compiled prebuilt entry did not serve the expected request");
+    require(totals.prebuiltMisses == (missed ? 1u : 0u) && totals.prebuiltRejected == (rejected ? 1u : 0u), "prebuilt rejection or fallback was not counted separately");
+    if (prebuilt) {
+        std::vector<std::byte> key;
+        ShaderDiskCache::BuildKey(cached.request, cached.request.target.subgroupSize, key);
+        CompiledVariant variant;
+        const auto before = ShaderDiskCache::Totals();
+        require(ShaderDiskCache::Load(key, variant), "the direct prebuilt load failed");
+        const auto after = ShaderDiskCache::Totals();
+        require(after.bytesRead == before.bytesRead && after.loadNanoseconds == before.loadNanoseconds && after.prebuiltBytesRead > before.prebuiltBytesRead && after.prebuiltLoadNanoseconds > before.prebuiltLoadNanoseconds, "prebuilt I/O was charged to the writable cache");
+        require(!variant.artifact.spirv.empty(), "the direct prebuilt load returned empty SPIR-V");
+    }
+    if (missed) require(totals.bytesRead > 0 && totals.loadNanoseconds > 0 && totals.prebuiltLoadNanoseconds > 0, "prebuilt fallback lost cache I/O timings");
     ComputeRequest fresh(false);
     const auto compiled = Recompile(fresh.request);
     requireSameResult(compiled, loaded, "loaded against compiled");
@@ -770,6 +787,39 @@ void verifyAcrossProcesses(const char* self) {
     const auto result = std::system(packed.c_str());
     std::filesystem::remove(path);
     require(result == 0, "the prebuilt loading process failed");
+    const auto looseName = ShaderDiskCache::EntryName(key);
+    const auto checkLoose = [&](const std::filesystem::path& folder) {
+        std::filesystem::create_directories(folder);
+        const auto loose = folder / looseName;
+        const auto child = [&](const char* mode) {
+            const std::string command = "\"" + std::string(self) + "\" " + mode;
+            require(std::system(command.c_str()) == 0, std::string("the loose prebuilt process failed: ") + mode);
+        };
+        require(WriteFileAtomically(loose, entry), "cannot publish loose prebuilt fixture");
+        child("--load-loose");
+        setEnvironment("ANYPS5_NO_PREBUILT_SHADERS", "1");
+        child("--load-prebuilt-disabled");
+        setEnvironment("ANYPS5_NO_PREBUILT_SHADERS", "0");
+        require(WriteFileAtomically(loose, std::span(entry).first(entry.size() / 2)), "cannot truncate loose fixture");
+        child("--load-prebuilt-rejected");
+        auto corrupt = entry;
+        corrupt.back() ^= std::byte{1};
+        require(WriteFileAtomically(loose, corrupt), "cannot corrupt loose fixture");
+        child("--load-prebuilt-rejected");
+        const auto writable = ShaderDiskCache::EntryDirectory() / looseName;
+        const auto backup = folder / "writable-backup.bin";
+        std::filesystem::rename(writable, backup);
+        child("--load-prebuilt-compile");
+        std::filesystem::remove(writable);
+        std::filesystem::rename(backup, writable);
+        SampleRequest other;
+        const auto mismatch = ShaderDiskCache::EncodeEntry(other.Key(), sampleVariant());
+        require(WriteFileAtomically(loose, mismatch), "cannot publish mismatched loose fixture");
+        child("--load-prebuilt-miss");
+        std::filesystem::remove(loose);
+    };
+    checkLoose(path.parent_path());
+    checkLoose(path.parent_path() / ShaderDiskCache::EntryDirectory().filename());
 }
 
 struct ClockRequest {
@@ -1980,11 +2030,7 @@ void verifyDefaultDirectory(const char* self) {
 
 int main(int argc, char** argv) {
     try {
-        if (argc == 2 && std::string_view(argv[1]) == "--load-pack") {
-            const auto result = runLoadingProcess();
-            require(ShaderDiskCache::Totals().prebuiltHits == 1, "the compiled pack did not serve the request");
-            return result;
-        }
+        if (argc == 2 && (std::string_view(argv[1]).starts_with("--load-prebuilt") || std::string_view(argv[1]) == "--load-pack" || std::string_view(argv[1]) == "--load-loose")) return runLoadingProcess(argv[1]);
         if (argc == 2 && std::string_view(argv[1]) == "--load") return runLoadingProcess();
         if (argc == 2 && std::string_view(argv[1]) == "--no-failure-memo") return runWithoutFailureMemo();
         if (argc == 2 && std::string_view(argv[1]).starts_with("--load-plan")) return runPlanLoadingProcess(argv[1]);
@@ -1992,6 +2038,8 @@ int main(int argc, char** argv) {
         std::filesystem::remove_all(directory);
         verifyDefaultDirectory(argv[0]);
         setEnvironment("ANYPS5_NO_SHADER_CACHE", "0");
+        setEnvironment("ANYPS5_NO_PREBUILT_SHADERS", "0");
+        setEnvironment("ANYPS5_PREBUILT_SHADER_CACHE", "");
         setEnvironment("ANYPS5_SHADER_CACHE_DIR", directory.string());
         verifyAtomicReplacement(directory);
         verifyResultRoundTrip();
