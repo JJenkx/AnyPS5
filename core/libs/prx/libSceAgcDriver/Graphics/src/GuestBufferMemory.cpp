@@ -652,6 +652,8 @@ const char* createSharedBackingImport(const Context& context, HostImport& entry,
     std::array<GuestArena::SharedBackingRun, DmaBufRunLimit> runs{};
     std::size_t count = 0;
     if (!GuestArena::GuestArenaSharedBackingRuns_nid_postfix(static_cast<std::uintptr_t>(entry.base), static_cast<std::size_t>(entry.bytes), &file, runs.data(), runs.size(), &count)) {
+        BackingFile backing;
+        if (sharedBacking(context, entry, backing)) return createBackingImport(context, entry, backing, failure);
         failure = VK_ERROR_INVALID_EXTERNAL_HANDLE;
         return "shared backing runs";
     }
@@ -2580,12 +2582,13 @@ ImportWatch PrepareImportWatch(const Context& context) {
     return state.unwatchImports ? ImportWatch::Unwatch : ImportWatch::Watch;
 }
 
-void SetImportWatch(const Context& context, ImportWatch watch) {
+void SetImportWatch(const Context& context, ImportWatch watch, std::optional<bool> dmaBufCoherent) {
     auto& state = Imports();
     std::lock_guard lock(state.mutex);
     state.watchDevice = context.device;
     state.unwatchImports = watch == ImportWatch::Unwatch;
     state.unwatchDmaBufImports = state.unwatchImports;
+    if (dmaBufCoherent.has_value()) state.dmaBufImportsCoherent = *dmaBufCoherent;
 }
 
 void SetHostImportWindow(std::uint64_t bytes) {

@@ -160,6 +160,7 @@ Context mockContext() {
     context.hostImportAlignment = Alignment;
     context.dmaBufImport = true;
     context.sparseBinding = true;
+    SetImportWatch(context, ImportWatch::Unwatch, true);
     return context;
 }
 
