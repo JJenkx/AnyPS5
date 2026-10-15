@@ -246,7 +246,11 @@ Outcome RunSecondStore(const char* name) {
         while (true) {
             hold.lock();
             const std::array<std::pair<std::uint64_t, std::uint64_t>, 1> range{{{address, address + SurfaceBytes}}};
-            if (StorageTexture::FindLive(address, SurfaceBytes) != nullptr && StorageTexture::AnyPendingOverlaps(range)) return true;
+            if (StorageTexture::FindLive(address, SurfaceBytes) != nullptr && StorageTexture::AnyPendingOverlaps(range)) {
+                const std::array<std::pair<std::uint64_t, std::uint64_t>, 3> runs{{{address - 64, address}, {address + SurfaceBytes, address + SurfaceBytes + 64}, {address + SurfaceBytes - 4, address + SurfaceBytes}}};
+                Require(StorageTexture::AnyPendingOverlaps(runs) && !StorageTexture::AnyPendingOverlaps(std::span(runs).first(2)), "store over untracked: a list of runs does not overlap the pending surface exactly when one of its runs does");
+                return true;
+            }
             hold.unlock();
             if (Holds(surface.Texels(), result)) return false;
             Require(std::chrono::steady_clock::now() < deadline, "store over untracked: the result neither became pending nor reached guest memory");
