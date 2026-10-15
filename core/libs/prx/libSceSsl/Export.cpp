@@ -2,6 +2,7 @@
 #include "prx/libc/include/General.hpp"
 
 #include <mbedtls/asn1.h>
+#include <mbedtls/base64.h>
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/md.h>
@@ -648,23 +649,23 @@ int APS5_VABI sceSslGetNameEntryInfo(int sslCtxId, void* certName, int entryNum,
     return 0;
 }
 
-int APS5_VABI sceSslGetNotBefore(void* sslCert, SceSsl::RtcTick* begin) {
+int APS5_VABI sceSslGetNotBefore(int sslCtxId, void* sslCert, SceSsl::RtcTick* begin) {
     if (!begin) return ErrorInvalidArg;
     std::lock_guard lock(State().mutex);
-    const auto* crt = RequireCertificate(__func__, sslCert);
+    const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
     begin->tick = TimeToTick(crt->valid_from);
     return 0;
 }
 
-int APS5_VABI sceSslGetNotAfter(void* sslCert, SceSsl::RtcTick* limit) {
+int APS5_VABI sceSslGetNotAfter(int sslCtxId, void* sslCert, SceSsl::RtcTick* limit) {
     if (!limit) return ErrorInvalidArg;
     std::lock_guard lock(State().mutex);
-    const auto* crt = RequireCertificate(__func__, sslCert);
+    const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
     limit->tick = TimeToTick(crt->valid_to);
     return 0;
 }
 
-int APS5_VABI sceSslGetFingerprint(void* sslCert, int hashType, unsigned char* fingerprint) {
+int APS5_VABI sceSslGetFingerprint(int sslCtxId, void* sslCert, int hashType, unsigned char* fingerprint) {
     if (!fingerprint) return ErrorInvalidArg;
     mbedtls_md_type_t mdType;
     switch (hashType) {
@@ -679,24 +680,31 @@ int APS5_VABI sceSslGetFingerprint(void* sslCert, int hashType, unsigned char* f
     const auto* info = mbedtls_md_info_from_type(mdType);
     if (!info) return ErrorInvalidArg;
     std::lock_guard lock(State().mutex);
-    const auto* crt = RequireCertificate(__func__, sslCert);
+    const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
     if (mbedtls_md(info, crt->raw.p, crt->raw.len, fingerprint) != 0) return ErrorInvalidArg;
     return 0;
 }
 
-int APS5_VABI sceSslGetPem(void* sslCert, char* buf, std::size_t maxBufLen, std::size_t* bufLen) {
+int APS5_VABI sceSslGetPem(int sslCtxId, void* sslCert, char* buf, std::size_t* bufLen) {
     if (!bufLen) return ErrorInvalidArg;
     std::lock_guard lock(State().mutex);
-    Context* context = nullptr;
-    const auto* crt = RequireCertificate(__func__, sslCert, &context);
-    PoolScope scope(context->pool);
+    auto& context = GetContext(sslCtxId);
+    const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
+    PoolScope scope(context.pool);
     std::size_t required = 0;
-    const int ret = mbedtls_pem_write_buffer("-----BEGIN CERTIFICATE-----\n", "-----END CERTIFICATE-----\n",
-        crt->raw.p, crt->raw.len, reinterpret_cast<unsigned char*>(buf), maxBufLen, &required);
-    *bufLen = required;
-    if (!buf || maxBufLen == 0) return 0;
-    if (context->pool.exhausted || ret == MBEDTLS_ERR_PEM_ALLOC_FAILED) throw std::bad_alloc();
-    if (ret != 0) return ErrorInvalidArg;
+    const auto encode = [&](unsigned char* output, std::size_t capacity, std::size_t* written) {
+        return mbedtls_pem_write_buffer("-----BEGIN CERTIFICATE-----\n", "-----END CERTIFICATE-----\n", crt->raw.p, crt->raw.len, output, capacity, written);
+    };
+    const int sizing = encode(nullptr, 0, &required);
+    if (sizing != MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL) CheckBackend(sizing, "SSL PEM sizing failed");
+    if (!buf) {
+        *bufLen = required;
+        return 0;
+    }
+    if (*bufLen < required) throw std::length_error("SSL PEM buffer is too small");
+    std::size_t written = 0;
+    CheckBackend(encode(reinterpret_cast<unsigned char*>(buf), required, &written), "SSL PEM encoding failed");
+    *bufLen = written;
     return 0;
 }
 
