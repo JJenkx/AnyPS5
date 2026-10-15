@@ -18,6 +18,14 @@ bool DrawRecipeRecord::Matches(const std::vector<std::shared_ptr<DispatchVariant
     return true;
 }
 
+const Graphics::PreparedDraw* PreparedDrawRecord::For(const std::vector<std::shared_ptr<DispatchVariant>>& variants, std::size_t shaderCount) const {
+    if (shaderCount != shaders || variants.size() != stages.size()) return nullptr;
+    for (std::size_t i = 0; i < stages.size(); ++i) {
+        if (stages[i].owner_before(variants[i]) || variants[i].owner_before(stages[i])) return nullptr;
+    }
+    return prepared.get();
+}
+
 bool DrawRecipeRecord::Expired() const {
     return std::any_of(stages.begin(), stages.end(), [](const std::weak_ptr<const DispatchVariant>& stage) { return stage.expired(); });
 }
@@ -129,7 +137,7 @@ bool Driver::shapeHasOtherEntry(std::uint64_t key, std::uint64_t shape) const {
     return owner != drawShapes.end() && owner->second != key;
 }
 
-bool Driver::insertAheadEntry(std::uint64_t key, const std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape) {
+bool Driver::insertAheadEntry(std::uint64_t key, const std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape, std::shared_ptr<const Graphics::PreparedDraw> prepared, std::size_t preparedShaders) {
     auto entry = std::make_shared<DrawEntry>();
     entry->stages.resize(fresh.size());
     entry->decode = std::move(decode);
@@ -141,6 +149,7 @@ bool Driver::insertAheadEntry(std::uint64_t key, const std::vector<std::shared_p
         entry->stages[i].push_back(fresh[i]);
         added.push_back(fresh[i]);
     }
+    if (prepared != nullptr) entry->prepared = std::make_shared<const PreparedDrawRecord>(PreparedDrawRecord{{fresh.begin(), fresh.end()}, preparedShaders, std::move(prepared)});
     std::list<std::uint64_t> node;
     node.push_front(key);
     std::vector<std::shared_ptr<DrawEntry>> released;
@@ -159,8 +168,8 @@ bool Driver::insertAheadEntry(std::uint64_t key, const std::vector<std::shared_p
     return true;
 }
 
-bool Driver::insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape, bool ahead) {
-    if (ahead) return insertAheadEntry(key, fresh, std::move(decode), shape);
+bool Driver::insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape, bool ahead, std::shared_ptr<const Graphics::PreparedDraw> prepared, std::size_t preparedShaders) {
+    if (ahead) return insertAheadEntry(key, fresh, std::move(decode), shape, std::move(prepared), preparedShaders);
     std::vector<std::shared_ptr<DrawEntry>> released;
     std::lock_guard cacheLock(drawCacheMutex);
     const auto found = drawCache.find(key);
@@ -171,6 +180,7 @@ bool Driver::insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<Disp
     if (found != drawCache.end()) {
         if (found->second->stages.size() == fresh.size()) replacement->stages = found->second->stages;
         if (found->second->decode != nullptr) replacement->decode = found->second->decode;
+        replacement->prepared = found->second->prepared;
         replacement->recipes.store(found->second->recipes.load());
     }
     auto resolved = fresh;
@@ -193,6 +203,7 @@ bool Driver::insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<Disp
             variants.pop_back();
         }
     }
+    if (prepared != nullptr) replacement->prepared = std::make_shared<const PreparedDrawRecord>(PreparedDrawRecord{{resolved.begin(), resolved.end()}, preparedShaders, std::move(prepared)});
     replacement->touched = drawCacheHits;
     replacement->probation = found != drawCache.end() && found->second->probation;
     const bool ownsShape = !replacement->probation && replacement->decode != nullptr && shape != 0;
