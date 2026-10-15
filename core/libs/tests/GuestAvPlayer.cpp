@@ -17,6 +17,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 #include "SceTypes.hpp"
@@ -1190,6 +1191,34 @@ void TestLoopWarningWaitsForPlayback() {
     Check(sceAvPlayerClose(player) == 0, "loop warning close failed");
 }
 
+void TestNoSyncVideoCanLeadAudioClock() {
+    Events events;
+    AvPlayerInitData init = InitData(&events);
+    auto* player = sceAvPlayerInit(&init);
+    Check(player != nullptr, "no-sync init failed");
+    Check(sceAvPlayerSetAvSyncMode(player, 1) == 0, "no-sync mode rejected");
+    Check(sceAvPlayerAddSource(player, "/app0/avplayer.mp4") == 0, "no-sync source failed");
+    Check(sceAvPlayerEnableStream(player, VideoStream) == 0, "no-sync video failed");
+    Check(sceAvPlayerEnableStream(player, EnglishAudioStream) == 0, "no-sync audio failed");
+    Check(sceAvPlayerStart(player) == 0, "no-sync start failed");
+    AvPlayerFrameInfo audio{};
+    Check(WaitFor([&] { return sceAvPlayerGetAudioData(player, &audio) != 0; }), "no-sync audio unavailable");
+    std::uint64_t lead = 0;
+    const bool available = WaitFor([&] {
+        AvPlayerFrameInfoEx video{};
+        if (!sceAvPlayerGetVideoDataEx(player, &video)) return false;
+        CheckVideoFrame(video);
+        const auto clock = sceAvPlayerCurrentTime(player);
+        if (video.timestamp > clock) lead = std::max(lead, video.timestamp - clock);
+        return lead >= 100;
+    }, 500);
+    Check(sceAvPlayerClose(player) == 0, "no-sync close failed");
+    std::printf("No-sync video lead: %llu ms\n", static_cast<unsigned long long>(lead));
+    Check(available, "no-sync video was gated by the audio-backed player clock");
+    std::lock_guard lock(allocations.mutex);
+    Check(allocations.blocks.empty(), "no-sync allocations leaked");
+}
+
 void TestEofStopLatency() {
     constexpr int Rounds = 9;
     std::array<std::chrono::steady_clock::duration, Rounds> elapsed{};
@@ -1247,9 +1276,13 @@ void TestEofStopLatency() {
 
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
         WriteMovie();
+        if (argc == 2 && std::string_view(argv[1]) == "--no-sync-lead-only") {
+            TestNoSyncVideoCanLeadAudioClock();
+            return 0;
+        }
         TestPlayback();
         TestChangeStream();
         TestExtendedExports();
