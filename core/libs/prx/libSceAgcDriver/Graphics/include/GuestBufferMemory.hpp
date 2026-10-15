@@ -55,12 +55,13 @@ struct ImportProbe {
     std::uint32_t writtenAfterSettle = 0;
     std::uint32_t writtenByCpu = 0;
     std::uint32_t writtenAfterFill = 0;
+    std::uint32_t staleAfterFill = 0;
 };
 
 ImportProbe ProbeImportWriteProtection(const Context& context);
 ImportProbe ProbeDmaBufImportWriteProtection(const Context& context);
 ImportWatch PrepareImportWatch(const Context& context);
-void SetImportWatch(const Context& context, ImportWatch watch);
+void SetImportWatch(const Context& context, ImportWatch watch, std::optional<bool> dmaBufCoherent = {});
 
 // The host import of the registered allocation containing [address, address + bytes), made on demand
 // (alignment and budget permitting), or null. Bytes at `address` are at `address - import->base` in
