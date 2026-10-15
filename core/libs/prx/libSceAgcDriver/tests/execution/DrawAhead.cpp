@@ -399,7 +399,7 @@ void TablesWrittenByQueuedCommitsAreSeen() {
     Table.fill(fresh);
     TableTargets[3].fill(Kept);
     Pass reference{false, true};
-    reference.draws.emplace_back(&TableTargets[3], 0u);
+    reference.draws.emplace_back(&TableTargets[3], 0x280u);
     RenderReference(reference);
     const auto expected = TableTargets[3];
     Table.fill(std::bit_cast<std::uint32_t>(0.0f));

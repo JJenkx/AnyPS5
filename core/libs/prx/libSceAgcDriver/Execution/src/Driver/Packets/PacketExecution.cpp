@@ -127,9 +127,12 @@ void Driver::execute(const Submission& submission) {
     struct RetireDrawAhead {
         DrawAhead* drawAhead;
         std::uint64_t serial;
-        ~RetireDrawAhead() {
-            if (drawAhead != nullptr) drawAhead->Retire(serial);
+        void Retire() {
+            if (drawAhead == nullptr) return;
+            drawAhead->Retire(serial);
+            drawAhead = nullptr;
         }
+        ~RetireDrawAhead() { Retire(); }
     } retireDrawAhead{submission.queue == 0 ? drawAhead.get() : nullptr, submission.serial};
     static const bool traceGpu = std::getenv("APS5_TRACE_GPU") != nullptr;
     if (traceGpu) std::fprintf(stderr, "[gpu] %.1f execute serial=%llu queue=0x%x dwords=%zu\n", TraceMs(), static_cast<unsigned long long>(submission.serial), submission.queue, submission.commands.size());
@@ -421,6 +424,7 @@ void Driver::execute(const Submission& submission) {
     static const bool submitAtEnd = std::getenv("APS5_SUBMIT_AT_END") != nullptr;
     if (pipelined && orderedCompletion && deferredLabels().labels.empty()) {
         if (submission.rewindTail == nullptr) {
+            retireDrawAhead.Retire();
             deferCompletion(submission);
             return;
         }

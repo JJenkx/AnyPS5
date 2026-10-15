@@ -2069,6 +2069,10 @@ SpeculativeReadScope::~SpeculativeReadScope() {
     speculativeGate = previous;
 }
 
+bool SpeculativeReadActive() {
+    return speculativeGate != nullptr;
+}
+
 bool SpeculativeReadsSupported() {
     static const bool supported = [] {
         const std::uint64_t probe = 0x5a5a5a5aa5a5a5a5ull;
