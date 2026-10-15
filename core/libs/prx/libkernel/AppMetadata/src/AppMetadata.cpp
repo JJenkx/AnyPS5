@@ -102,6 +102,15 @@ std::uint64_t GetAppDownloadDataSizeMiB_nid_postfix() {
     return g_downloadDataSizeMiB;
 }
 
+std::uint32_t GetAppCategoryType_nid_no_patch() {
+    static const std::uint32_t category = [] {
+        const auto parsed = parseParamJson(ResolvePath_nid_no_patch(AppMetadataParamJsonGuestPath));
+        if (!parsed.applicationCategoryType) throw std::runtime_error("param.json applicationCategoryType is missing");
+        return *parsed.applicationCategoryType;
+    }();
+    return category;
+}
+
 std::uint32_t GetAppAttribute3_nid_no_patch() {
     ensureTitleLoaded();
     return g_attribute3;
