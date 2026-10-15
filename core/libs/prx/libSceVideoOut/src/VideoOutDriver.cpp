@@ -122,7 +122,9 @@ public:
         std::lock_guard lock(cfg->mutex);
         checkConfig(*cfg);
         require(index < VIDEO_OUT_BUFFER_NUM_MAX && cfg->buffers[index].Occupied(), "wait buffer is not registered");
-        return std::make_shared<RenderingWait>(cfg, index, cfg->bufferReuse[index].Capture());
+        const auto captured = cfg->bufferReuse[index].Capture();
+        std::fprintf(stderr, "[reuse-diagnostic] capture index=%u ticket=%llu complete=%d pending=%u\n", index, static_cast<unsigned long long>(captured), cfg->bufferReuse[index].IsComplete(captured), cfg->bufferPending[index]);
+        return std::make_shared<RenderingWait>(cfg, index, captured);
     }
 
     void WaitForFlipRoom() override {
@@ -160,6 +162,7 @@ public:
         if (info.index >= 0) {
             if (limited) require(cfg->buffers[info.index].Occupied(), "EOP flip buffer is not registered");
             request->reuseTicket = cfg->bufferReuse[info.index].Reserve();
+            std::fprintf(stderr, "[reuse-diagnostic] reserve index=%d ticket=%llu limited=%d\n", info.index, static_cast<unsigned long long>(request->reuseTicket), limited);
         }
         ++queue->reservations;
         ++cfg->flipStatus.flipPendingNum;
@@ -619,6 +622,7 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
     if (req.index >= 0) {
         --req.cfg->bufferPending[req.index];
         req.cfg->bufferReuse[req.index].Complete(req.reuseTicket);
+        std::fprintf(stderr, "[reuse-diagnostic] complete index=%d ticket=%llu\n", req.index, static_cast<unsigned long long>(req.reuseTicket));
     }
     req.terminal = true;
     req.cfg->vblankCond.notify_all();
