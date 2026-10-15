@@ -3,6 +3,7 @@
 ### Build
 
 - winpthreads initializes a statically initialized rwlock on its first lock and fails a concurrent first lock with `EINVAL`, which `std::shared_mutex` and `std::shared_timed_mutex` ignore, so that lock does not exclude. The host `std::shared_mutex` objects in [Recompiler.cpp](../../../core/shader/recompiler/Recompiler.cpp) are locked once when created. A new host `std::shared_mutex` used on Windows needs the same.
+- [SPIR-V input validation](../../../core/shader/recompiler/SpirvBackend/src/SpirvOptimizer.cpp) runs before optimization with the same target and validator options as the optimizer. The optimizer's duplicate input validation is disabled; explicit input and output validation remain enabled. Native title startup and performance effects remain unverified.
 
 - The bundled [SPIRV-Tools build](../../../core/shader/recompiler/PatchSpirvTools.cmake) replaces the redundancy-elimination source with a build-directory copy. A depth-first traversal keeps one value map and removes each subtree's added values on return, avoiding growing map copies and preventing sibling values from leaking into one another. This extends the processed-map release fix in [SPIRV-Tools #6962](https://github.com/KhronosGroup/SPIRV-Tools/pull/6962). Remove the patch when the pinned dependency has equivalent copy-free traversal; #6962 alone still copies maps for sibling branches. System-dependency builds need an equivalent fix in their installed package. Optimization passes and validation remain unchanged; wider shader and game performance measurement is needed.
 
