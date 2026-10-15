@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Draw/DrawAhead.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver/Draw/DrawPipeline.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
@@ -17,6 +18,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -387,6 +389,48 @@ void TablesWrittenBehindTheWaitAreSeen() {
         Release();
         Require(target == expected[1], mode == 0 ? "a draw compiled ahead ignored a CPU store to its table made while the queue waited" : "a draw compiled ahead ignored a queue write to its table before the draw");
     }
+}
+
+void TablesWrittenByQueuedCommitsAreSeen() {
+    using AgcDriver::DriverDetail::DrawPipeline;
+    if (DrawPipeline::Depth() == 0) return;
+    auto& driver = AgcDriver::DriverDetail::Driver::Get();
+    const auto fresh = std::bit_cast<std::uint32_t>(1.0f);
+    Table.fill(fresh);
+    TableTargets[3].fill(Kept);
+    Pass reference{false, true};
+    reference.draws.emplace_back(&TableTargets[3], 0u);
+    RenderReference(reference);
+    const auto expected = TableTargets[3];
+    Table.fill(std::bit_cast<std::uint32_t>(0.0f));
+    TableTargets[2].fill(Kept);
+    Pass pass{true, true};
+    pass.draws.emplace_back(&TableTargets[2], 0x280u);
+    const auto before = driver.DrawAheadStatistics();
+    Submit(pass);
+    Await([&] { return driver.DrawAheadStatistics().compiled != before.compiled; }, "the draw before a queued table write to compile ahead");
+    std::atomic<bool> allowed{false};
+    struct Drain {
+        std::atomic<bool>& allowed;
+        ~Drain() {
+            allowed.store(true, std::memory_order_release);
+            Released.store(1, std::memory_order_release);
+            AgcDriverWaitIdle_nid_postfix();
+        }
+    } drain{allowed};
+    const auto address = reinterpret_cast<std::uintptr_t>(Table.data());
+    DrawPipeline::Queue0().Enqueue([&, address, fresh] {
+        while (!allowed.load(std::memory_order_acquire)) std::this_thread::yield();
+        std::lock_guard gpuLock(AgcDriver::GuestMemory::GpuMutex());
+        const std::array<std::uint32_t, 4> words{fresh, fresh, fresh, fresh};
+        AgcDriver::GuestMemory::Write(address, std::as_bytes(std::span(words)), alignof(std::uint32_t));
+    }, {{address, address + sizeof(Table)}});
+    Released.store(1, std::memory_order_release);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (DrawPipeline::Queue0().Outstanding() == 1 && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    allowed.store(true, std::memory_order_release);
+    AgcDriverWaitIdle_nid_postfix();
+    Require(TableTargets[2] == expected, "a draw compiled ahead ignored a queued write to its captured table");
 }
 
 void PacketDerivedCompilesStayOnTheQueue() {
@@ -873,6 +917,7 @@ int main(int argc, char** argv) {
         SkippedDrawsAreNotCompiledAfterTheQueuePassesThem();
         RetireWaitsForAWorkerReadInProgress();
         TablesWrittenBehindTheWaitAreSeen();
+        TablesWrittenByQueuedCommitsAreSeen();
         SkippedSpeculationStaysOnProbation();
         UncachedExecutionsAreNoSightings();
         ContextStackDivergenceLeavesTheDrawToTheQueue();
