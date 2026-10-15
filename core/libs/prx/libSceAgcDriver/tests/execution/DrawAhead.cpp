@@ -154,6 +154,7 @@ struct Pass {
     const std::uint32_t* condition = nullptr;
     bool indirectDrawIndex = false;
     std::optional<std::uint32_t> written;
+    std::optional<std::uint32_t> unreadPixelWord;
     std::vector<std::pair<Target*, std::uint32_t>> draws;
 };
 
@@ -194,6 +195,7 @@ std::vector<std::uint32_t> Commands(const Pass& pass) {
     }
     if (pass.table || pass.pixelCode != nullptr) shader.insert(shader.end(), {{0x00b, 2u << 1u}, {0x00c, Low(table)}, {0x00d, High(table)}});
     else shader.insert(shader.end(), {{0x00b, 1u << 1u}, {0x00c, std::bit_cast<std::uint32_t>(1.0f)}});
+    if (pass.unreadPixelWord) shader.insert(shader.end(), {{0x00b, 3u << 1u}, {0x00e, *pass.unreadPixelWord}});
     std::vector<std::uint32_t> commands;
     Append(commands, 0x79, {0x242, pass.primitive});
     if (pass.indirectDrawIndex) {
@@ -312,6 +314,40 @@ void DrawsCompiledAheadAreUsed(bool verify) {
         const auto repeated = driver.DrawCacheCounters();
         Require(repeated.hits - seen.hits == Draws && repeated.absent == seen.absent && repeated.inserts - seen.inserts == (verify ? Draws : 0), "sight " + std::to_string(sight + 2) + " of the draws compiled ahead made " + std::to_string(repeated.hits - seen.hits) + " hits, " + std::to_string(repeated.absent - seen.absent) + " absent and " + std::to_string(repeated.inserts - seen.inserts) + " inserts, expected every draw to keep its entry");
     }
+}
+
+void CompiledAheadKeepsUnusedUserWords() {
+    auto& driver = AgcDriver::DriverDetail::Driver::Get();
+    const bool verify = std::getenv("APS5_VERIFY_DRAW_DATA_HITS") != nullptr;
+    Table.fill(std::bit_cast<std::uint32_t>(1.0f));
+    Pass pass{true, true};
+    pass.depthMax = 0.8125f;
+    pass.unreadPixelWord = 0x111u;
+    pass.draws.emplace_back(&SpeculationTargets[0], 0xc10u);
+    SpeculationTargets[0].fill(Kept);
+    const auto before = driver.DrawAheadStatistics();
+    Submit(pass);
+    Await([&] { return driver.DrawAheadStatistics().compiled != before.compiled; }, "the user-word draw to be compiled ahead");
+    Release();
+    const auto expected = SpeculationTargets[0];
+    Require(std::any_of(expected.begin(), expected.end(), [](std::byte value) { return value != Kept; }), "the user-word draw wrote no pixels");
+    AgcDriver::DriverDetail::DrawAhead::SetCompileAhead(false);
+    struct Restore {
+        ~Restore() { AgcDriver::DriverDetail::DrawAhead::SetCompileAhead(true); }
+    } restore;
+    pass.hold = false;
+    Submit(pass);
+    AgcDriverWaitIdle_nid_postfix();
+    const auto warm = driver.DrawCacheCounters();
+    pass.unreadPixelWord = 0x222u;
+    SpeculationTargets[0].fill(Kept);
+    Submit(pass);
+    AgcDriverWaitIdle_nid_postfix();
+    const auto after = driver.DrawCacheCounters();
+    Require(after.dataHits == warm.dataHits + 1, "changing an unused user word of a draw compiled ahead was not a data-only hit");
+    if (verify) Require(after.dataStagesCompiled == warm.dataStagesCompiled + 2 && after.dataVerified == warm.dataVerified + 2, "both stages compiled ahead were not verified after an unused user word changed");
+    else Require(after.dataStagesReused == warm.dataStagesReused + 2 && after.dataStagesCompiled == warm.dataStagesCompiled, "changing an unused user word rebuilt a stage compiled ahead");
+    Require(SpeculationTargets[0] == expected, "an unused user-word change altered the pixels from stages compiled ahead");
 }
 
 void SkippedDrawsRetireWithTheirSubmission() {
@@ -906,6 +942,12 @@ int main(int argc, char** argv) {
         Registered(BufferPixelHeader, BufferPixelCode.data(), sizeof(BufferPixelCode), 1);
         RegisteredFetch();
         Registered(SilentVertexHeader, SilentVertexCode.data(), sizeof(SilentVertexCode), 2);
+        if (argc > 1 && std::string(argv[1]) == "user-words") {
+            CompiledAheadKeepsUnusedUserWords();
+            AgcDriverShutdown_nid_postfix();
+            std::cout << "Stages compiled ahead retained their user-word dependency masks\n";
+            return 0;
+        }
         if (argc > 1 && std::string(argv[1]) == "queued-table") {
             TablesWrittenByQueuedCommitsAreSeen();
             AgcDriverShutdown_nid_postfix();
