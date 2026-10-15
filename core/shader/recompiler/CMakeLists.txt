@@ -13,6 +13,7 @@ function(add_shader_recompiler target runtimeTarget)
         set(BUILD_SHARED_LIBS OFF)
         add_subdirectory("${PROJECT_SOURCE_DIR}/3rdparty/SPIRV-Tools" "${CMAKE_BINARY_DIR}/3rdparty/SPIRV-Tools" EXCLUDE_FROM_ALL)
         include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/PatchSpirvTools.cmake")
+        include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/PatchWrapOpKill.cmake")
     endif()
 
     if(NOT TARGET glslang)
