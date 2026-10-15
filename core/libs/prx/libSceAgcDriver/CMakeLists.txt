@@ -2314,3 +2314,14 @@ if(BUILD_TESTING)
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
+
+if(BUILD_TESTING)
+    add_test(NAME agc_driver_vector_window_narrowing_off COMMAND agc_driver_vector_window_narrowing_tests --full-window)
+    set_tests_properties(agc_driver_vector_window_narrowing_off PROPERTIES
+        ENVIRONMENT "APS5_NO_WINDOW_NARROWING=1"
+        TIMEOUT 30 SKIP_RETURN_CODE 77)
+    if(WIN32)
+        set_tests_properties(agc_driver_vector_window_narrowing_off PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
