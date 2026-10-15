@@ -3088,6 +3088,99 @@ void drawInputReuseTests(const Device& device, Recorder& recorder) {
     recorder.Sync();
 }
 
+bool drawInputPendingImageTests(const Device& device, Recorder& recorder) {
+    auto context = device.GetContext();
+    constexpr std::size_t bytes = 65536;
+    void* block = context.hostImportAlignment != 0 ? AllocateWatched(bytes, bytes) : nullptr;
+    if (block == nullptr) {
+        std::cout << "host imports or write watching unavailable: vertex input pending image not tested\n";
+        return false;
+    }
+    struct Release {
+        void* block;
+        ~Release() { ReleaseWatched(block, bytes); }
+    } release{block};
+    const auto address = reinterpret_cast<std::uint64_t>(block);
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Add(block, bytes, true, true, true);
+    }
+    struct Unregister {
+        const Context& context;
+        void* block;
+        ~Unregister() {
+            {
+                GuestAllocations::Mutation mutation;
+                mutation.Remove(block);
+            }
+            HostImportFor(context, reinterpret_cast<std::uint64_t>(block), bytes);
+        }
+    } unregister{context, block};
+    if (HostImportFor(context, address, bytes) == nullptr) {
+        std::cout << "host import refused: vertex input pending image not tested\n";
+        return false;
+    }
+    recorder.Sync();
+    std::memset(block, 0x11, bytes);
+    TextureDetiler detiler(context);
+    context.detiler = &detiler;
+    context.recorder = &recorder;
+    GuestTextureResource resource{};
+    resource.baseAddress = address;
+    resource.width = 128;
+    resource.height = 128;
+    resource.mipCount = 1;
+    resource.tileMode = TextureTileMode::kR64KBX;
+    resource.dimension = TextureDimension::k2D;
+    resource.format = 56;
+    resource.dstSelX = 4;
+    resource.dstSelY = 5;
+    resource.dstSelZ = 6;
+    resource.dstSelW = 7;
+    Require(DescribeSurface(resource).guestBytes == bytes, "vertex input image fixture has an unexpected surface size");
+    auto image = StorageTexture::Create(context, detiler, resource, 0);
+    const auto commands = recorder.Commands();
+    recorder.Keep(image);
+    const VkClearColorValue red{{1.0f, 0.0f, 0.0f, 1.0f}};
+    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+    context.Function<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, image->Image(), VK_IMAGE_LAYOUT_GENERAL, &red, 1, &range);
+    RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
+    image->MarkDirty();
+    const bool pendingImage = PendingStorageOverlaps(address, 256, nullptr);
+    const bool originalBytes = *static_cast<const std::uint8_t*>(block) == 0x11;
+    bool behind = false;
+    const auto* bound = InPlaceDrawInput(context, address, 256, 4, &behind);
+    Buffer importedReadback(context, 256, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    if (bound != nullptr) {
+        const auto readCommands = recorder.Commands();
+        RecordMemoryBarrier(context, readCommands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        const VkBufferCopy copy{address - bound->base, 0, 256};
+        context.Function<PFN_vkCmdCopyBuffer>("vkCmdCopyBuffer")(readCommands, bound->buffer, importedReadback.Handle(), 1, &copy);
+        RecordMemoryBarrier(context, readCommands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT);
+        recorder.Submit();
+        device.WaitQueue();
+        recorder.Sync();
+    }
+    const std::array<std::byte, 4> expected{std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255}};
+    bool importedLatest = bound != nullptr;
+    for (std::size_t index = 0; index < importedReadback.Bytes().size(); ++index) importedLatest = importedLatest && importedReadback.Bytes()[index] == expected[index % 4];
+    const auto copy = CopyDrawInput(context, &recorder, address, 256, 4, Recorder::SnapshotUse::Vertex);
+    bool copiedLatest = copy.buffer != nullptr && copy.buffer->Bytes().size() == 256;
+    if (copiedLatest) {
+        const auto contents = copy.buffer->Bytes();
+        for (std::size_t index = 0; index < contents.size(); ++index) copiedLatest = copiedLatest && contents[index] == expected[index % 4];
+    }
+    StorageTexture::FlushAllPending("vertex input image fixture cleanup");
+    recorder.Sync();
+    Require(pendingImage && originalBytes, "vertex input fixture did not preserve distinct CPU bytes and pending GPU image bytes");
+    Require(copiedLatest, "vertex fallback did not copy the latest GPU image bytes");
+    Require(importedLatest, "a vertex import did not observe the pending GPU image result");
+    Require(!behind, "a flushed GPU image was marked as an outstanding buffer write");
+    std::cout << "vertex input pending image fallback: ok\n";
+    return true;
+}
+
 void drawInputInPlaceTests(const Device& device, Recorder& recorder) {
     auto context = device.GetContext();
     constexpr std::size_t bytes = 65536;
@@ -3131,10 +3224,18 @@ void drawInputInPlaceTests(const Device& device, Recorder& recorder) {
     Require(InPlaceDrawInput(context, vertices + 2, 256, 2) != nullptr, "an aligned 16-bit draw input was not bound in place");
     recorder.NotePendingWrite(address + 8192, 16);
     Require(InPlaceDrawInput(context, address + 8192, 256, 4) != nullptr && !recorder.PendingWriteOverlaps(address + 8192, 256), "a draw input under a pending GPU write was bound before the write completed");
+    bool behind = false;
+    Require(InPlaceDrawInput(context, address + 20480, 256, 4, &behind) != nullptr && !behind, "a vertex input free of pending GPU writes was marked as ordered behind one");
+    recorder.NotePendingWrite(address + 20480, 16);
+    Require(InPlaceDrawInput(context, address + 20480, 256, 4, &behind) != nullptr && behind && recorder.PendingWriteOverlaps(address + 20480, 256), "a vertex input under a pending GPU write was not bound in place behind it");
+    behind = false;
+    Require(InPlaceDrawInput(context, address + 20482, 256, 4, &behind) == nullptr && !behind, "a refused misaligned vertex input changed the GPU barrier flag");
     const std::array<std::byte, 4> label{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
     recorder.RecordStore(import->buffer, address + 12288 - import->base, label, address + 12288);
     Require(recorder.QueuedStoreOverlaps(address + 12288, 4), "the label store was not queued");
     Require(InPlaceDrawInput(context, address + 12288, 256, 4) == nullptr, "a draw input under a queued label store was bound in place");
+    behind = false;
+    Require(InPlaceDrawInput(context, address + 12288, 256, 4, &behind) == nullptr, "a vertex input under a queued label store was bound in place");
     Require(InPlaceDrawInput(context, address + 16384, 256, 4) != nullptr, "a queued label store refused a disjoint draw input");
     alignas(64) static std::array<std::byte, 256> unregistered{};
     Require(InPlaceDrawInput(context, reinterpret_cast<std::uint64_t>(unregistered.data()), unregistered.size(), 4) == nullptr, "memory without a host import was bound in place");
@@ -8174,8 +8275,10 @@ int main(int argc, char** argv) {
             std::cout << "DCC keys under unit shadows tests passed\n";
             return 0;
         }
+        if (argc == 2 && std::string_view(argv[1]) == "--draw-input-pending-image-only") return drawInputPendingImageTests(device, recorder) ? 0 : 77;
         if (argc == 2 && std::string_view(argv[1]) == "--draw-inputs-in-place-only") {
             drawInputInPlaceTests(device, recorder);
+            drawInputPendingImageTests(device, recorder);
             std::cout << "In-place draw input tests passed\n";
             return 0;
         }
@@ -8248,6 +8351,7 @@ int main(int argc, char** argv) {
         unwrittenSnapshotTests(device);
         drawInputReuseTests(device, recorder);
         drawInputInPlaceTests(device, recorder);
+        drawInputPendingImageTests(device, recorder);
         RunResidentPresentTests(device.GetContext());
         sliceDirtyTests(device, recorder);
         storeRunTests(device, recorder);
