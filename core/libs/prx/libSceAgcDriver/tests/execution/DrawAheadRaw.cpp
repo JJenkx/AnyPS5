@@ -1,4 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver/Draw/DrawPipeline.hpp"
+#include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Shaders/ShaderRegistry.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "VulkanTestDevice.hpp"
@@ -107,6 +109,37 @@ std::vector<std::uint32_t> RawDrawInFalseCondition() {
     return commands;
 }
 
+void QueuedRawCodeWritesAreSeen() {
+    using namespace AgcDriver::DriverDetail;
+    if (DrawPipeline::Depth() == 0) return;
+    alignas(256) static std::array<std::uint32_t, 64> code{};
+    code.fill(0xbf810000u);
+    code[0] = 0x7e000200u;
+    const auto address = reinterpret_cast<std::uintptr_t>(code.data());
+    const auto before = ReadRawShader(address);
+    std::atomic<bool> readFinished{false};
+    DrawPipeline::Queue0().Enqueue([&] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+        while (!readFinished.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+        const std::uint32_t replacement = 0x7e0002f2u;
+        AgcDriver::GuestMemory::Write(address, std::as_bytes(std::span(&replacement, 1)), alignof(std::uint32_t));
+    }, {{address, address + sizeof(std::uint32_t)}});
+    struct Restore {
+        std::atomic<bool>& finished;
+        bool active = DrawPipeline::Active();
+        ~Restore() {
+            finished.store(true, std::memory_order_release);
+            DrawPipeline::Active() = active;
+            DrawPipeline::Queue0().Drain(DrawPipeline::DrainReason::Submission);
+        }
+    } restore{readFinished};
+    DrawPipeline::Active() = true;
+    const auto after = ReadRawShader(address);
+    readFinished.store(true, std::memory_order_release);
+    DrawPipeline::Queue0().Drain(DrawPipeline::DrainReason::Submission);
+    Require(before->code.front() == 0x7e000200u && after->code.front() == 0x7e0002f2u && after != before, "a raw shader cache hit ignored a queued write to its code");
+}
+
 void SkippedRawDrawLeavesRegistrationOpen() {
     auto& driver = AgcDriver::DriverDetail::Driver::Get();
     CreateDevice();
@@ -142,6 +175,7 @@ int main() {
             const auto device = OpenVulkanTestDevice();
             if (!device) return VulkanTestSkipped;
         }
+        QueuedRawCodeWritesAreSeen();
         SkippedRawDrawLeavesRegistrationOpen();
         AgcDriverShutdown_nid_postfix();
         std::cout << "A raw draw the queue skipped left shader registration open\n";
