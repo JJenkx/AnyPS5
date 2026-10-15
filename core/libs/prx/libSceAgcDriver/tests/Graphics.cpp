@@ -6683,6 +6683,11 @@ void ResourceContentKeyTests(bool benchmark) {
         const AgcDriver::Graphics::CompiledShader shader{ShaderRecompiler::ShaderStage::Compute, &program, 0};
         for (const bool dataWords : {false, true}) for (const bool movable : {false, true}) {
             const auto original = ShaderResources::ContentKey(shader, dataWords, movable);
+            std::vector<std::uint32_t> combined{0x12345678u, 0xabcdef01u};
+            ShaderResources::AppendContentKey(combined, shader, dataWords, movable);
+            Require(combined.size() == original.size() + 2u && combined[0] == 0x12345678u && combined[1] == 0xabcdef01u && std::ranges::equal(std::span(combined).subspan(2), original), "appending a content key changed its prefix or serialized words");
+            ShaderResources::AppendContentKey(combined, shader, dataWords, movable);
+            Require(combined.size() == original.size() * 2u + 2u && std::ranges::equal(std::span(combined).subspan(2, original.size()), original) && std::ranges::equal(std::span(combined).subspan(2 + original.size()), original), "appending another stage changed an earlier content key");
             program.bindings[1].guestDescriptor.back() ^= 1u;
             Require((ShaderResources::ContentKey(shader, dataWords, movable) != original) == (dataWords && !movable), "content key changed its data-word policy");
             program.bindings[1].guestDescriptor.back() ^= 1u;
