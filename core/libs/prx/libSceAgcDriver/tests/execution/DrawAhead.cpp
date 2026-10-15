@@ -906,6 +906,12 @@ int main(int argc, char** argv) {
         Registered(BufferPixelHeader, BufferPixelCode.data(), sizeof(BufferPixelCode), 1);
         RegisteredFetch();
         Registered(SilentVertexHeader, SilentVertexCode.data(), sizeof(SilentVertexCode), 2);
+        if (argc > 1 && std::string(argv[1]) == "queued-table") {
+            TablesWrittenByQueuedCommitsAreSeen();
+            AgcDriverShutdown_nid_postfix();
+            std::cout << "A draw compiled ahead observed the queued table write\n";
+            return 0;
+        }
         if (argc > 1 && std::string(argv[1]) == "small-cache") {
             PromotionVictimsAreReleased();
             AgcDriverShutdown_nid_postfix();
