@@ -209,7 +209,7 @@ int main() {
             upgraded[4] = 31u;
             if (fixture.pixel) upgraded.insert(upgraded.begin() + 258u, {0u, 0u, 0u});
             if (fixture.pixel) InsertPixelDefaultsAfterFrontFace(upgraded);
-            if (fixture.tessellation) upgraded.insert(upgraded.end() - 35u, 5u, 0u);
+            if (fixture.tessellation) upgraded.insert(upgraded.end() - 35u, 6u, 0u);
             upgraded.insert(upgraded.end(), sizeof(std::uint64_t), 0u);
             Require(serializer.Serialize(request) == EncodeBase64(upgraded));
             auto truncated = bytes;
@@ -248,7 +248,7 @@ int main() {
                 layered[4] = 31u;
                 layered.insert(layered.begin() + 259u, {0u, 0u});
                 InsertPixelDefaultsAfterFrontFace(layered);
-                if (fixture.tessellation) layered.insert(layered.end() - 35u, 5u, 0u);
+                if (fixture.tessellation) layered.insert(layered.end() - 35u, 6u, 0u);
                 layered.insert(layered.end(), sizeof(std::uint64_t), 0u);
                 Require(serializer.Serialize(layerReplay.request) == EncodeBase64(layered));
             }
@@ -397,6 +397,7 @@ int main() {
                 upgraded[4] = 31u;
                 if (fixture.pixel) upgraded.insert(upgraded.begin() + 259u, {0u, 0u});
                 if (fixture.pixel) InsertPixelDefaultsAfterFrontFace(upgraded);
+                if (fixture.tessellation) upgraded.insert(upgraded.end() - 35u, 1u, 0u);
                 upgraded.insert(upgraded.end(), sizeof(std::uint64_t), 0u);
                 Require(serializer.Serialize(request) == EncodeBase64(upgraded));
                 for (const bool dither : {false, true}) {
@@ -412,6 +413,7 @@ int main() {
                         main25.insert(main25.begin() + 260u, 0u);
                         InsertPixelDefaultsAfterFrontFace(main25);
                     }
+                    if (fixture.tessellation) main25.insert(main25.end() - 35u, 1u, 0u);
                     main25.insert(main25.end(), sizeof(std::uint64_t), 0u);
                     Require(serializer.Serialize(replay25.request) == EncodeBase64(main25));
                 }

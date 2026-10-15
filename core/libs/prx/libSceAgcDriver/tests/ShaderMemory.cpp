@@ -3376,6 +3376,34 @@ void verifyVertexInfoVersion19() {
     }
 }
 
+void verifyMergedHullConfiguration() {
+    using namespace ShaderRecompiler;
+    static constexpr std::array<std::uint32_t, 1> code{0xbf810000u};
+    const RequestSerializer serializer;
+    RecompileRequest request{};
+    request.shader = {ShaderStage::TessellationControl, 0x10000u, code, 0, {}};
+    request.context.waveSize = 64;
+    request.context.vertex = ShaderVertexStageInfo{};
+    request.graphics = GraphicsCompileContext{0u, {}, std::nullopt, TessellationConfiguration{3u, 3u, 1u, 2u, 2u}, {}};
+    const auto separate = serializer.Serialize(request);
+    std::vector<std::uint64_t> separateKey;
+    RecompileCacheKey::Build(request, separateKey);
+    request.graphics->tessellation->mergedHull = true;
+    const auto merged = serializer.Serialize(request);
+    std::vector<std::uint64_t> mergedKey;
+    RecompileCacheKey::Build(request, mergedKey);
+    const auto replay = serializer.Deserialize(merged);
+    require(replay.request.graphics.has_value() && replay.request.graphics->tessellation.has_value() && replay.request.graphics->tessellation->mergedHull, "a merged hull configuration was lost in serialization");
+    require(!serializer.Deserialize(separate).request.graphics->tessellation->mergedHull, "a separate hull configuration was read as merged");
+    auto legacy = decodeBase64(merged);
+    require(legacy.size() > 44u && legacy[legacy.size() - 44u] == 1u, "the merged hull flag is not the last byte of the tessellation configuration");
+    legacy.erase(legacy.end() - 44);
+    legacy[4] = 30u;
+    const auto upgraded = serializer.Deserialize(encodeBase64(legacy));
+    require(upgraded.request.graphics.has_value() && upgraded.request.graphics->tessellation.has_value() && !upgraded.request.graphics->tessellation->mergedHull, "a version 30 tessellation request read a merged hull flag");
+    require(mergedKey != separateKey && RecompileCacheKey::ContextHash(request) != RecompileCacheKey::ContextHash(serializer.Deserialize(separate).request), "the cache keys ignore whether the hull program is merged");
+}
+
 void verifyLegacyPixelRequests() {
     using namespace ShaderRecompiler;
     static constexpr std::array<std::string_view, 14> legacyPixelRequests{
@@ -5215,6 +5243,7 @@ int main(int argc, char** argv) {
         verifyCanonicalVersion20And21Requests();
         verifyPixelRequestSerialization();
         verifyVertexInfoVersion19();
+        verifyMergedHullConfiguration();
         verifyPositionExportComponents();
         verifyLegacyPixelRequests();
         verifyPixelExportReplay();

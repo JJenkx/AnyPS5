@@ -545,6 +545,7 @@ void writeTessellationConfiguration(Writer& writer, const TessellationConfigurat
     writer.WriteU32(configuration.patchesPerGroup);
     writer.WriteU32(configuration.primitiveGroupSize);
     writer.WriteBool(configuration.breakAtInstance);
+    writer.WriteBool(configuration.mergedHull);
 }
 
 TessellationConfiguration readTessellationConfiguration(Reader& reader, std::uint32_t version) {
@@ -559,6 +560,7 @@ TessellationConfiguration readTessellationConfiguration(Reader& reader, std::uin
         configuration.primitiveGroupSize = reader.ReadU32();
         configuration.breakAtInstance = reader.ReadBool();
     }
+    if (version >= 31u) configuration.mergedHull = reader.ReadBool();
     return configuration;
 }
 
