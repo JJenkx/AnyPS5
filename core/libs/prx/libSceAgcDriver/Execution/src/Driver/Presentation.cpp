@@ -64,6 +64,9 @@ void Driver::Present(const PresentationWindow& window, const DisplayBuffer* buff
         PinWorkerThread("presenter");
         GuestMemory::MarkPresenterThread();
     }
+    static std::atomic<unsigned> diagnosticRuns{0};
+    const bool diagnosticStage = diagnosticRuns.fetch_add(1) < 4;
+    if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] enter\n");
     CheckFailure();
     require(gpuReady != nullptr && context != nullptr, "missing GPU completion callback");
     require(window.getDrawableSize != nullptr, "missing window drawable size query");
@@ -72,7 +75,7 @@ void Driver::Present(const PresentationWindow& window, const DisplayBuffer* buff
     static const std::size_t inFlight = VulkanDevice::FlipInFlight();
     static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
     std::shared_ptr<VulkanDevice> presenting;
-    timing.Mark("validate");
+    timing.Mark("validate"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] validate\n");
     try {
         bool submitted = false;
         bool presentable = false;
@@ -81,16 +84,16 @@ void Driver::Present(const PresentationWindow& window, const DisplayBuffer* buff
         {
             GuestMemory::TagGpuLockSite(GuestMemory::GpuLockSite::Present);
             std::lock_guard lock(GuestMemory::GpuMutex());
-            timing.Mark("gpu_mutex_wait");
+            timing.Mark("gpu_mutex_wait"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] gpu_mutex_wait\n");
             require(device != nullptr && device->Window() == window.context, "presentation window is not attached to the device");
             presenting = device;
-            timing.Mark("device_setup");
+            timing.Mark("device_setup"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] device_setup\n");
             std::uint32_t drawableWidth = 0;
             std::uint32_t drawableHeight = 0;
             window.getDrawableSize(window.context, &drawableWidth, &drawableHeight);
             presenting->Resize(drawableWidth, drawableHeight);
             presenting->SelectDynamicRange(buffer);
-            timing.Mark("resize");
+            timing.Mark("resize"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] resize\n");
             presentable = presenting->Presentable();
             if (buffer != nullptr) require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
         }
@@ -99,53 +102,53 @@ void Driver::Present(const PresentationWindow& window, const DisplayBuffer* buff
             if (inFlight != 0) {
 
                 waitedMs = presenting->RetirePresents(presenting->PresentWaitsForSlots(buffer) ? 0 : inFlight);
-                timing.Mark("inflight_wait");
+                timing.Mark("inflight_wait"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] inflight_wait\n");
             }
             presentable = presenting->AcquireImage();
-            timing.Mark("acquire_image");
+            timing.Mark("acquire_image"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] acquire_image\n");
         }
         if (presentable) {
             GuestMemory::TagGpuLockSite(GuestMemory::GpuLockSite::Present);
             std::lock_guard lock(GuestMemory::GpuMutex());
-            timing.Mark("gpu_mutex_wait");
+            timing.Mark("gpu_mutex_wait"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] gpu_mutex_wait\n");
             if (buffer != nullptr) {
                 if (syncFlip) {
                     presenting->WaitIdle();
-                    timing.Mark("device_idle_wait");
+                    timing.Mark("device_idle_wait"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] device_idle_wait\n");
                 }
                 submitted = presenting->PresentDisplayBuffer(*buffer);
-                timing.Mark("present_display_buffer");
+                timing.Mark("present_display_buffer"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] present_display_buffer\n");
             } else {
                 submitted = presenting->PresentClear(window.width, window.height, opaque);
-                timing.Mark("present_clear");
+                timing.Mark("present_clear"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] present_clear\n");
             }
             if (submitted && syncFlip) {
                 waitedMs = presenting->FinishPresent();
-                timing.Mark("render_fence_wait");
+                timing.Mark("render_fence_wait"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] render_fence_wait\n");
             }
             if (submitted && (syncFlip || inFlight != 0)) {
 
                 presenting->QueuePresent();
-                timing.Mark("queue_present");
+                timing.Mark("queue_present"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] queue_present\n");
                 trailing = !syncFlip;
                 submitted = false;
             }
         }
         if (trailing) {
             waitedMs += presenting->FinishPresent();
-            timing.Mark("render_fence_wait");
+            timing.Mark("render_fence_wait"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] render_fence_wait\n");
         }
         if (submitted) {
             waitedMs = presenting->FinishPresent();
-            timing.Mark("render_fence_wait");
+            timing.Mark("render_fence_wait"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] render_fence_wait\n");
 
             GuestMemory::TagGpuLockSite(GuestMemory::GpuLockSite::Present);
             std::lock_guard lock(GuestMemory::GpuMutex());
             presenting->QueuePresent();
-            timing.Mark("queue_present");
+            timing.Mark("queue_present"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] queue_present\n");
         }
         gpuReady(context);
-        timing.Mark("release_and_callback");
+        timing.Mark("release_and_callback"); if (diagnosticStage) std::fprintf(stderr, "[present-diagnostic] release_and_callback\n");
         TracyZone::MarkFrame();
         if (profile) reportPresents(waitedMs, inFlight);
         CheckFailure();

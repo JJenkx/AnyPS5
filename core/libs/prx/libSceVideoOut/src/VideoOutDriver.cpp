@@ -537,11 +537,14 @@ void VideoOutDriver::vblankEnd(std::uint64_t tick) {
 }
 
 void VideoOutDriver::processFlip(FlipRequest& req) {
+    static std::atomic<unsigned> diagnosticRuns{0};
+    const bool diagnosticStage = diagnosticRuns.fetch_add(1) < 4;
+    if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] enter index=%d\n", req.index);
     AgcDriver::PerformanceContext timingContext(req.timing.get());
     AgcDriver::PerformanceTimer timing("VideoOut.Flip");
     {
         std::unique_lock lock(req.cfg->mutex);
-        timing.Mark("config_mutex_wait");
+        timing.Mark("config_mutex_wait"); if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] config_mutex_wait\n");
         req.cfg->CheckAlive();
         if (req.cfg->Closed()) {
             req.ReleaseLocked();
@@ -552,9 +555,9 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
         const auto interval = static_cast<uint64_t>(req.flipRate + 1);
         require(req.cfg->lastFlipVblank <= std::numeric_limits<uint64_t>::max() - interval, "flip interval overflow");
         const auto target = req.cfg->lastFlipVblank + interval;
-        timing.Mark("validate");
+        timing.Mark("validate"); if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] validate\n");
         req.cfg->vblankCond.wait(lock, req.cfg->shutdownToken, [&] { return req.cfg->vblankStatus.count >= target || req.cfg->failure || req.cfg->closing; });
-        timing.Mark("vblank_wait");
+        timing.Mark("vblank_wait"); if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] vblank_wait\n");
         req.cfg->CheckAlive();
         if (req.cfg->Closed()) {
             req.ReleaseLocked();
@@ -574,7 +577,7 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
         window.Ensure(req.width, req.height);
         const auto extensions = windowExtensions(window.Handle());
         const AgcDriver::PresentationWindow target{window.Handle(), extensions, &createWindowSurface, &windowDrawableSize, req.width, req.height, req.timing};
-        timing.Mark("window_prepare");
+        timing.Mark("window_prepare"); if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] window_prepare\n");
         const auto gpuReady = [](void* context) {
             auto& request = *static_cast<FlipRequest*>(context);
             std::lock_guard lock(request.cfg->mutex);
@@ -590,12 +593,12 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
         } else {
             AgcDriverPresentClear_nid_postfix(target, req.unregistered || req.index == VIDEO_OUT_BUFFER_INDEX_BLACK, gpuReady, &req);
         }
-        timing.Mark("present");
+        timing.Mark("present"); if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] present\n");
         window.UpdateTitle();
-        timing.Mark("window_title");
+        timing.Mark("window_title"); if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] window_title\n");
     }
     std::lock_guard lock(req.cfg->mutex);
-    timing.Mark("completion_mutex_wait");
+    timing.Mark("completion_mutex_wait"); if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] completion_mutex_wait\n");
     req.cfg->CheckAlive();
     if (req.cfg->Closed()) {
         req.ReleaseLocked();
@@ -626,7 +629,7 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
     }
     req.terminal = true;
     req.cfg->vblankCond.notify_all();
-    timing.Mark("notify_game");
+    timing.Mark("notify_game"); if (diagnosticStage) std::fprintf(stderr, "[process-flip-diagnostic] notify_game\n");
 }
 
 void VideoOutDriver::presentLoop(std::stop_token token, std::promise<void>& started) {
