@@ -80,6 +80,7 @@ def load_and_record_default(work, provider, module):
     assert run.returncode == 0, (run.returncode, run.stdout, run.stderr)
     recorded = events.read_text()
     assert 'args=0000000000000010' in recorded, recorded
+    assert 'argp=0000000000000000' not in recorded, recorded
     assert f'result={RETURNED}' in recorded, recorded
 
 

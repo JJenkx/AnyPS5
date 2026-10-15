@@ -48,9 +48,12 @@ extern "C" void APS5_VABI RecordArgs(std::size_t args, const void* argp) {
     std::snprintf(line, sizeof(line), "args=%016zx argp=%016zx\n", args,
                   static_cast<std::size_t>(reinterpret_cast<std::uintptr_t>(argp)));
     Write(line);
-    if (args == sizeof(DefaultModuleArgs) && argp == &kDefaultArgs) {
+    if (args == sizeof(DefaultModuleArgs)) {
+        if (argp == nullptr) Fail("Missing default argument block");
         const auto* defaultArgs = static_cast<const DefaultModuleArgs*>(argp);
-        if (defaultArgs->size != 0x10 || defaultArgs->version != 0x200) Fail("Default arguments corruption");
+        if (defaultArgs->size != 0x10 || defaultArgs->version != 0x200 || defaultArgs->context != nullptr) {
+            Fail("Default arguments corruption");
+        }
     }
 }
 
