@@ -3,6 +3,7 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Shaders/ShaderRegistry.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <condition_variable>
@@ -75,11 +76,21 @@ struct PixelHeader {
 class HeldPreparationThreads {
 public:
     HeldPreparationThreads() {
-        for (unsigned index = 0; index < std::thread::hardware_concurrency() + 2u; ++index) {
-            AgcDriver::DriverDetail::SubmitRegistrationPreparation([state = state] {
-                std::unique_lock lock(state->mutex);
-                state->changed.wait(lock, [&] { return state->released; });
-            });
+        const auto count = std::max(2u, std::thread::hardware_concurrency() / 2u);
+        try {
+            for (unsigned index = 0; index < count; ++index) {
+                AgcDriver::DriverDetail::SubmitRegistrationPreparation([state = state] {
+                    std::unique_lock lock(state->mutex);
+                    ++state->entered;
+                    state->changed.notify_all();
+                    state->changed.wait(lock, [&] { return state->released; });
+                });
+            }
+            std::unique_lock lock(state->mutex);
+            Require(state->changed.wait_for(lock, std::chrono::seconds(5), [&] { return state->entered == count; }), "the preparation workers did not enter their held tasks");
+        } catch (...) {
+            Release();
+            throw;
         }
     }
 
@@ -100,6 +111,7 @@ private:
         std::mutex mutex;
         std::condition_variable changed;
         bool released = false;
+        unsigned entered = 0;
     };
     std::shared_ptr<State> state = std::make_shared<State>();
 };
