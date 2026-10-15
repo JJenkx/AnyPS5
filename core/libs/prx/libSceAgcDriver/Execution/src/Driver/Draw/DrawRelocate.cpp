@@ -84,6 +84,15 @@ void Driver::tagVariantRuns(DispatchVariant& variant, std::span<const ShaderReco
         return (relocatable >> found->second & 1u) != 0 ? static_cast<std::int8_t>(found->second) : std::int8_t {-1};
     };
     variant.relocatableWords = relocatable;
+    variant.forwardedWords = 0;
+    static const bool forwardedOff = std::getenv("APS5_NO_FORWARDED_RELOCATION") != nullptr;
+    if (eligible && drawRelocationEnabled() && !forwardedOff && variant.compiled != nullptr) {
+        for (const auto index : variant.compiled->shaderDataUserWords) {
+            if (index < hiddenWords || index >= 64 || ((use.asBase | use.asValue) >> index & 1u) != 0) continue;
+            variant.forwardedWords |= std::uint64_t {1} << index;
+        }
+        variant.forwardedWords &= ~relocatable;
+    }
     for (std::size_t index = 0; index < regions.size(); ++index) {
         const auto& region = regions[index];
         const auto count = region.bytes.size() / sizeof(std::uint32_t);
@@ -142,6 +151,7 @@ void Driver::learnPendingRelocation() {
     auto shape = std::make_shared<DrawRelocation>();
     if (known != drawRelocations.end()) *shape = *known->second;
     bool changed = known == drawRelocations.end();
+    std::vector<std::uint32_t> forwardedRegs;
     for (std::size_t i = 0; i < programs.size(); ++i) {
         if (entry.stages[i].empty()) continue;
         const auto& variant = *entry.stages[i].front();
@@ -149,7 +159,8 @@ void Driver::learnPendingRelocation() {
         for (std::uint32_t index = program.hiddenUserWords; index < program.userData.size() && index < 64; ++index) {
             const auto reg = program.userDataBase + index - program.hiddenUserWords;
             const auto held = std::find_if(shape->words.begin(), shape->words.end(), [&](const RelocatableUserWord& word) { return word.reg == reg; });
-            if ((variant.relocatableWords >> index & 1u) == 0) {
+            const bool forwarded = (variant.forwardedWords >> index & 1u) != 0;
+            if ((variant.relocatableWords >> index & 1u) == 0 && !forwarded) {
                 if (held == shape->words.end()) continue;
                 shape->words.erase(held);
                 shape->banned.push_back(reg);
@@ -157,6 +168,10 @@ void Driver::learnPendingRelocation() {
                 continue;
             }
             if (held != shape->words.end() || std::find(shape->banned.begin(), shape->banned.end(), reg) != shape->banned.end()) continue;
+            if (forwarded) {
+                forwardedRegs.push_back(reg);
+                continue;
+            }
             RelocatableUserWord word{reg, {}};
             const auto base = AlignedWord(program.userData[index]);
             std::uint32_t position = 0;
@@ -172,6 +187,14 @@ void Driver::learnPendingRelocation() {
                 }
                 position += count;
             }
+            shape->words.push_back(std::move(word));
+            changed = true;
+        }
+    }
+    if (std::any_of(shape->words.begin(), shape->words.end(), [](const RelocatableUserWord& word) { return !word.forwarded; })) {
+        for (const auto reg : forwardedRegs) {
+            RelocatableUserWord word{reg, {}};
+            word.forwarded = true;
             shape->words.push_back(std::move(word));
             changed = true;
         }
@@ -212,11 +235,11 @@ void Driver::learnPendingRelocation() {
     drawDecodes[pending.aliases.structure] = std::move(donor);
 }
 
-void Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& aliases, std::shared_ptr<DrawEntry>& entry, std::shared_ptr<const DrawDecode>& decode, std::vector<DrawUserPatch>& patches) {
+bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& aliases, std::shared_ptr<DrawEntry>& entry, std::shared_ptr<const DrawDecode>& decode, std::vector<DrawUserPatch>& patches) {
     auto& counters = drawRelocationCounters;
     ++counters.lookups;
     const auto known = drawDecodes.find(aliases.structure);
-    if (known == drawDecodes.end() || known->second.decode == nullptr) return;
+    if (known == drawDecodes.end() || known->second.decode == nullptr) return false;
     const auto shared = known->second.decode;
     const auto& stageKeys = known->second.stageKeys;
     const auto& programs = shared->programs;
@@ -242,7 +265,8 @@ void Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
             if (now != program.userData[index]) current.push_back({i, index, now});
             if (donor == nullptr || now == donor->userData[index]) continue;
             const auto from = donor->userData[index];
-            if (index >= 64 || (donor->variant->relocatableWords >> index & 1u) == 0 || from == 0 || now == 0 || ((from ^ now) & 3u) != 0) allowed = false;
+            const bool forwarded = index < 64 && (donor->variant->forwardedWords >> index & 1u) != 0;
+            if (!forwarded && (index >= 64 || (donor->variant->relocatableWords >> index & 1u) == 0 || from == 0 || now == 0 || ((from ^ now) & 3u) != 0)) allowed = false;
             moves.push_back({index, from, now});
         }
         if (!allowed) {
@@ -274,6 +298,7 @@ void Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
     patches = std::move(current);
     entry = std::move(relocated);
     decode = shared;
+    return complete;
 }
 
 std::shared_ptr<DispatchVariant> Driver::cloneVariant(const DispatchVariant& variant) {
@@ -281,6 +306,7 @@ std::shared_ptr<DispatchVariant> Driver::cloneVariant(const DispatchVariant& var
     copy->runs = variant.runs;
     copy->runBases = variant.runBases;
     copy->relocatableWords = variant.relocatableWords;
+    copy->forwardedWords = variant.forwardedWords;
     copy->words = variant.words;
     copy->forgetSerial = variant.forgetSerial;
     copy->compiled = variant.compiled;
