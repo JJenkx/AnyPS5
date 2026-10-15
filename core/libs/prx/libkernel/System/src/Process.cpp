@@ -44,6 +44,14 @@ extern "C" int APS5_VABI stat_nid_postfix(const char* path, FileStat* sb);
 
 namespace {
 
+struct TitleWorkaroundInfo {
+    std::uint32_t version;
+    std::uint32_t reserved;
+    std::array<std::uint64_t, 2> ids;
+};
+static_assert(sizeof(TitleWorkaroundInfo) == 24);
+static_assert(offsetof(TitleWorkaroundInfo, ids) == 8);
+
 constexpr int sceInvalidArgument = static_cast<int>(0x80020016u);
 constexpr int errnoNoSuchProcess = 3;
 constexpr int errnoNoChild = 10;
@@ -273,8 +281,22 @@ int APS5_VABI sceKernelGetAppInfo(int pid, void* info) {
     std::strncpy(field, titleId.value, sizeof(field) - 1);
     auto* bytes = static_cast<std::uint8_t*>(info);
     const std::uint32_t appId = 1;
+    constexpr TitleWorkaroundInfo workarounds{};
     std::memcpy(bytes, &appId, sizeof(appId));
     std::memcpy(bytes + TitleIdOffset, field, TitleIdBytes);
+    std::memcpy(bytes + 0x30, &workarounds, sizeof(workarounds));
+    return 0;
+}
+
+int APS5_VABI sceKernelTitleWorkaroundIsEnabled(const void* info, std::int32_t bit, std::int32_t* enabled) {
+    if (!info || !enabled) return SCE_KERNEL_ERROR_EFAULT;
+    constexpr std::int32_t BitCount = 128;
+    if (bit < 0 || bit >= BitCount) return SCE_KERNEL_ERROR_EINVAL;
+    const auto* bytes = static_cast<const std::uint8_t*>(info);
+    std::uint64_t word = 0;
+    std::memcpy(&word, bytes + offsetof(TitleWorkaroundInfo, ids) + (bit / 64) * sizeof(word), sizeof(word));
+    const std::int32_t value = static_cast<std::int32_t>((word >> (bit % 64)) & 1u);
+    std::memcpy(enabled, &value, sizeof(value));
     return 0;
 }
 
