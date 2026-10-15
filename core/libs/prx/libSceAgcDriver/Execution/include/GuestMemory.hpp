@@ -218,6 +218,7 @@ private:
     ISpeculativeReadGate* previous;
 };
 bool SpeculativeReadsSupported();
+bool SpeculativeReadActive();
 // Moves with every ForgetPages call (the libc invalidator: memory unmapped or re-registered): odd
 // while the call stores its page states, moved past it after, so a reader that loads an even
 // value before consulting the page states and reading directly, and the same value after, knows
