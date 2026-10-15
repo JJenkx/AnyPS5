@@ -58,7 +58,7 @@ struct GuestImage {
 class GuestImageReader {
 public:
     std::vector<std::string> ReadModuleNames(const std::vector<std::uint8_t>& bytes) const;
-    GuestImage Read(const std::filesystem::path& path, std::vector<std::uint8_t> bytes, bool windows = false) const;
+    GuestImage Read(const std::filesystem::path& path, std::vector<std::uint8_t> bytes, bool allowFunctionAliases = false) const;
 };
 
 struct GuestArtifact {
