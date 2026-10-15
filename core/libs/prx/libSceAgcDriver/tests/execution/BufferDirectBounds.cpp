@@ -358,6 +358,9 @@ int main() {
         if (robust) CompileAll(jobs, *device, true);
         for (const auto& job : jobs) {
             const auto& test = job->test;
+            // The checked path itself cannot model a 32-lane EXEC mask on
+            // hosts with smaller subgroups. Keep all full-wave cases there.
+            if (test.exec != AllLanes && referenceRunner.Target().subgroupSize < Lanes) continue;
             PoisonedBufferPool::PoisonPool(referenceRunner);
             const auto reference = Run(referenceRunner, *job, job->reference);
             if (Modelled(test)) CheckModel(test, reference);
