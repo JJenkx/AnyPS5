@@ -2687,32 +2687,54 @@ bool drawSnapshotArenaTests(const Device& device, Recorder& recorder) {
 void drawSnapshotReuseTests(const Device& device, Recorder& recorder) {
     const auto& context = device.GetContext();
     constexpr std::size_t bytes = 65536;
-    void* block = context.hostImportAlignment != 0 ? AllocateWatched(bytes, 65536) : nullptr;
+    std::int64_t physical = -1;
+    void* block = nullptr;
+#ifndef _WIN32
+    if (context.dmaBufImport && AgcDriver::GuestMemory::WriteWatched()) {
+        Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, bytes, bytes, 0, &physical) == 0, "allocate draw snapshot shared backing");
+        if (sceKernelMapDirectMemory(&block, bytes, 3, 0, physical, bytes) != 0) {
+            sceKernelReleaseDirectMemory(physical, bytes);
+            throw std::runtime_error("cannot map draw snapshot shared backing");
+        }
+    } else
+#endif
+    if (context.hostImportAlignment != 0) block = AllocateWatched(bytes, bytes);
     if (block == nullptr) {
         std::cout << "host imports or write watching unavailable: draw snapshot reuse not tested\n";
         return;
     }
     struct Release {
         void* block;
-        ~Release() { ReleaseWatched(block, bytes); }
-    } release{block};
+        std::int64_t physical;
+        ~Release() {
+            if (physical >= 0) {
+                sceKernelMunmap(block, bytes);
+                sceKernelReleaseDirectMemory(physical, bytes);
+            } else ReleaseWatched(block, bytes);
+        }
+    } release{block, physical};
     std::memset(block, 0x11, bytes);
     const auto address = reinterpret_cast<std::uint64_t>(block);
-    {
+    if (physical < 0) {
         GuestAllocations::Mutation mutation;
         mutation.Add(block, bytes, true, true, true);
     }
     struct Unregister {
         const Context& context;
         void* block;
+        std::int64_t physical;
         ~Unregister() {
+            if (physical >= 0) {
+                ClearHostImports(context.device);
+                return;
+            }
             {
                 GuestAllocations::Mutation mutation;
                 mutation.Remove(block);
             }
             HostImportFor(context, reinterpret_cast<std::uint64_t>(block), bytes);
         }
-    } unregister{context, block};
+    } unregister{context, block, physical};
     if (HostImportFor(context, address, bytes) == nullptr) {
         std::cout << "host import of the watched block refused: draw snapshot reuse not tested\n";
         return;
@@ -2749,9 +2771,11 @@ void drawSnapshotReuseTests(const Device& device, Recorder& recorder) {
             Require(contents.size() == elementBytes && std::all_of(contents.begin(), contents.end(), [&](std::byte value) { return value == expected; }), "a draw snapshot does not hold the guest bytes of its draw");
             return buffer;
         };
+        AgcDriver::GuestMemory::BumpCollectEpoch();
         const auto first = snapshot(std::byte{0x11});
         Require(snapshot(std::byte{0x11}) == first, "an unchanged draw input was copied again");
         std::memset(reinterpret_cast<void*>(element), 0x22, elementBytes);
+        AgcDriver::GuestMemory::BumpCollectEpoch();
         const auto afterCpu = snapshot(std::byte{0x22});
         Require(afterCpu != first, "a draw snapshot outlived a CPU store to its range");
         Require(snapshot(std::byte{0x22}) == afterCpu, "the recopied draw input was not kept");
@@ -2760,10 +2784,12 @@ void drawSnapshotReuseTests(const Device& device, Recorder& recorder) {
         const auto afterStore = snapshot(std::byte{0x33});
         Require(afterStore != afterCpu, "a draw snapshot outlived a driver store to its range");
         std::memset(reinterpret_cast<void*>(element), 0x33, elementBytes);
+        AgcDriver::GuestMemory::BumpCollectEpoch();
         Require(snapshot(std::byte{0x33}) == afterStore, "a CPU store of the same bytes made the draw input copy again");
         AgcDriver::GuestMemory::MarkWritten(element, 4);
         Require(snapshot(std::byte{0x33}) == afterStore, "a driver store of the same bytes made the draw input copy again");
         reinterpret_cast<std::uint8_t*>(element)[elementBytes - 1] = 0x34;
+        AgcDriver::GuestMemory::BumpCollectEpoch();
         const auto tail = resources.PrepareDrawBindings(snapshotRecorder);
         Require(tail != nullptr && tail->snapshots.size() == 1 && tail->snapshots[0].buffer != afterStore && tail->snapshots[0].buffer->Bytes()[elementBytes - 1] == std::byte{0x34}, "a draw snapshot outlived a store that changed its last byte");
         std::memset(reinterpret_cast<void*>(element), 0x33, elementBytes);
@@ -2774,6 +2800,7 @@ void drawSnapshotReuseTests(const Device& device, Recorder& recorder) {
         snapshotRecorder.Sync();
     }
     recorder.Activate();
+    std::cout << "draw snapshot reuse with watched inputs: ok\n";
 }
 
 void drawSnapshotPatchTests(const Device& device) {
