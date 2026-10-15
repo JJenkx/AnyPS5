@@ -88,6 +88,7 @@ struct ShaderSnapshot {
     std::shared_ptr<std::atomic<std::uint8_t>> workgroupUse = std::make_shared<std::atomic<std::uint8_t>>(0u);
     std::shared_ptr<std::atomic<std::uint8_t>> positionVectorUse = std::make_shared<std::atomic<std::uint8_t>>(0u);
     std::optional<std::uint32_t> userDataTailRegister;
+    std::shared_ptr<const ShaderSnapshot> headerSource;
 };
 
 
@@ -111,6 +112,7 @@ std::optional<ShaderRecompiler::ShaderFloatMode> DispatchFloatMode(const ShaderS
 std::shared_ptr<const ShaderSnapshot> RegisteredHeader(const ShaderRegistry& registry, const Shader* shader);
 std::shared_ptr<const ShaderSnapshot> RegisteredProgram(const ShaderRegistry& registry, std::uint64_t address, std::initializer_list<std::uint8_t> types);
 void PublishRegisteredShader(std::shared_ptr<ShaderRegistry>& registry, const std::shared_ptr<const ShaderSnapshot>& snapshot);
+std::shared_ptr<const ShaderSnapshot> RelocateSnapshotHeader(std::shared_ptr<ShaderRegistry>& registry, const std::shared_ptr<const ShaderSnapshot>& snapshot, const Shader* shader);
 void SubmitRegistrationPreparation(std::function<void()> task, const PreparedShaders* prepared = nullptr);
 void PrioritizeRegistrationPreparation(PreparedShaders& prepared);
 void AwaitRegistrationPreparation();
