@@ -848,6 +848,27 @@ void testEop(bool overlay) {
     LibcRunShutdown_nid_postfix();
 }
 
+void testBus() {
+    for (const int invalid : {-1, 0, VIDEO_OUT_NUM_MAX, std::numeric_limits<int>::max()}) {
+        check(sceVideoOutSysGetBus(invalid) == VIDEO_OUT_ERROR_INVALID_HANDLE, "invalid bus-query handle was accepted");
+    }
+    std::array<int, 3> handles{};
+    for (int bus = 0; bus < 3; ++bus) {
+        check(sceVideoOutSysGetBus(bus + 1) == VIDEO_OUT_ERROR_INVALID_HANDLE, "unopened port returned a bus");
+        handles[bus] = sceVideoOutOpen(255, bus, 0, nullptr);
+        check(sceVideoOutSysGetBus(handles[bus]) == bus, "open port returned the wrong bus");
+    }
+    for (int bus = 0; bus < 3; ++bus) {
+        check(sceVideoOutSysGetBus(handles[bus]) == bus, "opening another port changed the bus");
+        sceVideoOutClose(handles[bus]);
+        check(sceVideoOutSysGetBus(handles[bus]) == VIDEO_OUT_ERROR_INVALID_HANDLE, "closed port returned a bus");
+        const int reopened = sceVideoOutOpen(255, bus, 0, nullptr);
+        check(sceVideoOutSysGetBus(reopened) == bus, "reopened port returned the wrong bus");
+        sceVideoOutClose(reopened);
+    }
+    LibcRunShutdown_nid_postfix();
+}
+
 void testOneDevice() {
     const int handle = sceVideoOutOpen(255, 0, 0, nullptr);
     auto cfg = VideoOutDriver::Get().GetConfig(handle);
@@ -896,6 +917,7 @@ int main(int argc, char** argv) {
         else if (argc == 2 && std::string(argv[1]) == "labels_main") testLabels(false);
         else if (argc == 2 && std::string(argv[1]) == "onedevice") testOneDevice();
         else if (argc == 2 && std::string(argv[1]) == "unopened") testUnopenedEventRegistration();
+        else if (argc == 2 && std::string(argv[1]) == "bus") testBus();
         else if (argc == 2 && std::string(argv[1]) == "eop_aftergpu") testFlipAfterGpuWork(true);
         else if (argc == 2 && std::string(argv[1]) == "eop") testEop(true);
         else if (argc == 2 && std::string(argv[1]) == "eop_main") testEop(false);
