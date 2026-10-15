@@ -79,8 +79,11 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
             std::lock_guard cacheLock(drawCacheMutex);
             ++drawEntryCounters.lookups;
             const auto found = drawCache.find(drawKey);
-            if (found != drawCache.end()) entry = found->second;
-            else ++drawEntryCounters.absent;
+            if (found != drawCache.end()) {
+                entry = found->second;
+            } else {
+                ++drawEntryCounters.absent;
+            }
             maybeReportDrawCache(profile);
         }
         if (entry != nullptr) {
@@ -162,6 +165,7 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
                     if (rotate) {
                         auto rotated = std::make_shared<DrawEntry>();
                         rotated->decode = entry->decode;
+                        rotated->prepared = entry->prepared;
                         rotated->stages = entry->stages;
                         rotated->shape = entry->shape;
                         rotated->recipes.store(entry->recipes.load());
@@ -172,10 +176,11 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
                             variants.insert(variants.begin(), matched[i]);
                         }
                         rotated->touched = entry->touched;
+                        rotated->probation = entry->probation;
                         rotated->order = entry->order;
                         again->second = std::move(rotated);
                     }
-                    if (drawCacheHits - again->second->touched > drawCacheEntries() / 8) {
+                    if (!again->second->probation && drawCacheHits - again->second->touched > drawCacheEntries() / 8) {
                         drawOrder.splice(drawOrder.begin(), drawOrder, again->second->order);
                         again->second->touched = drawCacheHits;
                         ++counters.touches;
@@ -204,9 +209,16 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
             const GuestMemory::ReadSiteScope site(GuestMemory::ReadSite::DrawCache);
             std::optional<SampledReadScope> sampling;
             for (std::size_t i = 0; i < programs.size(); ++i) {
-                if (roles[i] == Role::GeometryBack || programs[i].userData != dataEntry->decode->programs[i].userData) continue;
+                if (roles[i] == Role::GeometryBack || programs[i].userData.size() != dataEntry->decode->programs[i].userData.size()) continue;
+                const auto& now = programs[i].userData;
+                const auto& was = dataEntry->decode->programs[i].userData;
                 auto& candidates = dataCandidates[i];
                 for (const auto& variant : dataEntry->stages[i]) {
+                    bool usedEqual = true;
+                    for (std::size_t w = 0; w < now.size() && usedEqual; ++w) {
+                        if (now[w] != was[w] && (w >= 64u || ((variant->userDataMask >> w) & 1u) != 0)) usedEqual = false;
+                    }
+                    if (!usedEqual) continue;
                     if ((i == 0 && variant->pushOffset != 0) || std::any_of(candidates.begin(), candidates.end(), [&](const auto& candidate) { return candidate.first->pushOffset == variant->pushOffset; })) continue;
                     std::vector<ShaderRecompiler::MemoryRegion> regions;
                     appendEntryRegions(*variant, regions);

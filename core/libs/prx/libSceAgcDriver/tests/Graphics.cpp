@@ -3893,10 +3893,47 @@ void expectSingleAccepted(const ShaderRecompiler::DescriptorBinding& binding, st
     ShaderRecompiler::RecompileResult fragment;
     vertex.bindings.push_back(binding);
     mock = MockVulkan{};
-    const auto context = mockContext();
+    auto context = mockContext();
+    context.emptyBuffer = reinterpret_cast<VkBuffer>(std::uintptr_t{0x1000});
     const auto color = AgcDriver::Graphics::DecodeState(makeState()).color;
     { AgcDriver::Graphics::ShaderResources resources(context, vertex, fragment, color, 0, 0); }
     Require(mock.live == 0, std::string(what) + " leaked Vulkan objects");
+}
+
+void oversizedDescriptorTests() {
+    constexpr std::size_t blockBytes = 65536;
+    constexpr std::size_t tailBytes = 8192;
+    void* block = ::operator new(blockBytes, std::align_val_t{blockBytes});
+    std::memset(block, 0x5a, blockBytes);
+    {
+        auto* mutation = GuestAllocations::GuestAllocationsBegin_nid_postfix();
+        GuestAllocations::GuestAllocationsAdd_nid_postfix(mutation, block, blockBytes, true, true, true);
+        GuestAllocations::GuestAllocationsEnd_nid_postfix(mutation);
+    }
+    const auto oversized = [](const void* pointer) { return makeBinding(Role::GuestBuffers, 0, 1, vsharp(pointer, 0xffffffffu)); };
+    const auto* tail = static_cast<const std::byte*>(block) + blockBytes - tailBytes;
+    {
+        ShaderRecompiler::RecompileResult vertex;
+        ShaderRecompiler::RecompileResult fragment;
+        vertex.bindings.push_back(oversized(tail));
+        mock = MockVulkan{};
+        const auto context = mockContext();
+        const auto color = AgcDriver::Graphics::DecodeState(makeState()).color;
+        {
+            AgcDriver::Graphics::ShaderResources resources(context, vertex, fragment, color, 0, 0);
+            const auto& write = findWrite(0);
+            Require(write.buffers.size() == 1 && write.buffers[0].range == tailBytes && sameBytes(bufferBytes(write.buffers[0].buffer), tail, tailBytes), "a V# past the range limit was not bound up to the end of its registered allocation");
+        }
+        Require(mock.live == 0, "a V# bound up to its registered allocation leaked Vulkan objects");
+    }
+    expectSingleFailure(oversized(block), "descriptor range limit");
+    expectSingleAccepted(oversized(reinterpret_cast<const void*>(0x1000)), "an unregistered V# past the range limit");
+    {
+        auto* mutation = GuestAllocations::GuestAllocationsBegin_nid_postfix();
+        GuestAllocations::GuestAllocationsRemove_nid_postfix(mutation, block);
+        GuestAllocations::GuestAllocationsEnd_nid_postfix(mutation);
+    }
+    ::operator delete(block, std::align_val_t{blockBytes});
 }
 
 void descriptorLayoutFlagTests() {
@@ -4064,8 +4101,12 @@ void descriptorSnapshotTests() {
                     Require(descriptor.buffer == original[index].buffer && descriptor.offset == original[index].offset && descriptor.range == original[index].range, "snapshot update changed an untouched buffer descriptor");
                 } else {
                     const auto& item = snapshots->snapshots[snapshot];
-                    Require(descriptor.buffer == item.buffer->Handle() && descriptor.offset == 0 && descriptor.range == moved[snapshot].size, "snapshot descriptor used another element's buffer or range");
-                    Require(sameBytes(bufferBytes(descriptor.buffer), moved[snapshot].words.data(), moved[snapshot].size), "snapshot descriptor lost its buffer data");
+                    Require(item.Contents().size() == moved[snapshot].size && descriptor.buffer == item.buffer->Handle() && descriptor.offset == item.offset && descriptor.range == moved[snapshot].size, "snapshot descriptor used another element's buffer or range");
+                    Require(sameBytes(bufferBytes(descriptor.buffer).subspan(static_cast<std::size_t>(descriptor.offset)), moved[snapshot].words.data(), moved[snapshot].size), "snapshot descriptor lost its buffer data");
+                    for (std::size_t earlier = 0; earlier < snapshot; ++earlier) {
+                        const auto& other = snapshots->snapshots[earlier];
+                        Require(other.buffer != item.buffer || other.offset + other.Contents().size() <= item.offset || item.offset + item.Contents().size() <= other.offset, "two draw snapshots share bytes of one chunk");
+                    }
                     ++snapshot;
                 }
             }
@@ -4196,8 +4237,8 @@ void resourceTests() {
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::FlattenedSrt; binding.guestDescriptor.clear(); }), "empty shader data descriptor");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[1] |= 0x40000000u; }), "reserved bits");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[3] |= 0x40000000u; }), "unsupported type");
-    expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[1] |= 0x3fffu << 16u; binding.guestDescriptor[2] = 0xffffffffu; }), "descriptor range limit");
-    expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[2] = 32768; }), "descriptor range limit");
+    expectSingleAccepted(changed([](auto& binding) { binding.guestDescriptor[1] |= 0x3fffu << 16u; binding.guestDescriptor[2] = 0xffffffffu; }), "an unregistered V# past the range limit");
+    expectSingleAccepted(changed([](auto& binding) { binding.guestDescriptor[2] = 32768; }), "an unregistered V# past the range limit");
     expectSingleAccepted(changed([](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(0x1000), 8); }), "an unmapped V#");
     expectSingleFailure(changed([&](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(state.color.address), 64); }), "aliases the render target");
     expectSingleAccepted(changed([](auto& binding) { binding.count = 3; binding.guestDescriptor = join(join(vsharp(guestFirst.data(), 16), vsharp(guestSecond.data(), 32)), vsharp(reinterpret_cast<const void*>(0x1000), 8)); }), "an unmapped V# element");
@@ -4448,7 +4489,7 @@ void imageTableSnapshotAllocationTests() {
         const auto snapshots = resources.PrepareDrawBindings(recorder, moved);
         Require(snapshots != nullptr && snapshots->snapshots.size() == 1 && cache.Counters().sets == sets + 1, "an empty image table prevented draw snapshot allocation");
         Require(mock.variableDescriptorCount == 1u, "an empty draw snapshot table did not reserve one physical image descriptor");
-        Require(sameBytes(bufferBytes(snapshots->snapshots[0].buffer->Handle()), moved[0].words.data(), moved[0].size), "an empty image table changed draw snapshot contents");
+        Require(sameBytes(bufferBytes(snapshots->snapshots[0].buffer->Handle()).subspan(static_cast<std::size_t>(snapshots->snapshots[0].offset)), moved[0].words.data(), moved[0].size), "an empty image table changed draw snapshot contents");
         const auto& currentMap = findWrite(map.binding).buffers.at(0);
         Require(currentMap.buffer == originalMap.buffer && currentMap.offset == originalMap.offset && currentMap.range == originalMap.range, "draw snapshots replaced the empty image table map");
         std::array<std::uint32_t, Abi::HeaderWords> header{};
@@ -7372,6 +7413,7 @@ int main(int argc, char** argv) {
         descriptorPoolTests();
         pushConstantTests();
         resourceTests();
+        oversizedDescriptorTests();
         descriptorSnapshotTests();
         descriptorCacheTests();
         bufferBudgetPlacementTests();

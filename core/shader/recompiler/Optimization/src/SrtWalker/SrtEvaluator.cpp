@@ -408,6 +408,7 @@ bool BasicEvaluator<TNode>::EvaluateInst(const TNode& inst, std::uint64_t& resul
                 return false;
             }
             result = _runtime.userData[reg - _program.userDataBase];
+            if (_runtime.userDataReads != nullptr) *_runtime.userDataReads |= reg - _program.userDataBase < 64u ? std::uint64_t{1} << (reg - _program.userDataBase) : ~std::uint64_t{0};
             return true;
         }
         case IrOpcode::GetShaderBase: result = _runtime.shaderBase; return true;
