@@ -121,10 +121,10 @@ void DecodeGraphicsPrograms(DrawDecode& decoded, const QueueState& queue, const 
 }
 
 std::shared_ptr<DrawDecode> Driver::decodeDraw(const QueueState& queue, const Submission& submission) {
-    return decodeDraw(queue, *submission.shaders);
+    return decodeDraw(queue, *submission.shaders, device.Load());
 }
 
-std::shared_ptr<DrawDecode> Driver::decodeDraw(const QueueState& queue, const ShaderRegistry& registry) {
+std::shared_ptr<DrawDecode> Driver::decodeDraw(const QueueState& queue, const ShaderRegistry& registry, const std::shared_ptr<VulkanDevice>& localDevice) {
     auto product = std::make_shared<DrawDecode>();
     product->state = Graphics::DecodeState(queue, VertexWorkgroupRequired(queue, registry));
     DecodeGraphicsPrograms(*product, queue, registry, false, true);
@@ -136,7 +136,6 @@ std::shared_ptr<DrawDecode> Driver::decodeDraw(const QueueState& queue, const Sh
     product->pixel.quadPixelMask = Graphics::QuadPixelMask(product->state);
     product->pixel.quadSampleMask = Graphics::QuadSampleMasks(product->state);
     if (product->pixel.stencilRefExportEnable && Graphics::StencilReferenceUnused(product->state)) {
-        const auto localDevice = device.Load();
         const auto capabilities = localDevice == nullptr ? std::vector<std::uint32_t>{} : localDevice->Target().supportedCapabilities;
         if (std::ranges::find(capabilities, static_cast<std::uint32_t>(spv::CapabilityStencilExportEXT)) == capabilities.end()) product->pixel.stencilRefExportEnable = false;
     }
