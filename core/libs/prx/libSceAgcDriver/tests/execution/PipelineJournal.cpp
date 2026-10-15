@@ -281,8 +281,38 @@ Totals Snapshot() {
     return {AgcDriver::Graphics::PipelineJournalTotals(), AgcDriver::Graphics::PipelineStoreTotals()};
 }
 
+void RecipeSampleMaskTests() {
+    using namespace AgcDriver::Graphics;
+    State state{};
+    state.samples = 4;
+    state.quadSampleMask.fill(5);
+    const auto encoded = [&](const State& input) {
+        GraphicsPipelineRecipe recipe{};
+        recipe.state = CanonicalPipelineState(input);
+        Require(HostSampleMask(recipe.state) == HostSampleMask(input), "pipeline recipe lost the effective sample mask");
+        return EncodeGraphicsPipelineRecipe(recipe);
+    };
+    const auto partial = encoded(state);
+    GraphicsPipelineRecipe decoded{};
+    Require(DecodeGraphicsPipelineRecipe(partial, decoded), "the partial sample-mask recipe did not decode");
+    Require(HostSampleMask(decoded.state) == 5, "pipeline recipe replay lost the partial sample mask");
+    auto truncated = partial;
+    truncated.resize(truncated.size() - sizeof(state.quadSampleMask));
+    Require(!DecodeGraphicsPipelineRecipe(truncated, decoded), "a recipe without its sample masks was accepted");
+    state.quadSampleMask.fill(0xfff5);
+    Require(encoded(state) == partial, "inactive sample-mask bits changed the pipeline recipe");
+    state.pixelEarlyZ = true;
+    Require(encoded(state) == partial, "shader-only early-Z state changed the fixed pipeline recipe");
+    state.quadSampleMask.fill(15);
+    const auto full = encoded(state);
+    Require(full != partial, "distinct effective sample masks shared a pipeline recipe");
+    state.quadSampleMask = {1, 2, 4, 8};
+    Require(encoded(state) == full, "shader-handled quad masks changed the full host sample mask recipe");
+}
+
 void JournalTests() {
     using namespace NarrowConstantStoreFixture;
+    RecipeSampleMaskTests();
     Require(AgcDriver::Graphics::PipelineJournalEnabled(), "the pipeline journal is disabled although the shader cache directory is set");
     const auto journalPath = AgcDriver::Graphics::PipelineJournalPath();
     Block compute(BlockBytes);

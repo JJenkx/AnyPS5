@@ -35,7 +35,7 @@ static_assert(sizeof(VkStencilOpState) == 28, "VkStencilOpState changed: update 
 static_assert(sizeof(VkVertexInputBindingDescription) == 12, "VkVertexInputBindingDescription changed: update the recipe codec");
 static_assert(sizeof(VkVertexInputAttributeDescription) == 16, "VkVertexInputAttributeDescription changed: update the recipe codec");
 #if defined(__linux__) && defined(__x86_64__) && defined(__GLIBCXX__)
-static_assert(sizeof(State) == 704, "State changed: update CanonicalPipelineState and the recipe codec");
+static_assert(sizeof(State) == 720, "State changed: update CanonicalPipelineState and the recipe codec");
 static_assert(sizeof(ShaderStages) == 108, "ShaderStages changed: update the recipe codec");
 static_assert(sizeof(ShaderRecompiler::MeshConfiguration) == 36, "MeshConfiguration changed: update the recipe codec");
 static_assert(sizeof(ShaderRecompiler::TessellationConfiguration) == 40, "TessellationConfiguration changed: update the recipe codec");
@@ -44,7 +44,7 @@ static_assert(sizeof(ShaderRecompiler::TessellationConfiguration) == 40, "Tessel
 constexpr std::uint32_t FileMagic = 0x4c4a5041u;
 // Bumped when the recipe codec, CanonicalPipelineState or the store key change in a way the
 // layout guards above do not catch (a field renumbered or reinterpreted at the same size).
-constexpr std::uint32_t FileFormat = 2u;
+constexpr std::uint32_t FileFormat = 3u;
 constexpr std::uint32_t ModuleRecord = 1u;
 constexpr std::uint32_t GraphicsRecord = 2u;
 constexpr std::uint32_t ComputeRecord = 3u;
@@ -215,6 +215,7 @@ void encodeState(Writer& writer, const State& state) {
     writer.Bool(state.customSampleLocations);
     writer.Bool(state.sampleLocationGrid);
     writer.Bool(state.perSampleShading);
+    for (const auto mask : state.quadSampleMask) writer.Raw(mask);
 }
 
 void decodeState(Reader& reader, State& state) {
@@ -271,6 +272,7 @@ void decodeState(Reader& reader, State& state) {
     state.customSampleLocations = reader.Bool();
     state.sampleLocationGrid = reader.Bool();
     state.perSampleShading = reader.Bool();
+    for (auto& mask : state.quadSampleMask) mask = reader.Raw<std::uint16_t>();
 }
 
 void encodeRecipe(Writer& writer, const GraphicsPipelineRecipe& recipe) {
@@ -1015,6 +1017,7 @@ State CanonicalPipelineState(const State& state) {
     canonical.customSampleLocations = state.customSampleLocations;
     canonical.sampleLocationGrid = state.sampleLocationGrid;
     canonical.perSampleShading = state.perSampleShading;
+    canonical.quadSampleMask.fill(static_cast<std::uint16_t>(HostSampleMask(state)));
     return canonical;
 }
 
