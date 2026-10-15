@@ -136,8 +136,8 @@ private:
     static bool verifyDrawRecipe();
     static std::size_t drawCacheEntries();
     void accountDrawVariant(const DispatchVariant& variant, bool added);
-    bool insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape = 0, bool ahead = false);
-    bool insertAheadEntry(std::uint64_t key, const std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape);
+    bool insertDrawEntry(std::uint64_t key, std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape = 0, bool ahead = false, std::shared_ptr<const Graphics::PreparedDraw> prepared = nullptr, std::size_t preparedShaders = 0);
+    bool insertAheadEntry(std::uint64_t key, const std::vector<std::shared_ptr<DispatchVariant>>& fresh, std::shared_ptr<const DrawDecode> decode, std::uint64_t shape, std::shared_ptr<const Graphics::PreparedDraw> prepared, std::size_t preparedShaders);
     void prepareEvictions(const std::list<std::uint64_t>& order, std::size_t growth, std::size_t replaced);
     void evictDrawEntries();
     bool admitDrawKey(std::uint64_t key, std::uint64_t shape, bool hit);
