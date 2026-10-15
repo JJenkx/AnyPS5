@@ -24,6 +24,14 @@ int main() {
     return VulkanTestSkipped;
 }
 #else
+namespace AgcDriver {
+
+struct VulkanDeviceTestAccess {
+    static Graphics::Context ContextOf(const VulkanDevice& device) { return device.graphicsContext(); }
+};
+
+}
+
 namespace {
 
 using AgcDriver::Graphics::Require;
@@ -107,6 +115,8 @@ int main() {
 
         auto* small = mapping + bytes;
         constexpr std::uint64_t SmallBytes = std::uint64_t{1} << 20u;
+        const bool settles = AgcDriver::VulkanDeviceTestAccess::ContextOf(*device).settleQueue != VK_NULL_HANDLE;
+        const auto settledBefore = AgcDriver::Graphics::HostImportsSettled();
         device->ImportGuestMemory(Register(small, SmallBytes), GuestAllocations::GuestAllocationsGeneration_nid_postfix(), false);
         const bool smallImported = Imported(device->Device(), reinterpret_cast<std::uint64_t>(small), static_cast<std::size_t>(SmallBytes));
         GuestAllocations::Mutation().Remove(small);
@@ -114,14 +124,18 @@ int main() {
             std::printf("skipped, the device does not import dma-buf memory\n");
             return VulkanTestSkipped;
         }
+        if (!settles) std::printf("note: the device has no settle queue, so dma-buf imports are not settled\n");
+        Require(!settles || AgcDriver::Graphics::HostImportsSettled() == settledBefore + 1, "sparse import: the 1 MiB dma-buf import made at map time was not settled on the settle queue");
 
         const auto boundary = ChunkBytes;
         std::memset(mapping + boundary - 65536, 0x11, 131072);
         const auto ranges = Register(mapping, bytes);
         const auto address = reinterpret_cast<std::uint64_t>(mapping);
+        const auto settledSmall = AgcDriver::Graphics::HostImportsSettled();
         const bool atMap = device->ImportGuestMemory(ranges, GuestAllocations::GuestAllocationsGeneration_nid_postfix(), false);
         Require(Imported(device->Device(), address, static_cast<std::size_t>(bytes)), "sparse import: a range larger than udmabuf's size limit was not imported");
         Require(atMap, "sparse import: the import made without the GPU lock was refused");
+        Require(!settles || AgcDriver::Graphics::HostImportsSettled() == settledSmall + 1, "sparse import: the sparse dma-buf import made at map time was not settled on the settle queue");
 
         bool filled = false;
         {
