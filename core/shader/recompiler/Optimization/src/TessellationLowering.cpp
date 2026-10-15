@@ -70,6 +70,29 @@ bool IsLaneId(const IrValue* value) {
     return value != nullptr && value->Resolve()->Opcode() == IrOpcode::LaneId;
 }
 
+std::optional<bool> LanesBelowHalf(IrValue* raw) {
+    IrValue* value = raw->Resolve();
+    if (value->Opcode() != IrOpcode::BitCount32) return std::nullopt;
+    IrValue* mask = value->Argument(0)->Resolve();
+    if (mask->Opcode() == IrOpcode::BitwiseAnd32) {
+        mask = IsImmediate(mask->Argument(0), 0xffffffffu) ? mask->Argument(1)->Resolve() : IsImmediate(mask->Argument(1), 0xffffffffu) ? mask->Argument(0)->Resolve() : nullptr;
+        if (mask == nullptr) return std::nullopt;
+    }
+    const auto below = [](IrValue* raw) {
+        IrValue* value = raw->Resolve();
+        if (value->Opcode() != IrOpcode::ISub32 || !IsImmediate(value->Argument(1), 1u)) return false;
+        IrValue* bit = value->Argument(0)->Resolve();
+        return bit->Opcode() == IrOpcode::ShiftLeftLogical32 && IsImmediate(bit->Argument(0), 1u) && IsLaneId(VariableOperand(bit->Argument(1)->Resolve(), 31u));
+    };
+    if (below(mask)) return true;
+    if (mask->Opcode() != IrOpcode::SelectU32) return std::nullopt;
+    IrValue* high = mask->Argument(0)->Resolve();
+    if (high->Opcode() != IrOpcode::UGreaterThanEqual32 || !IsLaneId(high->Argument(0)) || !IsImmediate(high->Argument(1), 32u)) return std::nullopt;
+    if (IsImmediate(mask->Argument(1), 0xffffffffu) && below(mask->Argument(2))) return true;
+    if (below(mask->Argument(1)) && IsImmediate(mask->Argument(2), 0u)) return false;
+    return std::nullopt;
+}
+
 bool IsTrue(const IrValue* value) {
     return value != nullptr && value->HasImmediate() && value->Type() == IrType::Bool && value->ImmediateBool();
 }
@@ -233,17 +256,82 @@ private:
     std::map<LaneWords, IrValue*> built;
 };
 
+std::optional<bool> KnownCondition(const IrValue* raw, std::unordered_set<const IrValue*>& path) {
+    const IrValue* value = raw->Resolve();
+    if (value->HasImmediate()) return value->Type() == IrType::Bool ? std::optional(value->ImmediateBool()) : std::nullopt;
+    if (path.size() > 64u || !path.insert(value).second) return std::nullopt;
+    const auto argument = [&](std::size_t index) { return KnownCondition(value->Argument(index), path); };
+    std::optional<bool> result;
+    switch (value->Opcode()) {
+    case IrOpcode::LogicalNot:
+        if (const auto operand = argument(0)) result = !*operand;
+        break;
+    case IrOpcode::LogicalAnd:
+    case IrOpcode::LogicalOr: {
+        const bool absorbing = value->Opcode() == IrOpcode::LogicalOr;
+        const auto lhs = argument(0);
+        const auto rhs = argument(1);
+        if ((lhs && *lhs == absorbing) || (rhs && *rhs == absorbing)) result = absorbing;
+        else if (lhs && rhs) result = !absorbing;
+        break;
+    }
+    case IrOpcode::SelectU1: {
+        const auto lhs = argument(1);
+        const auto rhs = argument(2);
+        if (lhs && rhs && *lhs == *rhs) result = lhs;
+        break;
+    }
+    default:
+        if (value->IsPhi() && value->ArgumentCount() != 0) {
+            result = argument(0);
+            for (std::size_t index = 1; result && index < value->ArgumentCount(); ++index) {
+                if (argument(index) != result) result = std::nullopt;
+            }
+        }
+        break;
+    }
+    path.erase(value);
+    return result;
+}
+
+bool SameCondition(IrValue* rawLeft, IrValue* rawRight, std::uint32_t depth = 0) {
+    IrValue* left = rawLeft->Resolve();
+    IrValue* right = rawRight->Resolve();
+    if (left == right) return true;
+    if (left->HasImmediate() || right->HasImmediate()) return SamePredicate(left, right);
+    if (depth > 16u || left->Opcode() != right->Opcode()) return false;
+    const auto same = [&](std::size_t lhs, std::size_t rhs) { return SameCondition(left->Argument(lhs), right->Argument(rhs), depth + 1u); };
+    switch (left->Opcode()) {
+    case IrOpcode::LogicalNot:
+        return same(0, 0);
+    case IrOpcode::LogicalAnd:
+    case IrOpcode::LogicalOr:
+        return (same(0, 0) && same(1, 1)) || (same(0, 1) && same(1, 0));
+    default:
+        return false;
+    }
+}
+
 bool Implies(IrValue* rawPredicate, IrValue* rawCondition) {
     IrValue* predicate = rawPredicate->Resolve();
     IrValue* condition = rawCondition->Resolve();
-    if (predicate == condition) return true;
+    if (SameCondition(predicate, condition)) return true;
     if (IsTrue(condition)) return true;
+    if (condition->Opcode() == IrOpcode::LogicalAnd && Implies(predicate, condition->Argument(0)) && Implies(predicate, condition->Argument(1))) return true;
     return predicate->Opcode() == IrOpcode::LogicalAnd && (Implies(predicate->Argument(0), condition) || Implies(predicate->Argument(1), condition));
+}
+
+bool Excludes(IrValue* rawPredicate, IrValue* rawCondition) {
+    IrValue* predicate = rawPredicate->Resolve();
+    IrValue* condition = rawCondition->Resolve();
+    if (condition->HasImmediate() && condition->Type() == IrType::Bool && !condition->ImmediateBool()) return true;
+    if (predicate->Opcode() == IrOpcode::LogicalNot && Implies(condition, predicate->Argument(0))) return true;
+    return predicate->Opcode() == IrOpcode::LogicalAnd && (Excludes(predicate->Argument(0), condition) || Excludes(predicate->Argument(1), condition));
 }
 
 class AddressEvaluator {
 public:
-    AddressEvaluator(std::uint32_t vertexCount, std::int64_t relativeCount) : vertexCount(vertexCount), relativeCount(relativeCount) {}
+    AddressEvaluator(std::uint32_t vertexCount, std::int64_t relativeCount, bool laneVertex = false) : vertexCount(vertexCount), relativeCount(relativeCount), laneVertex(laneVertex) {}
 
     std::optional<Affine> Evaluate(IrValue* value, IrValue* predicate, bool allowDynamic = false) {
         strictMemo.clear();
@@ -378,7 +466,15 @@ private:
         case IrOpcode::TessellationBase:
             return IsBase(value, TessellationBaseKind::RelativeIndex) ? std::optional(Affine{0, 1, 0}) : std::nullopt;
         case IrOpcode::GetBuiltin:
-            return vertexCount != 0 && IsImmediate(value->Argument(0), static_cast<std::uint32_t>(StageInputKind::InvocationId)) ? std::optional(Affine{1, 0, 0}) : std::nullopt;
+            return vertexCount != 0 && !laneVertex && IsImmediate(value->Argument(0), static_cast<std::uint32_t>(StageInputKind::InvocationId)) ? std::optional(Affine{1, 0, 0}) : std::nullopt;
+        case IrOpcode::LaneId:
+            return laneVertex ? std::optional(Affine{1, 0, 0}) : std::nullopt;
+        case IrOpcode::BitCount32: {
+            if (!laneVertex) return std::nullopt;
+            const auto low = LanesBelowHalf(value);
+            if (!low) return std::nullopt;
+            return *low ? Affine{1, 0, 0} : Affine{};
+        }
         case IrOpcode::IAdd32:
         case IrOpcode::ISub32: {
             const auto lhs = argument(0);
@@ -448,6 +544,7 @@ private:
         }
         case IrOpcode::SelectU32: {
             if (active != nullptr && Implies(active, value->Argument(0))) return argument(1);
+            if (active != nullptr && Excludes(active, value->Argument(0))) return argument(2);
             const auto lhs = argument(1);
             const auto rhs = argument(2);
             return lhs && rhs && Same(*lhs, *rhs) ? lhs : std::nullopt;
@@ -466,6 +563,7 @@ private:
 
     std::uint32_t vertexCount;
     std::int64_t relativeCount;
+    bool laneVertex;
     IrValue* active = nullptr;
     std::unordered_map<IrValue*, std::optional<Affine>> strictMemo;
     std::unordered_map<IrValue*, std::optional<Affine>> dynamicMemo;
@@ -511,6 +609,7 @@ struct Access {
     TessellationAttribute kind = TessellationAttribute::LocalOutput;
     bool write = false;
     std::uint32_t components = 1;
+    bool half = false;
     Affine address;
     IrValue* predicate = nullptr;
     std::uint32_t pc = 0;
@@ -548,10 +647,11 @@ std::uint32_t ComponentCount(IrOpcode opcode) {
 class Lowering {
 public:
     Lowering(IrProgram& program, const ShaderTessellationInputInfo& tessellation)
-        : program(program), tessellation(tessellation), stage(program.Resources().stage), evaluator(stage == IrShaderStage::TessellationControl ? tessellation.outputControlPoints : 0u, stage == IrShaderStage::Local ? LocalVertexIndexCount : static_cast<std::int64_t>(tessellation.patchesPerGroup)) {}
+        : program(program), tessellation(tessellation), stage(program.Resources().stage), capture(stage == IrShaderStage::TessellationEvaluation && tessellation.geometryItemDwords != 0u), evaluator(stage == IrShaderStage::TessellationControl ? tessellation.outputControlPoints : capture ? 1u : 0u, stage == IrShaderStage::Local ? LocalVertexIndexCount : static_cast<std::int64_t>(tessellation.patchesPerGroup), capture) {}
 
     void Run() {
-        if (stage == IrShaderStage::TessellationControl) lowerOwnLaneBits();
+        if (stage == IrShaderStage::TessellationControl || (stage == IrShaderStage::Local && tessellation.mergedHull) || capture) lowerOwnLaneBits();
+        removeInactive();
         collect();
         derive();
         for (const auto& access : accesses) rewrite(access);
@@ -572,7 +672,7 @@ public:
                 Fail("a tessellation ring base is used outside a lowered ring access", 0u);
             }
         }
-        const bool data = usedAsData(relative);
+        const bool data = !(stage == IrShaderStage::Local && tessellation.mergedHull) && usedAsData(relative);
         if (data) requireGroupedPatches();
         for (IrValue* base : relative) base->ReplaceAllUsesWith(data ? &groupedPatch(*base) : &constant(0u));
         deadCodeEliminator.Eliminate(program);
@@ -597,6 +697,39 @@ private:
         identities.RemoveIdentities(program);
     }
 
+    void removeInactive() {
+        std::vector<IrValue*> inactive;
+        for (IrBlock* block : program.BlockOrder()) {
+            for (IrValue* inst : block->Instructions()) {
+                if (SharedAccessOf(inst->Opcode()) == SharedAccess::None && BufferAccessOf(inst->Opcode()) == BufferAccess::None) continue;
+                std::unordered_set<const IrValue*> path;
+                if (KnownCondition(inst->Argument(inst->ArgumentCount() - 1u), path) != std::optional(false)) continue;
+                if (inst->HasUses() && inst->Type() != IrType::U16 && inst->Type() != IrType::U32 && inst->Type() != IrType::U32x2 && inst->Type() != IrType::U32x3 && inst->Type() != IrType::U32x4) continue;
+                inactive.push_back(inst);
+            }
+        }
+        for (IrValue* inst : inactive) {
+            if (inst->HasUses()) {
+                const auto components = inst->Type() == IrType::U32x2 ? 2u : inst->Type() == IrType::U32x3 ? 3u : inst->Type() == IrType::U32x4 ? 4u : 1u;
+                IrValue* zero = &constant(0u);
+                if (inst->Type() == IrType::U16) {
+                    IrValue& narrowed = program.CreateValue(IrOpcode::ConvertU16U32, IrType::U16);
+                    narrowed.AddArgument(zero);
+                    inst->Parent()->InsertInstructionBefore(inst, &narrowed);
+                    zero = &narrowed;
+                } else if (components != 1u) {
+                    IrValue& composite = program.CreateValue(components == 2u ? IrOpcode::CompositeConstructU32x2 : components == 3u ? IrOpcode::CompositeConstructU32x3 : IrOpcode::CompositeConstructU32x4, inst->Type());
+                    for (std::uint32_t component = 0; component < components; ++component) composite.AddArgument(&constant(0u));
+                    inst->Parent()->InsertInstructionBefore(inst, &composite);
+                    zero = &composite;
+                }
+                inst->ReplaceAllUsesWith(zero);
+            }
+            inst->Parent()->RemoveInstruction(inst);
+            inst->Invalidate();
+        }
+    }
+
     void collect() {
         const auto& memoryInfo = program.Resources().memoryInfo;
         for (IrBlock* block : program.BlockOrder()) {
@@ -607,14 +740,17 @@ private:
                 if (shared == SharedAccess::None && buffer == BufferAccess::None) continue;
                 const auto flags = inst->Flags<MemoryFlags>();
                 const auto& memory = memoryInfo.at(flags.index);
-                Access access{block, inst, TessellationAttribute::LocalOutput, false, ComponentCount(opcode), {}, inst->Argument(inst->ArgumentCount() - 1u), flags.pc};
+                const bool half = opcode == IrOpcode::LoadSharedU16 || opcode == IrOpcode::WriteSharedU16;
+                Access access{block, inst, TessellationAttribute::LocalOutput, false, half ? 1u : ComponentCount(opcode), half, {}, inst->Argument(inst->ArgumentCount() - 1u), flags.pc};
                 IrValue* address = nullptr;
                 if (shared != SharedAccess::None) {
                     if (memory.kind != ResourceKind::Lds) continue;
                     access.write = shared == SharedAccess::Write;
-                    if (access.components == 0u || (shared != SharedAccess::Read && shared != SharedAccess::Write)) Fail("only 32-bit LDS reads and writes are supported in tessellation stages", flags.pc);
+                    if (access.components == 0u || (shared != SharedAccess::Read && shared != SharedAccess::Write)) Fail("only 16-bit and 32-bit LDS reads and writes are supported in tessellation stages", flags.pc);
                     if (stage == IrShaderStage::Local && access.write) {
                         access.kind = TessellationAttribute::LocalOutput;
+                    } else if (capture && access.write) {
+                        access.kind = TessellationAttribute::GeometryOutput;
                     } else if (stage == IrShaderStage::TessellationControl && !access.write) {
                         access.kind = TessellationAttribute::ControlInput;
                     } else {
@@ -643,7 +779,7 @@ private:
                 }
                 access.memoryOffset = memory.offset;
                 access.address.constant += memory.offset;
-                if ((access.address.constant & 3) != 0) Fail("unaligned tessellation ring or LDS address", flags.pc);
+                if ((access.address.constant & (access.half ? 1 : 3)) != 0 || (access.half && access.kind != TessellationAttribute::LocalOutput && access.kind != TessellationAttribute::ControlInput)) Fail("unaligned tessellation ring or LDS address", flags.pc);
                 accesses.push_back(access);
             }
         }
@@ -658,7 +794,7 @@ private:
         const auto inputs = static_cast<std::int64_t>(tessellation.inputControlPoints);
         const auto outputs = static_cast<std::int64_t>(tessellation.outputControlPoints);
         const auto soleControlPoint = [&](const Access& access) {
-            const auto end = access.address.constant + 4 * static_cast<std::int64_t>(access.components);
+            const auto end = access.address.constant + (access.half ? 2 : 4 * static_cast<std::int64_t>(access.components));
             return outputs == 1 && access.address.vertex == 0 && access.address.relative > 0 && access.address.constant >= 0 && end <= access.address.relative;
         };
         for (auto& access : accesses) {
@@ -668,7 +804,7 @@ private:
             if (access.kind == TessellationAttribute::ControlOutput && access.address.vertex != 0) agree(controlStride, access.address.vertex, access.pc);
             if (access.kind == TessellationAttribute::ControlOutput && soleControlPoint(access)) agree(controlStride, access.address.relative, access.pc);
             if (access.kind == TessellationAttribute::EvaluationInput) {
-                const auto end = access.address.constant + 4 * static_cast<std::int64_t>(access.components);
+                const auto end = access.address.constant + (access.half ? 2 : 4 * static_cast<std::int64_t>(access.components));
                 if (access.address.relative > 0 && access.address.relative % outputs == 0 && access.address.constant >= 0 && end <= access.address.relative) {
                     agree(controlStride, access.address.relative / outputs, access.pc);
                 } else {
@@ -687,7 +823,7 @@ private:
         };
         for (auto& access : accesses) {
             const auto& address = access.address;
-            const auto end = address.constant + 4 * static_cast<std::int64_t>(access.components);
+            const auto end = address.constant + (access.half ? 2 : 4 * static_cast<std::int64_t>(access.components));
             switch (access.kind) {
             case TessellationAttribute::LocalOutput:
                 if (address.vertex != 0 || address.constant < 0 || end > localStride) Fail("the local stage writes outside its vertex's LDS slot", access.pc);
@@ -724,6 +860,11 @@ private:
                 record(access, end);
                 break;
             case TessellationAttribute::PatchOutput:
+                break;
+            case TessellationAttribute::GeometryOutput:
+                if (address.vertex != 4 * static_cast<std::int64_t>(tessellation.geometryItemDwords) || address.relative != 0 || address.constant < 0 || end > address.vertex) Fail("the domain program writes LDS outside its vertex's ESGS item", access.pc);
+                break;
+            default:
                 break;
             }
         }
@@ -869,6 +1010,16 @@ private:
         static_cast<void>(place(IrOpcode::SetTessellationAttribute, IrType::Void, {&constant(static_cast<std::uint32_t>(TessellationAttribute::InstanceOutput)), &constant(0u), &instance, &truth}));
     }
 
+    static IrValue* activeValue(IrValue* raw, IrValue* predicate) {
+        IrValue* value = raw->Resolve();
+        for (std::uint32_t depth = 0; depth < 16u && value->Opcode() == IrOpcode::SelectU32; ++depth) {
+            if (Implies(predicate, value->Argument(0))) value = value->Argument(1)->Resolve();
+            else if (Excludes(predicate, value->Argument(0))) value = value->Argument(2)->Resolve();
+            else break;
+        }
+        return value;
+    }
+
     IrValue& insert(const Access& access, IrOpcode opcode, IrType type, std::initializer_list<IrValue*> arguments) {
         IrValue& value = program.CreateValue(opcode, type);
         for (IrValue* argument : arguments) value.AddArgument(argument);
@@ -890,13 +1041,31 @@ private:
     void rewrite(const Access& access) {
         IrValue& kind = constant(static_cast<std::uint32_t>(access.kind));
         const bool shared = SharedAccessOf(access.inst->Opcode()) != SharedAccess::None;
+        if (access.half) {
+            auto word = access;
+            word.address.constant &= ~std::int64_t{3};
+            IrValue& address = componentAddress(word, 0u);
+            IrValue& shift = constant(static_cast<std::uint32_t>((access.address.constant & 2) * 8));
+            IrValue& existing = insert(access, IrOpcode::GetTessellationAttribute, IrType::U32, {&kind, &address, access.predicate});
+            if (access.write) {
+                IrValue& value = insert(access, IrOpcode::ConvertU32U16, IrType::U32, {access.inst->Argument(1u)});
+                IrValue& merged = insert(access, IrOpcode::BitFieldInsert, IrType::U32, {&existing, &value, &shift, &constant(16u)});
+                static_cast<void>(insert(access, IrOpcode::SetTessellationAttribute, IrType::Void, {&kind, &address, &merged, access.predicate}));
+            } else {
+                IrValue& value = insert(access, IrOpcode::BitFieldUExtract, IrType::U32, {&existing, &shift, &constant(16u)});
+                access.inst->ReplaceAllUsesWith(&insert(access, IrOpcode::ConvertU16U32, IrType::U16, {&value}));
+            }
+            access.block->RemoveInstruction(access.inst);
+            access.inst->Invalidate();
+            return;
+        }
         if (access.write) {
             for (std::uint32_t component = 0; component < access.components; ++component) {
                 IrValue* data = nullptr;
                 if (shared) {
-                    data = access.inst->Argument(1u + component);
+                    data = activeValue(access.inst->Argument(1u + component), access.predicate);
                 } else if (access.components == 1u) {
-                    data = access.inst->Argument(4u);
+                    data = activeValue(access.inst->Argument(4u), access.predicate);
                 } else {
                     const auto extract = access.components == 2u ? IrOpcode::CompositeExtractU32x2 : access.components == 3u ? IrOpcode::CompositeExtractU32x3 : IrOpcode::CompositeExtractU32x4;
                     data = &insert(access, extract, IrType::U32, {access.inst->Argument(4u), &constant(component)});
@@ -941,6 +1110,7 @@ private:
     IrProgram& program;
     const ShaderTessellationInputInfo& tessellation;
     IrShaderStage stage;
+    bool capture;
     AddressEvaluator evaluator;
     std::vector<Access> accesses;
     std::uint32_t localStride = 0;

@@ -111,6 +111,17 @@ alignas(256) constexpr std::array<std::uint32_t, 51> HullNextInput{
     0xe0741000, 0x0202070b, 0xbf810000,
 };
 
+alignas(256) constexpr auto MergedHullCode = [] {
+    std::array<std::uint32_t, 32 + HullCode.size()> code{};
+    code[0] = 0x8f6a9003u;
+    code[1] = 0x94fe6ac1u;
+    code[2] = 0xbf88001cu;
+    std::copy(LocalCode.begin(), LocalCode.end() - 1, code.begin() + 3);
+    code[31] = 0xbefe04c1u;
+    std::copy(HullCode.begin(), HullCode.end(), code.begin() + 32);
+    return code;
+}();
+
 alignas(256) constexpr std::array<std::uint32_t, 30> DomainCode{
     0xf8000941, 0x00000000, 0x34020e84, 0x16020283, 0xe0341000, 0x04030a01, 0xe0341010, 0x04030c01,
     0xe0341020, 0x04030e01, 0xbf8c3f70, 0x08040af2, 0x08040d02, 0x10201505, 0x3e201906, 0x3e201d02,
@@ -369,6 +380,7 @@ struct PatchDraw {
     float maxLevel = 64.0f;
     std::uint32_t instances = 1;
     std::uint32_t firstInstance = 0;
+    bool merged = false;
 };
 
 alignas(256) constexpr std::array<std::uint16_t, 12> NextInputIndices{
@@ -378,6 +390,7 @@ alignas(256) constexpr std::array<std::uint16_t, 12> NextInputIndices{
 };
 
 const PatchDraw Triangles{Patches, Indices};
+const PatchDraw MergedTriangles{Patches, Indices, 1.0f, 64.0f, 1, 0, true};
 const PatchDraw NextInputTriangles{{4u, 3u, 1u, 2u, 2u}, NextInputIndices};
 
 struct Stages {
@@ -405,6 +418,12 @@ ShaderRecompiler::RecompileResult Compile(const ShaderRecompiler::SpirvTarget& t
     } else {
         vertex = ShaderRecompiler::ShaderVertexStageInfo{};
         graphics = ShaderRecompiler::GraphicsCompileContext{hull ? 0u : 8u, {}, std::nullopt, patches.configuration, {reinterpret_cast<std::uintptr_t>(patches.indices.data()), static_cast<std::uint32_t>(patches.indices.size()), 2, patches.instances}};
+    }
+    std::vector<ShaderRecompiler::LinkedProgram> linked;
+    if (patches.merged && (hull || stage == ShaderStage::Local)) {
+        const auto other = hull ? ShaderStage::Local : ShaderStage::TessellationControl;
+        linked.push_back({hull ? ShaderRecompiler::ProgramRole::Local : ShaderRecompiler::ProgramRole::Hull, {other, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}}, 0, 0, {}});
+        graphics->linkedPrograms = linked;
     }
     auto layout = stage == ShaderStage::Fragment ? PixelPushLayout(pushCursor, target) : ShaderRecompiler::BindingLayout{0, 0, pushCursor, AgcDriver::Graphics::PipelinePushSlotBytes - pushCursor};
     if (layout.pushConstantOffsetBytes < AgcDriver::Graphics::PipelinePushSlotBytes) layout.pushConstantSizeBytes = ShaderRecompiler::TessellationLevelPushOffsetBytes - layout.pushConstantOffsetBytes;
@@ -871,6 +890,7 @@ int main() {
         ExpectRefusal(target, ShaderStage::TessellationControl, HullDescendingRecords, "outside its control points and patch constants", {{3u, 3u, 1u, 2u, 2u, 129u}, Indices});
 
         RequirePatches(*device, target, HullCode, "hull program");
+        RequirePatches(*device, target, MergedHullCode, "merged local and hull program", MergedTriangles, MergedHullCode);
         RequirePatches(*device, target, HullRestoredExecSaved, "hull program saving its restored exec");
         RequirePatches(*device, target, HullNextInput, "hull program reading the next of 4 input control points of 24 bytes", NextInputTriangles, LocalCodeStride24);
         RequirePatches(*device, target, HullDynamicIndex, "hull program reading a control point at a computed index");

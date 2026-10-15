@@ -99,8 +99,23 @@ std::uint32_t HostSubgroupSize(const RecompileRequest& request) {
     return request.target.subgroupSize;
 }
 
-RdnaProgram DecodeStageProgram(ShaderStageKind stage, std::span<const std::uint32_t> code) {
-    if (stage != ShaderStageKind::Local) return RdnaInstructionDecoder{}.Decode(code);
+bool CapturesGeometryInput(const RecompileRequest& request) {
+    return request.shader.stage == ShaderStage::TessellationEvaluation && request.graphics && request.graphics->mesh;
+}
+
+RdnaProgram DecodeStageProgram(ShaderStageKind stage, std::span<const std::uint32_t> code, bool merged, bool vertexHalf) {
+    if (vertexHalf) {
+        auto program = RdnaInstructionDecoder{}.Decode(code);
+        const auto guard = std::ranges::find_if(program.instructions, [](const RdnaInstruction& instruction) { return instruction.op == RdnaOpcode::SCbranchExecz; });
+        if (guard == program.instructions.end()) throw std::runtime_error("the merged domain and geometry program has no s_cbranch_execz around its vertex half");
+        const auto end = std::ranges::find_if(program.instructions, [&](const RdnaInstruction& instruction) { return instruction.programCounter == guard->branchTarget; });
+        if (end == program.instructions.end() || end <= guard) throw std::runtime_error("the vertex half of the merged domain and geometry program ends outside the program");
+        static constexpr std::array<std::uint32_t, 1> EndProgram{0xbf810000u};
+        *end = DecodeRdnaInstruction(end->programCounter, EndProgram, 0u);
+        program.instructions.erase(std::next(end), program.instructions.end());
+        return program;
+    }
+    if (stage != ShaderStageKind::Local || merged) return RdnaInstructionDecoder{}.Decode(code);
     auto program = DecodeRdnaFrontProgram(code);
     static constexpr std::array<std::uint32_t, 1> EndProgram{0xbf810000u};
     program.instructions.back() = DecodeRdnaInstruction(program.instructions.back().programCounter, EndProgram, 0u);
@@ -113,6 +128,7 @@ ShaderStageInputInfo RequestInputInfo(const RecompileRequest& request) {
     if (request.graphics && request.graphics->tessellation) {
         tessellationCopy = *request.graphics->tessellation;
         tessellationCopy->instancePatches = TessellationInstancePatches(request);
+        tessellationCopy->mergedHull = MergedHullRequest(request);
         const auto& capabilities = request.target.supportedCapabilities;
         tessellationCopy->drawParameters = std::find(capabilities.begin(), capabilities.end(), static_cast<std::uint32_t>(spv::CapabilityDrawParameters)) != capabilities.end();
     }
@@ -133,7 +149,7 @@ std::atomic<std::uint64_t> frontEndBuilds{0};
 struct PreparedControlFlow {
     PreparedControlFlow(const RecompileRequest& request, const SwappcInfo& swappcInfo)
         : stage(request.shader.stage), fallbacks(swappcInfo.linkedCallFallbacks.begin(), swappcInfo.linkedCallFallbacks.end()), swappc(WithFallbacks(swappcInfo, fallbacks)), code(request.shader.code.begin(), request.shader.code.end()),
-          decoded(DecodeStageProgram(toShaderStageKind(request.shader.stage), code)), cfg(GraphBuilder{}.Build(decoded, &swappc)) {
+          vertexHalf(CapturesGeometryInput(request)), decoded(DecodeStageProgram(toShaderStageKind(request.shader.stage), code, MergedHullRequest(request), vertexHalf)), cfg(GraphBuilder{}.Build(decoded, &swappc)) {
         Structurizer{}.Structurize(cfg);
     }
 
@@ -141,7 +157,7 @@ struct PreparedControlFlow {
     PreparedControlFlow& operator=(const PreparedControlFlow&) = delete;
 
     bool Matches(const RecompileRequest& request, const SwappcInfo& swappcInfo) const {
-        return stage == request.shader.stage && swappc.fetchCallAllowed == swappcInfo.fetchCallAllowed &&
+        return stage == request.shader.stage && vertexHalf == CapturesGeometryInput(request) && swappc.fetchCallAllowed == swappcInfo.fetchCallAllowed &&
                swappc.userDataBaseRegister == swappcInfo.userDataBaseRegister && swappc.userDataCount == swappcInfo.userDataCount &&
                std::ranges::equal(fallbacks, swappcInfo.linkedCallFallbacks) && std::ranges::equal(code, request.shader.code);
     }
@@ -155,6 +171,7 @@ struct PreparedControlFlow {
     std::vector<std::uint32_t> fallbacks;
     SwappcInfo swappc;
     std::vector<std::uint32_t> code;
+    bool vertexHalf;
     RdnaProgram decoded;
     ControlFlowGraph cfg;
 };

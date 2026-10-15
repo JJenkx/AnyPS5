@@ -316,6 +316,7 @@ struct TessellationConfiguration {
     bool breakAtInstance = false;
     std::uint32_t instancePatches = 0;
     bool drawParameters = false;
+    bool mergedHull = false;
 };
 
 inline constexpr std::uint32_t MeshDrawPushOffsetBytes = 104;
@@ -329,6 +330,11 @@ inline constexpr std::uint32_t MeshArgumentBytes = 20;
 inline constexpr std::uint32_t MeshIndexRestartTable = 0x100;
 inline constexpr std::uint32_t MeshRestartLengthDword = MeshArgumentBytes / 4;
 inline constexpr std::uint32_t MeshRestartTableDword = MeshRestartLengthDword + 1;
+inline constexpr std::uint32_t MeshCapturedCounterDword = MeshArgumentBytes / 4;
+inline constexpr std::uint32_t MeshCapturedCapacityDword = MeshCapturedCounterDword + 1;
+inline constexpr std::uint32_t MeshCapturedHeaderBytes = 4 * (MeshCapturedCapacityDword + 1);
+inline constexpr std::uint32_t MeshCapturedItemAddressDword = 0;
+inline constexpr std::uint32_t TessellationCaptureArgumentAddressDword = 2;
 inline constexpr std::uint32_t MeshIndexBufferUserWord = 4;
 inline constexpr std::uint32_t WorkgroupMemoryDescriptorSet = 1;
 
@@ -359,6 +365,12 @@ struct RecompileRequest {
 inline std::uint32_t TessellationInstancePatches(const RecompileRequest& request) {
     if (!request.graphics || !request.graphics->tessellation || request.graphics->draw.instanceCount <= 1u || request.graphics->tessellation->breakAtInstance) return 0u;
     return request.graphics->draw.indexCount / request.graphics->tessellation->inputControlPoints;
+}
+
+inline bool MergedHullRequest(const RecompileRequest& request) {
+    if ((request.shader.stage != ShaderStage::Local && request.shader.stage != ShaderStage::TessellationControl) || !request.graphics) return false;
+    const auto other = request.shader.stage == ShaderStage::Local ? ProgramRole::Hull : ProgramRole::Local;
+    return std::any_of(request.graphics->linkedPrograms.begin(), request.graphics->linkedPrograms.end(), [&](const LinkedProgram& program) { return program.role == other && program.binary.codeAddress == request.shader.codeAddress; });
 }
 
 enum class DescriptorKind {
@@ -612,6 +624,7 @@ struct GeometryStageLimits {
 };
 
 [[nodiscard]] RecompileResult BuildBarycentricGeometryShader(const RecompileResult& vertex, const RecompileResult& fragment, const SpirvTarget& target, const std::optional<GeometryStageLimits>& limits);
+[[nodiscard]] RecompileResult BuildTessellationCaptureGeometryShader(const MeshConfiguration& geometry, const SpirvTarget& target, const std::optional<GeometryStageLimits>& limits);
 
 }
 

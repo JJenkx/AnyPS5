@@ -731,10 +731,20 @@ bool ConstantFolder::tryFoldValue(IrProgram& program, IrValue& value) const {
         }
         case IrOpcode::IEqual32: return foldU32Compare(builder, value, [](std::uint32_t a, std::uint32_t b) { return a == b; });
         case IrOpcode::INotEqual32: return foldConstantBitTest(builder, value) || foldStartingQuadBitTest(program, builder, value) || foldU32Compare(builder, value, [](std::uint32_t a, std::uint32_t b) { return a != b; });
-        case IrOpcode::ULessThan32: return foldU32Compare(builder, value, [](std::uint32_t a, std::uint32_t b) { return a < b; });
+        case IrOpcode::ULessThan32:
+            if (isImmediateU32(resolveArg(value, 1), 0u)) {
+                replaceWith(value, builder.ConstantBool(false));
+                return true;
+            }
+            return foldU32Compare(builder, value, [](std::uint32_t a, std::uint32_t b) { return a < b; });
         case IrOpcode::ULessThanEqual32: return foldU32Compare(builder, value, [](std::uint32_t a, std::uint32_t b) { return a <= b; });
         case IrOpcode::UGreaterThan32: return foldU32Compare(builder, value, [](std::uint32_t a, std::uint32_t b) { return a > b; });
-        case IrOpcode::UGreaterThanEqual32: return foldU32Compare(builder, value, [](std::uint32_t a, std::uint32_t b) { return a >= b; });
+        case IrOpcode::UGreaterThanEqual32:
+            if (isImmediateU32(resolveArg(value, 1), 0u)) {
+                replaceWith(value, builder.ConstantBool(true));
+                return true;
+            }
+            return foldU32Compare(builder, value, [](std::uint32_t a, std::uint32_t b) { return a >= b; });
         case IrOpcode::SLessThan32:
         case IrOpcode::SLessThanEqual32:
         case IrOpcode::SGreaterThan32:
