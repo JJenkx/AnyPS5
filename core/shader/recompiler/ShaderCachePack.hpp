@@ -26,6 +26,7 @@ struct PackLoadTimings {
 };
 
 [[nodiscard]] std::array<std::uint64_t, 2> PackKeyHash(std::span<const std::byte> key);
+[[nodiscard]] std::span<const std::byte> EntryKey(std::span<const std::byte> file);
 [[nodiscard]] std::vector<std::filesystem::path> PrebuiltCachePaths(const std::filesystem::path& cacheRoot);
 
 class CachePack {
@@ -38,9 +39,12 @@ public:
     [[nodiscard]] const std::string& Error() const { return error; }
     [[nodiscard]] std::size_t Count() const { return records.size(); }
     [[nodiscard]] LoadStatus Load(std::span<const std::byte> key, CompiledVariant& variant, PackLoadTimings& timings) const;
+    [[nodiscard]] LoadStatus LoadPlan(std::span<const std::byte> key, IrResourcePlan& plan, PackLoadTimings& timings) const;
 
 private:
     void Validate();
+    template<typename TValue>
+    LoadStatus LoadValue(std::span<const std::byte> key, TValue& value, PackLoadTimings& timings) const;
     std::span<const std::byte> file;
     std::span<const PackRecord> records;
     std::string error;
