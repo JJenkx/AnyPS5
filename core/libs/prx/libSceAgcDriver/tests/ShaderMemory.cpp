@@ -4424,6 +4424,16 @@ void verifyBdaReadFallbackFunctions() {
 
 void verifyBdaAnchors(bool enabled = true) {
     using namespace ShaderRecompiler;
+    {
+        const std::array<std::uint32_t, 1> code{0xbf810000u};
+        const auto words = Recompile(FrontendRequest(code, {})).spirv;
+        for (std::size_t cursor = 5; cursor < words.size();) {
+            const auto length = words[cursor] >> 16u;
+            require(length != 0 && length <= words.size() - cursor, "BDA anchors: truncated memory-free shader");
+            require((words[cursor] & 0xffffu) != spv::OpTypeInt || words[cursor + 2] != 64u, "BDA anchors introduced 64-bit arithmetic into a memory-free shader");
+            cursor += length;
+        }
+    }
     const std::array<std::uint32_t, 3> capabilities{spv::CapabilityInt64, spv::CapabilityPhysicalStorageBufferAddresses, spv::CapabilityStorageBuffer8BitAccess};
     const std::array<std::string_view, 2> extensions{"SPV_KHR_physical_storage_buffer", "SPV_KHR_8bit_storage"};
     alignas(256) static std::array<std::uint32_t, 32> output{};
