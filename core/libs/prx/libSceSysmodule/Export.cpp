@@ -1,4 +1,6 @@
 #include <cstdint>
+#include <cstddef>
+#include <filesystem>
 #include <cstring>
 #include <mutex>
 #include <stdexcept>
@@ -17,6 +19,7 @@
 #include "prx/libc/include/General.hpp"
 
 extern "C" void* APS5_VABI dlopen_nid_postfix(const char* path, int flags);
+extern "C" KernelModule APS5_VABI sceKernelLoadStartModule(const char*, std::size_t, const void*, std::uint32_t, const KernelLoadModuleOpt*, int*);
 
 namespace {
 
@@ -83,6 +86,28 @@ int APS5_VABI sceSysmoduleGetModuleInfoForUnwind(std::uint64_t addr, int flags, 
         throw std::runtime_error("sceSysmoduleGetModuleInfoForUnwind: address not found");
     }
     return 0;
+}
+
+int APS5_VABI sceSysmoduleLoadModuleByNameInternal(const char* name, std::size_t args, const void* argp, const void* options, int* result) {
+    if (name == nullptr || *name == '\0') return SCE_SYSMODULE_ERROR_INVALID_VALUE;
+    const std::filesystem::path basename(name);
+    if (basename.has_parent_path() || basename.has_root_path() || basename == "." || basename == "..") return SCE_SYSMODULE_ERROR_INVALID_VALUE;
+    if (options != nullptr) throw std::runtime_error("sceSysmoduleLoadModuleByNameInternal: options are not implemented");
+    if (args != 0 && argp == nullptr) throw std::invalid_argument("sceSysmoduleLoadModuleByNameInternal: missing arguments");
+    const std::string path = std::string("libs/") + name + ".prx";
+    int initialized = 0;
+    const auto handle = sceKernelLoadStartModule(path.c_str(), args, argp, 0, nullptr, &initialized);
+    if (handle < 0) return handle;
+    {
+        std::lock_guard lock(gMutex);
+        for (const auto& [id, moduleName] : kModuleTable) {
+            if (std::strcmp(moduleName, name) != 0) continue;
+            gLoadCount[id]++;
+            gHandles[id] = handle;
+        }
+    }
+    if (result != nullptr) std::memcpy(result, &initialized, sizeof(initialized));
+    return handle;
 }
 
 int APS5_VABI sceSysmoduleGetModuleHandleInternal(std::uint32_t id, std::int32_t* handle) {
