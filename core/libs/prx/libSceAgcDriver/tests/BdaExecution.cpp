@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <cstdio>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -293,6 +294,11 @@ static void RunBdaAnchorTests(const Context& context) {
                     const auto expected = run(programs.plain, index, anchor, batch);
                     const auto actual = run(programs.anchored, index, anchor, batch);
                     const bool faultsMatch = programs.reads.lanes == 1u ? std::memcmp(&expected.fault, &actual.fault, sizeof(expected.fault)) == 0 : expected.fault.state == actual.fault.state;
+                    if (!faultsMatch || expected.values != actual.values) {
+                        const auto mismatch = std::mismatch(expected.values.begin(), expected.values.end(), actual.values.begin());
+                        const auto word = static_cast<std::size_t>(mismatch.first - expected.values.begin());
+                        std::fprintf(stderr, "BDA anchor comparison: fault state %u/%u reason %u/%u bytes %u/%u address %llu/%llu; first output difference word %zu value %u/%u\n", static_cast<unsigned>(expected.fault.state), static_cast<unsigned>(actual.fault.state), static_cast<unsigned>(expected.fault.reason), static_cast<unsigned>(actual.fault.reason), expected.fault.bytes, actual.fault.bytes, static_cast<unsigned long long>(expected.fault.address), static_cast<unsigned long long>(actual.fault.address), word, word < expected.values.size() ? expected.values[word] : 0u, word < actual.values.size() ? actual.values[word] : 0u);
+                    }
                     Require(faultsMatch && expected.values == actual.values, "an anchored BDA read differs from the same read through the lookups at anchor 0x" + std::to_string(anchor) + " + " + std::to_string(batch[0]) + " + (" + std::to_string(read.immediate) + "), " + std::to_string(read.bits) + " bits, " + std::to_string(read.dwords) + " dwords");
                 }
             }
@@ -307,6 +313,9 @@ static void RunBdaAnchorTests(const Context& context) {
     for (std::uint32_t lane = 0; lane < 32u; ++lane) lows.push_back(lane * 0x24u);
     std::vector<std::uint32_t> strided;
     for (std::uint32_t lane = 0; lane < lanes; ++lane) strided.push_back(lane * 16u);
+    auto halfword = build({{{-1, 16, 1, 1}}, false, false, false, lanes});
+    compare(*halfword, {guest + 0x100}, {1u});
+    compare(*halfword, {guest + 0x100}, {0u, 1u});
     auto continuing = build({reads, false, false, false, lanes});
     compare(*continuing, anchors, lows);
     compare(*continuing, {guest + 0x400}, strided);
