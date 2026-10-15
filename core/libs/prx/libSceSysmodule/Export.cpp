@@ -1,22 +1,15 @@
 #include <cstdint>
-#include <cstring>
 #include <mutex>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <psapi.h>
-#else
-#include "prx/libc/include/specifics/linux/HostMapping.hpp"
-#endif
 
 #include "SceTypes.hpp"
 #include "ModuleTable.hpp"
 #include "prx/libc/include/General.hpp"
 
 extern "C" void* APS5_VABI dlopen_nid_postfix(const char* path, int flags);
+extern "C" int APS5_VABI sceKernelGetModuleInfoForUnwind(std::uint64_t address, int flags, ModuleInfoForUnwind* info);
 
 namespace {
 
@@ -38,51 +31,12 @@ void* openHostModule(const char* name) {
     return dlopen_nid_postfix(relative.c_str(), kRtldNow);
 }
 
-bool fillModuleInfoForUnwind(std::uint64_t addr, ModuleInfoForUnwind* info) {
-#ifdef _WIN32
-    MEMORY_BASIC_INFORMATION mbi{};
-    if (!VirtualQuery(reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi))) {
-        return false;
-    }
-    info->st_size = sizeof(ModuleInfoForUnwind);
-    info->eh_frame_hdr_addr = 0;
-    info->eh_frame_addr = 0;
-    info->eh_frame_size = 0;
-    info->seg0_addr = reinterpret_cast<std::uint64_t>(mbi.BaseAddress);
-    info->seg0_size = mbi.RegionSize;
-    char path[4096] = {};
-    DWORD len = GetMappedFileNameA(GetCurrentProcess(), mbi.BaseAddress, path, sizeof(path) - 1);
-    path[len] = '\0';
-    std::strncpy(info->name, path, sizeof(info->name) - 1);
-    info->name[sizeof(info->name) - 1] = '\0';
-    return true;
-#else
-    const auto mapping = HostMapping::Find(addr, "sceSysmoduleGetModuleInfoForUnwind");
-    if (!mapping) {
-        return false;
-    }
-    info->st_size = sizeof(ModuleInfoForUnwind);
-    std::strncpy(info->name, mapping->path.c_str(), sizeof(info->name) - 1);
-    info->name[sizeof(info->name) - 1] = '\0';
-    info->eh_frame_hdr_addr = 0;
-    info->eh_frame_addr = 0;
-    info->eh_frame_size = 0;
-    info->seg0_addr = mapping->start;
-    info->seg0_size = mapping->end - mapping->start;
-    return true;
-#endif
-}
-
 }
 
 extern "C" {
 
 int APS5_VABI sceSysmoduleGetModuleInfoForUnwind(std::uint64_t addr, int flags, ModuleInfoForUnwind* info) {
-    (void)flags;
-    if (!fillModuleInfoForUnwind(addr, info)) {
-        throw std::runtime_error("sceSysmoduleGetModuleInfoForUnwind: address not found");
-    }
-    return 0;
+    return sceKernelGetModuleInfoForUnwind(addr, flags, info);
 }
 
 int APS5_VABI sceSysmoduleGetModuleHandleInternal(std::uint32_t id, std::int32_t* handle) {
