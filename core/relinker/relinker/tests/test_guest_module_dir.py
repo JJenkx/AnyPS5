@@ -48,6 +48,8 @@ def host_module(names=()):
         if header[0] == 1:
             header[7] = 0x1000
         struct.pack_into("<IIQQQQQQ", aligned, offset, *header)
+    struct.pack_into("<IIQQQQQQ", aligned, 64 + 3 * 56, 0x6474E551, 6, 0, 0, 0, 0, 0, 16)
+    struct.pack_into("<H", aligned, 56, 4)
     return aligned
 
 
