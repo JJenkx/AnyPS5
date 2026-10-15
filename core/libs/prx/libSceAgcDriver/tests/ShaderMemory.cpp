@@ -1174,6 +1174,30 @@ void verifyImageTableBulkReads() {
     const auto captured = memory.Capture(request);
     require(captured->snapshot.tables == byWord->snapshot.tables && TableCovered(memory.Regions(), words.data() + 512u, Records * 32u), "image table bulk reads: the shader memory's run reads changed the snapshot or its captured regions");
 
+    place(0u, 256u);
+    AgcDriver::ShaderMemory ranged({});
+    static_cast<void>(ranged.Capture(request));
+    static_cast<void>(ranged.TakeRecentRegions());
+    alignas(4096) static TableGuest narrowGuest;
+    FillTableSrt(narrowGuest, words.data() + 1016u, 32u, 4u);
+    const auto narrowData = TableUserData(narrowGuest);
+    const auto narrowRequest = TableRequest(TableWholeCode, narrowData);
+    CountingMemory mapped;
+    require(ranged.Capture(narrowRequest)->snapshot.tables == capture(narrowRequest, mapped, false)->snapshot.tables, "image table bulk reads: an unaligned cached run changed its snapshot");
+    const auto exactRange = [&](const auto& regions) {
+        std::uint64_t recorded = 0;
+        const auto begin = reinterpret_cast<std::uintptr_t>(words.data());
+        const auto end = begin + sizeof(words);
+        for (const auto& region : regions) {
+            const auto first = std::max<std::uint64_t>(begin, region.guestAddress);
+            const auto last = std::min<std::uint64_t>(end, region.guestAddress + region.bytes.size());
+            if (last > first) recorded += last - first;
+        }
+        return recorded == 4u * 32u && TableCovered(regions, words.data() + 1016u, 4u * 32u);
+    };
+    require(exactRange(ranged.TakeRecentRegions()), "image table bulk reads: an unaligned cached run recorded unrelated words");
+    static_cast<void>(ranged.Capture(narrowRequest));
+    require(exactRange(ranged.TakeRecentRegions()), "image table bulk reads: a repeated cached run lost or enlarged its recent words");
     place(1012u, 4u);
     CountingMemory cutWordReads{reinterpret_cast<std::uintptr_t>(words.data() + 1012u), reinterpret_cast<std::uintptr_t>(words.data() + 1044u), reinterpret_cast<std::uintptr_t>(words.data() + 1024u)};
     CountingMemory cutRunReads = cutWordReads;

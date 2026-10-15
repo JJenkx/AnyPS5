@@ -1849,6 +1849,8 @@ void verifyPlanRoundTrip() {
         const auto bytes = encodedPlan(*plan);
         IrResourcePlan decoded;
         require(ShaderDiskCache::DecodePlan(bytes, decoded), fixture.name + ": the plan does not decode");
+        require(decoded.denseValueIds == plan->denseValueIds, fixture.name + ": the cached plan lost dense value indexing");
+        require(decoded.compact.values.size() == plan->compact.values.size() && decoded.compact.arguments == plan->compact.arguments && decoded.compact.sourceDwords == plan->compact.sourceDwords && decoded.compact.srtReads == plan->compact.srtReads && decoded.compact.conditions == plan->compact.conditions, fixture.name + ": the cached plan lost compact evaluation data");
         require(encodedPlan(decoded) == bytes, fixture.name + ": the plan changed in a round trip");
         require(samePlan(*plan, decoded), fixture.name + ": the decoded plan differs from the plan in a field or a value");
         require(decoded.valueStorage.Size() == plan->valueStorage.Size() && decoded.blockStorage.size() == plan->blockStorage.size(), fixture.name + ": the decoded plan holds another graph");
