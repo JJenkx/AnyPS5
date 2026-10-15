@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -107,6 +108,15 @@ struct Port {
     std::uint64_t virtualQueueEnd = 0;
     SDL_AudioDeviceID device = 0;
     SDL_AudioSpec spec = {};
+    std::uint64_t traceStart = 0;
+    std::uint64_t traceLastQueue = 0;
+    std::uint64_t traceCalls = 0;
+    std::uint64_t traceEmptyQueues = 0;
+    std::uint64_t traceMaxGap = 0;
+    std::uint64_t traceNonfinite = 0;
+    std::uint64_t traceOverrange = 0;
+    float traceSourcePeak = 0.0f;
+    float traceDevicePeak = 0.0f;
 };
 
 static std::mutex g_mutex;
@@ -212,6 +222,61 @@ static void sleepUs(std::unique_lock<std::mutex>& lock, std::uint64_t us) {
     lock.lock();
 }
 
+static void traceSamples(const void* data, std::uint32_t size, SDL_AudioFormat format,
+    float& peak, std::uint64_t& nonfinite, std::uint64_t& overrange) {
+    if (format != AUDIO_F32SYS && format != AUDIO_S16SYS) return;
+    const auto sampleBytes = format == AUDIO_F32SYS ? sizeof(float) : sizeof(std::int16_t);
+    const auto* bytes = static_cast<const std::uint8_t*>(data);
+    for (std::size_t offset = 0; offset + sampleBytes <= size; offset += sampleBytes) {
+        float sample;
+        if (format == AUDIO_F32SYS) {
+            std::memcpy(&sample, bytes + offset, sizeof(sample));
+        } else {
+            std::int16_t pcm;
+            std::memcpy(&pcm, bytes + offset, sizeof(pcm));
+            sample = pcm / 32768.0f;
+        }
+        if (!std::isfinite(sample)) nonfinite++;
+        else {
+            const float magnitude = std::abs(sample);
+            peak = std::max(peak, magnitude);
+            if (magnitude > 1.0f) overrange++;
+        }
+    }
+}
+
+static void traceQueue(Port& port, const void* source, std::uint32_t sourceSize,
+    const void* device, std::uint32_t deviceSize) {
+    static const bool enabled = std::getenv("APS5_TRACE_AUDIOOUT") != nullptr;
+    if (!enabled) return;
+    const auto queuedBytes = SDL_GetQueuedAudioSize(port.device);
+    const auto now = sceKernelGetProcessTime();
+    if (port.traceStart == 0) port.traceStart = now;
+    if (port.traceLastQueue != 0) port.traceMaxGap = std::max(port.traceMaxGap, now - port.traceLastQueue);
+    port.traceLastQueue = now;
+    port.traceCalls++;
+    if (queuedBytes == 0) port.traceEmptyQueues++;
+    traceSamples(source, sourceSize, sdlFormat(port.format), port.traceSourcePeak, port.traceNonfinite, port.traceOverrange);
+    std::uint64_t ignoredNonfinite = 0;
+    std::uint64_t ignoredOverrange = 0;
+    traceSamples(device, deviceSize, port.spec.format, port.traceDevicePeak, ignoredNonfinite, ignoredOverrange);
+    const auto elapsed = now - port.traceStart;
+    if (elapsed < 1000000) return;
+    std::fprintf(stderr, "[audioout] device %u: %.1f blocks/s, source peak %.6g, device peak %.6g, source nonfinite %llu, source overrange %llu, empty queue observations %llu, max queue gap %llu us, queued %u bytes\n",
+        static_cast<unsigned>(port.device), static_cast<double>(port.traceCalls) * 1000000.0 / elapsed,
+        static_cast<double>(port.traceSourcePeak), static_cast<double>(port.traceDevicePeak),
+        static_cast<unsigned long long>(port.traceNonfinite), static_cast<unsigned long long>(port.traceOverrange),
+        static_cast<unsigned long long>(port.traceEmptyQueues), static_cast<unsigned long long>(port.traceMaxGap), queuedBytes);
+    port.traceStart = now;
+    port.traceCalls = 0;
+    port.traceEmptyQueues = 0;
+    port.traceMaxGap = 0;
+    port.traceNonfinite = 0;
+    port.traceOverrange = 0;
+    port.traceSourcePeak = 0.0f;
+    port.traceDevicePeak = 0.0f;
+}
+
 static void queueAudio(Port& port, const void* data, std::unique_lock<std::mutex>& lock) {
     if (data == nullptr) {
         const std::uint64_t waitStart = sceKernelGetProcessTime();
@@ -273,6 +338,7 @@ static void queueAudio(Port& port, const void* data, std::unique_lock<std::mutex
         sleepUs(lock, DRAIN_SLEEP_US);
     }
 
+    traceQueue(port, data, preparedSize, queueData, queueSize);
     if (SDL_QueueAudio(port.device, queueData, queueSize) < 0) {
         throw std::runtime_error(std::string("SDL_QueueAudio: ") + SDL_GetError());
     }
@@ -327,7 +393,7 @@ static int allocatePort(int type, std::uint32_t len, std::uint32_t freq, Format 
                 openDevice(port);
             }
             static const bool trace = std::getenv("APS5_TRACE_AUDIOOUT") != nullptr;
-            if (trace) std::fprintf(stderr, "[audioout] port %d: type %d, %u samples at %u Hz, format %d, device %u\n", i + 1, type, len, freq, static_cast<int>(format), static_cast<unsigned>(port.device));
+            if (trace) std::fprintf(stderr, "[audioout] port %d: type %d, %u samples at %u Hz, format %d (%d %s ch), device %u (%d Hz, format 0x%x, %u ch)\n", i + 1, type, len, freq, static_cast<int>(format), port.channels, formatIsFloat(format) ? "float" : "int16", static_cast<unsigned>(port.device), port.spec.freq, static_cast<unsigned>(port.spec.format), static_cast<unsigned>(port.spec.channels));
             return i + 1;
         }
     }
