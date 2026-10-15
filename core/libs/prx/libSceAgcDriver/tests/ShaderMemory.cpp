@@ -2992,7 +2992,7 @@ void verifyPixelRequestSerialization() {
     minimal.context.pixel->layerExported = true;
     minimal.context.pixel->ditheredAlphaToCoverage = true;
     const auto encoded = serializer.Serialize(minimal);
-    require(requestPrefix(encoded, 8u) == "NVNQQR0AAAA=", "new requests did not use serialization version 29");
+    require(requestPrefix(encoded, 8u) == "NVNQQR4AAAA=", "new requests did not use serialization version 30");
     const std::array<std::uint32_t, 2> fallbacks{0x40u, 0x1ac4u};
     auto withFallbacks = minimal;
     withFallbacks.context.linkedCallFallbacks = fallbacks;
@@ -3110,7 +3110,7 @@ void verifyPixelRequestSerialization() {
     for (std::size_t bytes = 0; bytes < 41u; ++bytes) {
         expectFailure([&] { static_cast<void>(serializer.Deserialize(requestPrefix(encoded, mappingOffset + bytes))); }, "truncated data", "a truncated pixel mapping, packing, dual-source, alpha-to-coverage, stencil reference export flag, primitive class, layer export, dither or front-face flag, quad pixel mask or quad sample mask was accepted");
     }
-    for (const auto unsupported : {"NVNQQQAAAAA=", "NVNQQR4AAAA="}) {
+    for (const auto unsupported : {"NVNQQQAAAAA=", "NVNQQR8AAAA="}) {
         expectFailure([&] { static_cast<void>(serializer.Deserialize(unsupported)); }, "serialization version", "an unsupported request version was accepted");
     }
     static constexpr std::string_view version18Request{
@@ -3237,6 +3237,7 @@ void verifyVertexInfoVersion19() {
     require(allBitsOffset == flagOffset + 2u, "the front-face all-bits flag does not follow the dithered coverage flag");
     version26Pixel.erase(version26Pixel.begin() + static_cast<std::ptrdiff_t>(allBitsOffset), version26Pixel.begin() + static_cast<std::ptrdiff_t>(allBitsOffset + 2u + 16u));
     version26Pixel[4] = 26u;
+    version26Pixel.pop_back();
     const auto replay26 = serializer.Deserialize(encodeBase64(version26Pixel));
     require(replay26.request.context.pixel.has_value() && replay26.request.context.pixel->rasterPrimitive == RasterPrimitive::Rectangle && !replay26.request.context.pixel->frontFaceAllBits, "a version 26 request lost its pixel primitive class or read a front-face all-bits flag");
     require(serializer.Serialize(replay26.request) == encodedPixel, "a version 26 request misread the fields after its dithered coverage flag");
@@ -3253,15 +3254,17 @@ void verifyVertexInfoVersion19() {
     require(std::equal(maskedBytes.begin(), maskedBytes.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u), version28.begin()) && version28[maskOffset + 1u] == 0x1u && version28[maskOffset + 5u] == 0x2u && version28[maskOffset + 9u] == 0x4u && version28[maskOffset + 13u] == 0x8u, "the quad sample masks are not the four words after the quad pixel mask");
     version28.erase(version28.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u), version28.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u + sampleMaskBytes));
     version28[4] = 28u;
+    version28.pop_back();
     const auto replay28 = serializer.Deserialize(encodeBase64(version28));
     require(replay28.request.context.pixel.has_value() && replay28.request.context.pixel->quadPixelMask == 0x2u && replay28.request.context.pixel->quadSampleMask == std::array<std::uint16_t, 4>{0xffffu, 0xffffu, 0xffffu, 0xffffu} && decodeBase64(serializer.Serialize(replay28.request)) == maskedBytes, "a version 28 request read quad sample masks or misread the fields after them");
     auto version27 = maskedBytes;
     version27.erase(version27.begin() + static_cast<std::ptrdiff_t>(maskOffset), version27.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u + sampleMaskBytes));
     version27[4] = 27u;
+    version27.pop_back();
     const auto replay27 = serializer.Deserialize(encodeBase64(version27));
     require(replay27.request.context.pixel.has_value() && replay27.request.context.pixel->quadPixelMask == 0xfu && serializer.Serialize(replay27.request) == encodedPixel, "a version 27 request read a quad pixel mask or misread the fields after it");
     legacyPixel.erase(legacyPixel.begin() + static_cast<std::ptrdiff_t>(flagOffset), legacyPixel.begin() + static_cast<std::ptrdiff_t>(flagOffset + 4u + sampleMaskBytes));
-    legacyPixel.resize(legacyPixel.size() - sizeof(std::uint64_t));
+    legacyPixel.resize(legacyPixel.size() - sizeof(std::uint64_t) - 1u);
     for (const auto version : {19u, 20u, 21u, 22u}) {
         auto versionPixel = legacyPixel;
         versionPixel[4] = static_cast<std::uint8_t>(version);
@@ -3364,7 +3367,7 @@ void verifyLegacyPixelRequests() {
         require(!pixel.orderedPixelShader, "a legacy request became a primitive-ordered pixel shader");
         require(request.shader.stage == ShaderStage::Fragment && request.shader.code.size() == 1u && request.shader.code[0] == 0xbf810000u && !request.context.vertex.has_value() && request.context.memory.empty(), "legacy guest context was misaligned");
         require(request.target.vulkanVersion == 0x00401000u && request.target.spirvVersion == 0x00010300u && request.target.subgroupSize == 64u && request.layout.firstBinding == 11u && request.layout.pushConstantSizeBytes == 128u, "legacy target or binding layout was misaligned");
-        require(request.useCache == (version == 1u) && request.target.nonConstantImageOffsets == (version >= 6u) && request.target.srgbDecodeFormats == 0u && !request.target.narrowSubgroupClock && !request.target.float64DenormPreserve && !request.target.registrationModules && !request.target.float16DenormPreserve, "legacy request trailer was misread");
+        require(request.useCache == (version == 1u) && request.target.nonConstantImageOffsets == (version >= 6u) && request.target.srgbDecodeFormats == 0u && !request.target.narrowSubgroupClock && !request.target.float64DenormPreserve && !request.target.registrationModules && !request.target.float16DenormPreserve && !request.target.robustBufferAccess2, "legacy request trailer was misread");
         const auto upgraded = serializer.Deserialize(serializer.Serialize(request));
         require(upgraded.request.context.pixel->targetExportMapping == pixel.targetExportMapping && RecompileCacheKey::ContextHash(upgraded.request) == RecompileCacheKey::ContextHash(request), "upgrading a legacy capture changed its pixel mapping");
     }
@@ -5234,6 +5237,9 @@ int main(int argc, char** argv) {
         auto float16Denormals = uncached;
         float16Denormals.target.float16DenormPreserve = true;
         require(RequestSerializer{}.Deserialize(RequestSerializer{}.Serialize(float16Denormals)).request.target.float16DenormPreserve, "f16 denormal preservation was lost in serialization");
+        auto robust = uncached;
+        robust.target.robustBufferAccess2 = true;
+        require(RequestSerializer{}.Deserialize(RequestSerializer{}.Serialize(robust)).request.target.robustBufferAccess2, "robustBufferAccess2 was lost in serialization");
         auto changedLayout = request;
         changedLayout.layout.pushConstantSizeBytes = 64;
         require(!Recompile(changedLayout).cacheHit, "binding layout change reused an incompatible variant");
