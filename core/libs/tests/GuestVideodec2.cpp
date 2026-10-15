@@ -509,6 +509,44 @@ void testTenBit() {
     }
 }
 
+void testAvcPictureBounds(const OutputInfo& output, const AvcPictureInfo& expected) {
+    for (const bool alias : {false, true}) {
+        const auto queryInfo = [&](const OutputInfo& out, AvcPictureInfo& info) {
+            return alias ? sceVideodec2GetAvcPictureInfo_nid_postfix(&out, &info, nullptr) : sceVideodec2GetPictureInfo_nid_postfix(&out, &info, nullptr);
+        };
+        const auto rejectedUnchanged = [&](const OutputInfo& out, std::uint64_t size) {
+            AvcPictureInfo info;
+            std::memset(&info, 0xa5, sizeof(info));
+            info.thisSize = size;
+            std::array<unsigned char, sizeof(info)> before{};
+            std::memcpy(before.data(), &info, sizeof(info));
+            bool rejected = false;
+            try { queryInfo(out, info); } catch (const std::runtime_error&) { rejected = true; }
+            check(std::memcmp(before.data(), &info, sizeof(info)) == 0, "undersized AVC picture query modified caller memory");
+            check(rejected, "undersized AVC picture query was accepted");
+        };
+        for (const auto size : {0u, 8u, 39u}) rejectedUnchanged(output, size);
+        for (const auto size : {0u, 8u, static_cast<unsigned>(offsetof(OutputInfo, frameBuffer) + sizeof(output.frameBuffer) - 1)}) {
+            auto truncated = output;
+            truncated.thisSize = size;
+            rejectedUnchanged(truncated, sizeof(AvcPictureInfo));
+        }
+        for (const auto size : {40u, 51u, 52u, static_cast<unsigned>(sizeof(AvcPictureInfo))}) {
+            AvcPictureInfo info;
+            std::memset(&info, 0xa5, sizeof(info));
+            info.thisSize = size;
+            auto minimumOutput = output;
+            minimumOutput.thisSize = offsetof(OutputInfo, frameBuffer) + sizeof(output.frameBuffer);
+            check(queryInfo(minimumOutput, info) == 0 && info.isValid, "valid AVC picture prefix rejected");
+            check(info.thisSize == size && info.ptsData == expected.ptsData && info.dtsData == expected.dtsData && info.attachedData == expected.attachedData, "AVC prefix timestamps changed");
+            const auto* bytes = reinterpret_cast<const unsigned char*>(&info);
+            for (std::size_t index = size; index < sizeof(info); ++index) check(bytes[index] == 0xa5, "AVC query wrote beyond declared size");
+            if (size < 52) for (std::size_t index = 40; index < sizeof(info); ++index) check(bytes[index] == 0xa5, "AVC query partially wrote its optional fields");
+            else check(info.picWidthInLumaSamples == expected.picWidthInLumaSamples && info.picHeightInLumaSamples == expected.picHeightInLumaSamples, "AVC complete fields changed");
+        }
+    }
+}
+
 void testDecode(bool lengthPrefixed) {
     const DecoderConfigInfo config{sizeof(DecoderConfigInfo), 0, 1, 100, 0, static_cast<std::int32_t>(Width), static_cast<std::int32_t>(Height), 4, 1};
     DecoderMemoryInfo memory{sizeof(DecoderMemoryInfo)};
@@ -530,6 +568,7 @@ void testDecode(bool lengthPrefixed) {
         AvcPictureInfo avc{sizeof(AvcPictureInfo)};
         check(sceVideodec2GetAvcPictureInfo_nid_postfix(&output, &avc, nullptr) == 0 && avc.isValid, "avc picture info missing");
         check(avc.ptsData == 1000 + unit && avc.dtsData == unit && avc.attachedData == 0xa0 + unit && avc.idrPictureFlag == (pictures == 0 ? 1 : 0) && avc.profileIdc == 100 && avc.picWidthInLumaSamples == Width && avc.picHeightInLumaSamples == CodedHeight, "avc picture info mismatch");
+        testAvcPictureBounds(output, avc);
         check(hashNv12(buffer.data(), output.framePitch, output.frameHeight) == PictureHashes[pictures], "picture " + std::to_string(pictures) + " differs from the reference");
         ++pictures;
         return true;

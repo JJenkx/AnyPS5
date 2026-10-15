@@ -623,6 +623,8 @@ int APS5_VABI sceVideodec2Reset_nid_postfix(std::uint64_t handle) {
 int APS5_VABI sceVideodec2GetPictureInfo_nid_postfix(const OutputInfo* output, AvcPictureInfo* first, void* second) {
     (void)second;
     if (!output || !first) throw std::runtime_error("Videodec2: invalid argument pointer");
+    if (!Fits(output, offsetof(OutputInfo, frameBuffer) + sizeof(output->frameBuffer)) || !Fits(first, offsetof(AvcPictureInfo, attachedData) + sizeof(first->attachedData)))
+        throw std::runtime_error("Videodec2: AVC picture structure is too small");
     const auto owner = [output]() -> std::uint64_t {
         std::lock_guard guard(lock);
         const auto found = pictureOwners.find(output->frameBuffer);
