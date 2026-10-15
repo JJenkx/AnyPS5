@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -164,7 +165,7 @@ void Ngs2ApplyCustomParam(Ngs2Voice& voice, const Ngs2VoiceParamHeader& param) {
 
 void Ngs2ProcessUserFx(Ngs2Voice& voice, std::uint32_t grain, std::uint32_t sampleRate) {
     if (voice.userFx.empty() && voice.customUserFx.empty()) return;
-    std::vector<float*> channels(voice.channels);
+    std::array<float*, NGS2_MAX_CHANNELS> channels{};
     for (std::uint32_t c = 0; c < voice.channels; c++) channels[c] = voice.samples.data() + static_cast<std::size_t>(c) * grain;
     for (std::size_t m = 0; m < voice.rack->customModuleIds.size(); m++) {
         if (voice.rack->customModuleIds[m] == SCE_NGS2_CUSTOM_MODULE_ID_USER_FX2) {
