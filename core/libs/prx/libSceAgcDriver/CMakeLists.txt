@@ -1704,6 +1704,8 @@ if(BUILD_TESTING)
         set_tests_properties(agc_driver_stencil_replay_no_gpl PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
+    add_test(NAME agc_driver_draw_ahead_queued_table COMMAND agc_driver_draw_ahead_tests queued-table)
+    set_tests_properties(agc_driver_draw_ahead_queued_table PROPERTIES ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1;APS5_PIPELINED_DRAWS=8" SKIP_RETURN_CODE 77 TIMEOUT 30 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_test(NAME agc_driver_draw_ahead_inline COMMAND agc_driver_draw_ahead_tests)
     set_tests_properties(agc_driver_draw_ahead_inline PROPERTIES ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1;APS5_PIPELINED_DRAWS=0" SKIP_RETURN_CODE 77 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     add_test(NAME agc_driver_draw_ahead_verify COMMAND agc_driver_draw_ahead_tests)
@@ -1711,7 +1713,7 @@ if(BUILD_TESTING)
     add_test(NAME agc_driver_draw_ahead_small_cache COMMAND agc_driver_draw_ahead_tests small-cache)
     set_tests_properties(agc_driver_draw_ahead_small_cache PROPERTIES ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1;APS5_DRAW_CACHE_ENTRIES=2" SKIP_RETURN_CODE 77 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
     if(WIN32)
-        set_tests_properties(agc_driver_draw_ahead_inline agc_driver_draw_ahead_verify agc_driver_draw_ahead_small_cache PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_driver_draw_ahead_queued_table agc_driver_draw_ahead_inline agc_driver_draw_ahead_verify agc_driver_draw_ahead_small_cache PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 
