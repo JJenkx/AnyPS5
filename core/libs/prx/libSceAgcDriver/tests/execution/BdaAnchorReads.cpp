@@ -127,13 +127,13 @@ bool SearchesAnchor(const ShaderRecompiler::SharedSpirv& spirv) {
     return text.find("bda_anchor_range") != std::string_view::npos;
 }
 
-void Run(AgcDriver::VulkanDevice& device, GuestBlock& guest, std::uint32_t waveSize, const ShaderRecompiler::SpirvTarget& target, const std::string& name) {
+void Run(AgcDriver::VulkanDevice& device, GuestBlock& guest, std::uint32_t waveSize, const ShaderRecompiler::SpirvTarget& target, const std::string& name, bool anchored) {
     auto memory = Initial();
     std::memcpy(guest.Data(), memory.data(), BlockBytes);
     const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(guest.Data()));
     const std::vector<std::uint32_t> userData{static_cast<std::uint32_t>(address), static_cast<std::uint32_t>(address >> 32u)};
     const auto result = Recompile(waveSize, userData, std::span<const std::byte>(reinterpret_cast<const std::byte*>(guest.Data()), InputDwords * sizeof(std::uint32_t)), target);
-    Require(SearchesAnchor(result.spirv), "BDA anchor reads: " + name + " reads of one user-data base do not share an anchor");
+    Require(SearchesAnchor(result.spirv) == anchored, "BDA anchor reads: " + name + " did not select the requested lookup path");
     device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(Code.data()));
     device.WaitIdle();
     std::memcpy(memory.data(), guest.Data(), BlockBytes);
@@ -145,16 +145,18 @@ void Run(AgcDriver::VulkanDevice& device, GuestBlock& guest, std::uint32_t waveS
 
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        const bool disabled = argc == 2 && std::string_view(argv[1]) == "--no-anchors";
+        Require(argc == 1 || disabled, "unknown BDA anchor read test arguments");
         const auto device = OpenVulkanTestDevice();
         if (!device) return VulkanTestSkipped;
         GuestBlock guest;
         const auto native = device->Target();
         const auto split = device->ComputeTarget(32);
-        Run(*device, guest, 32, native, "wave32");
-        Run(*device, guest, 64, native, "wave64");
-        if (split.subgroupSize != native.subgroupSize) Run(*device, guest, 64, split, "wave64 split");
+        Run(*device, guest, 32, native, "wave32", !disabled);
+        Run(*device, guest, 64, native, "wave64", !disabled);
+        if (split.subgroupSize != native.subgroupSize) Run(*device, guest, 64, split, "wave64 split", !disabled);
         std::puts("BDA anchor read tests passed");
         return 0;
     } catch (const std::exception& error) {

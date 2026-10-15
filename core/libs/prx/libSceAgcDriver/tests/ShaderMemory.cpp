@@ -4422,7 +4422,7 @@ void verifyBdaReadFallbackFunctions() {
     }
 }
 
-void verifyBdaAnchors() {
+void verifyBdaAnchors(bool enabled = true) {
     using namespace ShaderRecompiler;
     const std::array<std::uint32_t, 3> capabilities{spv::CapabilityInt64, spv::CapabilityPhysicalStorageBufferAddresses, spv::CapabilityStorageBuffer8BitAccess};
     const std::array<std::string_view, 2> extensions{"SPV_KHR_physical_storage_buffer", "SPV_KHR_8bit_storage"};
@@ -4459,7 +4459,7 @@ void verifyBdaAnchors() {
     };
     for (const std::uint32_t stride : {4u, 32u}) {
         for (const std::uint32_t loads : {0u, 1u, 2u, 4u}) {
-            const bool anchored = stride == 32u && loads >= 2u;
+            const bool anchored = enabled && stride == 32u && loads >= 2u;
             const auto words = compile(loads, stride);
             std::map<std::uint32_t, std::string> names;
             std::string function;
@@ -5104,6 +5104,11 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string_view(argv[1]) == "--quad-mask-no-demote") {
             verifyQuadMaskNeighbourReads();
             std::cout << "Quad masks preserve neighbour-lane helpers or refuse without demote\n";
+            return 0;
+        }
+        if (argc == 2 && std::string_view(argv[1]) == "--bda-anchors-disabled") {
+            verifyBdaAnchors(false);
+            std::cout << "Disabled BDA anchors preserve lookup-based reads\n";
             return 0;
         }
         if (argc == 2 && std::string_view(argv[1]) == "--frontend-pair") {
