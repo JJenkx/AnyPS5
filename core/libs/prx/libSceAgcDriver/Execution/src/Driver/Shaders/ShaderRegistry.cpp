@@ -1192,7 +1192,14 @@ std::vector<PreparedGraphicsStage> PrepareGraphicsStages(const DrawDecode& decod
             continue;
         }
         std::optional<ShaderRecompiler::ShaderVertexStageInfo> vertex;
-        if (!fragment) vertex = Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData, nullptr, true, 8u - program.firstUserSgpr);
+        try {
+            if (!fragment) vertex = Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData, nullptr, true, 8u - program.firstUserSgpr);
+        } catch (const std::exception& error) {
+            if (!deferUnprepared) throw;
+            DeferPipelineStage(transaction.Edit(*program.snapshot), *program.snapshot, error.what());
+            prepared.push_back({program.snapshot, {program.codeOffset, nullptr}, program.binary.stage, offset, nullptr});
+            continue;
+        }
         if (vertex) vertex->paClVsOutCntl = PositionExportLayout(program.snapshot.get(), program.codeOffset, program.binary.code, decoded.state.paClVsOutCntl, program.tailContinuation.get()) | decoded.state.layerExports;
         ShaderRecompiler::RecompileRequest request{program.binary, {wave, program.firstUserSgpr, program.userData, {}, fragment ? std::optional(decoded.pixel) : std::nullopt, vertex, memory, RegisteredFloatMode(*program.snapshot)}, target, {0, 0, offset, room}, ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, Graphics::StageMeshConfiguration(decoded.state.stages, program.binary.stage), decoded.state.stages.tessellation, {}}};
         std::vector<std::uint64_t> key;
