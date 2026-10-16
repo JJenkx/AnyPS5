@@ -3067,7 +3067,7 @@ void verifyPixelRequestSerialization() {
     minimal.context.pixel->layerExported = true;
     minimal.context.pixel->ditheredAlphaToCoverage = true;
     const auto encoded = serializer.Serialize(minimal);
-    require(requestPrefix(encoded, 8u) == "NVNQQSEAAAA=", "new requests did not use serialization version 33");
+    require(requestPrefix(encoded, 8u) == "NVNQQSIAAAA=", "new requests did not use serialization version 34");
     const std::array<std::uint32_t, 2> fallbacks{0x40u, 0x1ac4u};
     auto withFallbacks = minimal;
     withFallbacks.context.linkedCallFallbacks = fallbacks;
@@ -3185,7 +3185,7 @@ void verifyPixelRequestSerialization() {
     for (std::size_t bytes = 0; bytes < 45u; ++bytes) {
         expectFailure([&] { static_cast<void>(serializer.Deserialize(requestPrefix(encoded, mappingOffset + bytes))); }, "truncated data", "a truncated pixel mapping, packing, dual-source, alpha-to-coverage, stencil reference export flag, primitive class, layer export, dither or front-face flag, quad pixel mask or quad sample mask was accepted");
     }
-    for (const auto unsupported : {"NVNQQQAAAAA=", "NVNQQSIAAAA="}) {
+    for (const auto unsupported : {"NVNQQQAAAAA=", "NVNQQSMAAAA="}) {
         expectFailure([&] { static_cast<void>(serializer.Deserialize(unsupported)); }, "serialization version", "an unsupported request version was accepted");
     }
     static constexpr std::string_view version18Request{
@@ -3276,7 +3276,7 @@ void verifyVertexInfoVersion19() {
     require(offset + 4u <= plain.size() && flagged[offset] == 0xefu && flagged[offset + 1u] == 0xcdu && flagged[offset + 2u] == 0xabu && flagged[offset + 3u] == 0x89u, "PA_CL_VS_OUT_CNTL is not the four bytes the version 20 vertex info adds");
     require(std::equal(plain.begin() + offset + 4u, plain.end(), flagged.begin() + offset + 4u), "PA_CL_VS_OUT_CNTL moved the fields after it");
     auto version20Vertex = flagged;
-    version20Vertex.resize(version20Vertex.size() - 2u);
+    version20Vertex.resize(version20Vertex.size() - 3u);
     version20Vertex[4] = 20u;
     const auto replay20Vertex = serializer.Deserialize(encodeBase64(version20Vertex));
     require(replay20Vertex.request.context.vertex.has_value() && replay20Vertex.request.context.vertex->paClVsOutCntl == 0x89abcdefu, "a main version20 request lost PA_CL_VS_OUT_CNTL");
@@ -3285,7 +3285,7 @@ void verifyVertexInfoVersion19() {
     const auto layered = serializer.Deserialize(serializer.Serialize(vertex));
     require(layered.request.context.vertex.has_value() && layered.request.context.vertex->paClVsOutCntl == vertex.context.vertex->paClVsOutCntl, "a layered vertex info lost its clip distances or render target index");
     auto legacy = plain;
-    legacy.resize(legacy.size() - 2u);
+    legacy.resize(legacy.size() - 3u);
     legacy.erase(legacy.begin() + offset, legacy.begin() + offset + 4u);
     for (const auto version : {16u, 17u, 18u, 19u}) {
         legacy[4] = static_cast<std::uint8_t>(version);
@@ -3333,25 +3333,25 @@ void verifyVertexInfoVersion19() {
     const auto sampledBytes = decodeBase64(serializer.Serialize(sampledPixel));
     require(std::equal(maskedBytes.begin(), maskedBytes.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u), sampledBytes.begin()) && sampledBytes[maskOffset + 1u] == 0x1u && sampledBytes[maskOffset + 5u] == 0x2u && sampledBytes[maskOffset + 9u] == 0x4u && sampledBytes[maskOffset + 13u] == 0x8u, "the quad sample masks are not the four words after the quad pixel mask");
     auto version29 = sampledBytes;
-    version29.resize(version29.size() - 2u);
+    version29.resize(version29.size() - 3u);
     version29.erase(version29.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u + sampleMaskBytes), version29.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u + sampleMaskBytes + 4u));
     version29[4] = 29u;
     const auto replay29 = serializer.Deserialize(encodeBase64(version29));
     require(replay29.request.context.pixel.has_value() && replay29.request.context.pixel->quadSampleMask == std::array<std::uint16_t, 4>{0x1u, 0x2u, 0x4u, 0x8u} && replay29.request.context.pixel->reversedBlend == 0u && decodeBase64(serializer.Serialize(replay29.request)) == sampledBytes, "a version 29 request read a reversed-order blend code or misread the fields after the quad sample masks");
     auto version28 = sampledBytes;
-    version28.resize(version28.size() - 2u);
+    version28.resize(version28.size() - 3u);
     version28.erase(version28.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u), version28.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u + sampleMaskBytes + 4u));
     version28[4] = 28u;
     const auto replay28 = serializer.Deserialize(encodeBase64(version28));
     require(replay28.request.context.pixel.has_value() && replay28.request.context.pixel->quadPixelMask == 0x2u && replay28.request.context.pixel->quadSampleMask == std::array<std::uint16_t, 4>{0xffffu, 0xffffu, 0xffffu, 0xffffu} && replay28.request.context.pixel->reversedBlend == 0u && decodeBase64(serializer.Serialize(replay28.request)) == maskedBytes, "a version 28 request read quad sample masks or a reversed-order blend code, or misread the fields after them");
     auto version27 = maskedBytes;
-    version27.resize(version27.size() - 2u);
+    version27.resize(version27.size() - 3u);
     version27.erase(version27.begin() + static_cast<std::ptrdiff_t>(maskOffset), version27.begin() + static_cast<std::ptrdiff_t>(maskOffset + 1u + sampleMaskBytes + 4u));
     version27[4] = 27u;
     const auto replay27 = serializer.Deserialize(encodeBase64(version27));
     require(replay27.request.context.pixel.has_value() && replay27.request.context.pixel->quadPixelMask == 0xfu && replay27.request.context.pixel->reversedBlend == 0u && serializer.Serialize(replay27.request) == encodedPixel, "a version 27 request read a quad pixel mask or reversed-order blend code, or misread the fields after it");
     auto legacyPixel = plainPixel;
-    legacyPixel.resize(legacyPixel.size() - 2u);
+    legacyPixel.resize(legacyPixel.size() - 3u);
     legacyPixel.erase(legacyPixel.begin() + static_cast<std::ptrdiff_t>(allBitsOffset), legacyPixel.begin() + static_cast<std::ptrdiff_t>(allBitsOffset + 2u + sampleMaskBytes + 4u));
     legacyPixel[4] = 26u;
     const auto replay26 = serializer.Deserialize(encodeBase64(legacyPixel));
@@ -5367,6 +5367,12 @@ int main(int argc, char** argv) {
         std::vector<std::uint64_t> float32FlushKey;
         RecompileCacheKey::Build(float32Flush, float32FlushKey);
         require(plainKey != float32FlushKey, "f32 hardware flush did not change the cache key");
+        auto float32Preserve = uncached;
+        float32Preserve.target.float32DenormPreserve = true;
+        require(RequestSerializer{}.Deserialize(RequestSerializer{}.Serialize(float32Preserve)).request.target.float32DenormPreserve, "f32 denormal preservation did not survive request serialization");
+        std::vector<std::uint64_t> float32PreserveKey;
+        RecompileCacheKey::Build(float32Preserve, float32PreserveKey);
+        require(plainKey != float32PreserveKey && float32FlushKey != float32PreserveKey, "f32 denormal preservation did not change the cache key");
         auto changedLayout = request;
         changedLayout.layout.pushConstantSizeBytes = 64;
         require(!Recompile(changedLayout).cacheHit, "binding layout change reused an incompatible variant");
