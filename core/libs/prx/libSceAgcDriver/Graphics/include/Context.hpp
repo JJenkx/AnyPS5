@@ -224,6 +224,7 @@ struct Context {
     bool imageTableUpdateAfterBind = false;
     bool samplerTableUpdateAfterBind = false;
     bool geometryShader = false;
+    bool largePoints = false;
     bool sampleRateShading = false;
     bool storageImageMultisample = false;
     bool shaderClipDistance = false;
