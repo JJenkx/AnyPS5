@@ -2093,6 +2093,7 @@ void ShaderResources::noteReusable() {
     addressWrites.clear();
     const bool addressBased = usesBda && drawBuild && AddressReuseEnabled();
     if (guestMemory.HasCopiedWrites() || (!addressBased && (HoldsLease() || usesBda)) || !multisampleSources.empty() || (bda != nullptr && LoopGuardEnabled())) return;
+    if (addressBased && std::any_of(tableStages.begin(), tableStages.end(), [](const TableStage& table) { return std::find(table.elementTextures.begin(), table.elementTextures.end(), std::numeric_limits<std::size_t>::max()) != table.elementTextures.end(); })) return;
     if (std::any_of(textures.begin(), textures.end(), [](const std::shared_ptr<Texture>& texture) { return texture != nullptr && texture->RefreshedPerUse(); })) return;
     if (TemplateDataRefresh() && std::any_of(allocations.begin(), allocations.end(), [](const Allocation& allocation) { return allocation.buffer != nullptr && !allocation.guest && allocation.role != ShaderRecompiler::DescriptorRole::ImageTableMap && allocation.size > MaxRefreshBytes; })) return;
     const auto regions = addressBased ? guestMemory.SpaceRegions() : guestMemory.DirectRegions();
@@ -2834,13 +2835,17 @@ bool ShaderResources::Revalidate(std::span<const CompiledShader> shaders, ProofR
             if (armed) memory.SuspendSpace();
         }
     } suspend{guestMemory};
-    if (!guestMemory.ResumeSpace()) return false;
-    const bool proved = proveBuild(shaders, report);
-    if (proved && guestMemory.SpaceImportsCurrent()) {
-        suspend.armed = false;
-        return true;
+    try {
+        if (!guestMemory.ResumeSpace()) return false;
+        const bool proved = proveBuild(shaders, report);
+        if (proved && guestMemory.SpaceImportsCurrent()) {
+            suspend.armed = false;
+            return true;
+        }
+        if (proved && report != nullptr) report->failure = ProofFailure::Imports;
+    } catch (const std::exception&) {
+        if (report != nullptr) report->failure = ProofFailure::Other;
     }
-    if (proved && report != nullptr) report->failure = ProofFailure::Imports;
     return false;
 }
 
