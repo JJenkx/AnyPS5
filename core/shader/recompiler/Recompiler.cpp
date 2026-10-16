@@ -537,6 +537,7 @@ CompiledVariant emitVariant(const RecompileRequest& request, IrProgram& program)
     targetOptions.float16DenormPreserve = request.target.float16DenormPreserve;
     targetOptions.spannedWaves = request.target.spannedWaves;
     targetOptions.float32FlushToZero = HardwareFloat32Flush(request);
+    targetOptions.float32DenormPreserve = request.target.float32DenormPreserve && request.context.floatMode.has_value() && ((request.context.floatMode->floatMode >> 4u) & 3u) == 3u;
 
     constexpr SpirvEmitter spirvEmitter;
     CompiledShaderArtifact result;
