@@ -1051,8 +1051,15 @@ State DecodeState(const QueueState& queue, bool vertexWorkgroup) {
         Require(ditheredAlphaSamplesSupported(cx), "dithered alpha-to-coverage requires eight matched raster/DB_EQAA samples and one pixel iteration");
         Require(!result.customSampleLocations, "dithered alpha-to-coverage with custom sample locations is unsupported");
     }
+    const auto requireDepthSamples = [&](bool condition) {
+        if (!condition) {
+            const auto value = [&](std::uint32_t reg) { const auto entry = cx.find(reg); return entry == cx.end() ? 0u : entry->second; };
+            std::fprintf(stderr, "[gpu] sample-state raster=%u depth=%u alpha=%u iterate=%u AA_CONFIG=0x%08x MODE_CNTL_0=0x%08x MODE_CNTL_1=0x%08x DEPTH_CONTROL=0x%08x Z_INFO=0x%08x EQAA=0x%08x INPUT_ENA=0x%08x INPUT_ADDR=0x%08x COLOR_ATTRIB=0x%08x\n", result.samples, result.depth ? result.depth->samples : 0, result.alphaToCoverage, result.perSampleShading, value(0x2f8), value(0x292), value(0x293), value(0x200), value(0x010), value(0x201), value(0x1b3), value(0x1b4), value(0x31d));
+        }
+        Require(condition, "the depth target's sample count differs from the rasterizer's");
+    };
     const bool depthKeepsSampleZero = result.depth && result.depth->samples == 1 && result.samples > 1;
-    Require(!result.depth || depthKeepsSampleZero || result.depth->samples == result.samples, "the depth target's sample count differs from the rasterizer's");
+    requireDepthSamples(!result.depth || depthKeepsSampleZero || result.depth->samples == result.samples);
     zero(cx, 0x292, ScanModeMask & ~1u, "scan conversion mode");
     if (result.samples > 1 && (read(cx, 0x292) & 1u) == 0) {
         const bool filled = result.topology != VK_PRIMITIVE_TOPOLOGY_POINT_LIST && result.topology != VK_PRIMITIVE_TOPOLOGY_LINE_LIST && result.topology != VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
@@ -1068,7 +1075,7 @@ State DecodeState(const QueueState& queue, bool vertexWorkgroup) {
     zero(cx, 0x293, ScanControlMask, "primitive discard or out-of-order rasterization");
     result.perSampleShading = result.samples > 1 && (read(cx, 0x293) & PixelShaderIteratesSamples) != 0;
     if (depthKeepsSampleZero) {
-        Require(rasterizesSampleZeroOnly(cx, result), "the depth target's sample count differs from the rasterizer's");
+        requireDepthSamples(rasterizesSampleZeroOnly(cx, result));
         rasterizeSampleZero(result);
     }
     zero(cx, 0x80, ~0u, "window offset");
