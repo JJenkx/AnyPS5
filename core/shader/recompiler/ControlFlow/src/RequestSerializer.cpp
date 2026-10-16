@@ -856,7 +856,7 @@ DeserializedRequest RequestSerializer::Deserialize(std::string_view text) const 
         result.request.context.linkedCallFallbacks = result.linkedCallFallbacks;
     }
     if (version >= 32u) result.request.target.spannedWaves = reader.ReadBool();
-    if (version >= 31u && result.request.context.vertex.has_value()) {
+    if (version >= 32u && result.request.context.vertex.has_value()) {
         auto& vertex = *result.request.context.vertex;
         vertex.pointList = reader.ReadBool();
         vertex.pointSize = std::bit_cast<float>(reader.ReadU32());
