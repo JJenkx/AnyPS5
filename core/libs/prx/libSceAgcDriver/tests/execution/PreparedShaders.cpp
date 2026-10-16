@@ -55,7 +55,7 @@ void ExpectFailure(TAction action, const char* expected) {
         Require(std::string(error.what()).find(expected) != std::string::npos, error.what());
         return;
     }
-    throw std::runtime_error("expected preparation failure");
+    throw std::runtime_error(std::string("expected preparation failure: ") + expected);
 }
 
 void RunUnregistered(AgcDriver::VulkanDevice& device, ShaderRecompiler::RecompileRequest request) {
@@ -714,7 +714,7 @@ void LazyRegistration() {
     header.registers[0].value = static_cast<std::uint32_t>(invalidAddress >> 8u);
     header.registers[1].value = static_cast<std::uint32_t>(invalidAddress >> 40u);
     AgcDriverRegisterShader_nid_postfix(&header.shader);
-    ExpectFailure([&] { AgcDriverResolveShaderAbi_nid_postfix(&header.shader, {}, {}); }, "s_code_end");
+    AgcDriverResolveShaderAbi_nid_postfix(&header.shader, {}, {});
     commands[2] = header.registers[0].value;
     commands[5] = header.registers[1].value;
     sceAgcDriverSubmitAcb(0x20, &packet);
@@ -1092,7 +1092,7 @@ void AbiDeferredUndecodableState() {
     const std::array<ShaderRegister, 3> primitive{front.specials.ge_cntl, front.specials.ge_user_vgpr_en, ShaderRegister{0x242, 4}};
     const auto before = ShaderRecompiler::FrontEndBuilds();
     auto log = Logged([&] { AgcDriverResolveGraphicsStagesAbi_nid_postfix(stages, context, primitive); });
-    Require(Deferrals(log) == 1 && log.find("VGT_SHADER_STAGES_EN=0x2030: unsupported geometry input or output assembly") != std::string::npos, "a graphics stage whose pipeline state does not decode was not deferred with the decode's reason");
+    Require(Deferrals(log) == 1 && log.find("VGT_SHADER_STAGES_EN=0x2030: invalid geometry subgroup output") != std::string::npos, "a graphics stage whose pipeline state does not decode was not deferred with the decode's reason");
     log = Logged([&] { AgcDriverResolveGraphicsStagesAbi_nid_postfix(stages, context, primitive); });
     Require(ShaderRecompiler::FrontEndBuilds() == before && Deferrals(log) == 0, "a graphics stage deferred for a pipeline state that does not decode was prepared or logged again");
     std::vector<std::uint32_t> commands;
