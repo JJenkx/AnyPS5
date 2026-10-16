@@ -263,6 +263,7 @@ private:
         append(key, value.float16DenormPreserve);
         append(key, value.spannedWaves);
         append(key, value.float32FlushToZero);
+        append(key, value.float32DenormPreserve);
     }
 };
 
