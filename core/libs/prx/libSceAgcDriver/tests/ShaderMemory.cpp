@@ -3069,7 +3069,7 @@ void verifyPixelRequestSerialization() {
     minimal.context.pixel->layerExported = true;
     minimal.context.pixel->ditheredAlphaToCoverage = true;
     const auto encoded = serializer.Serialize(minimal);
-    require(requestPrefix(encoded, 8u) == "NVNQQSAAAAA=", "new requests did not use serialization version 32");
+    require(requestPrefix(encoded, 8u) == "NVNQQSEAAAA=", "new requests did not use serialization version 33");
     const std::array<std::uint32_t, 2> fallbacks{0x40u, 0x1ac4u};
     auto withFallbacks = minimal;
     withFallbacks.context.linkedCallFallbacks = fallbacks;
@@ -3398,11 +3398,17 @@ void verifyMergedHullConfiguration() {
     require(replay.request.graphics.has_value() && replay.request.graphics->tessellation.has_value() && replay.request.graphics->tessellation->mergedHull, "a merged hull configuration was lost in serialization");
     require(!serializer.Deserialize(separate).request.graphics->tessellation->mergedHull, "a separate hull configuration was read as merged");
     auto legacy = decodeBase64(merged);
-    require(legacy.size() > 44u && legacy[legacy.size() - 44u] == 1u, "the merged hull flag is not the last byte of the tessellation configuration");
-    legacy.erase(legacy.end() - 44);
-    legacy[4] = 30u;
-    const auto upgraded = serializer.Deserialize(encodeBase64(legacy));
-    require(upgraded.request.graphics.has_value() && upgraded.request.graphics->tessellation.has_value() && !upgraded.request.graphics->tessellation->mergedHull, "a version 30 tessellation request read a merged hull flag");
+    require(legacy.size() > 57u && legacy[legacy.size() - 57u] == 1u, "the merged hull flag is not the last byte of the tessellation configuration");
+    legacy.erase(legacy.end() - 57);
+    legacy[4] = 32u;
+    const auto legacyPoints = serializer.Deserialize(encodeBase64(legacy));
+    require(legacyPoints.request.graphics.has_value() && legacyPoints.request.graphics->tessellation.has_value() && !legacyPoints.request.graphics->tessellation->mergedHull && legacyPoints.request.context.vertex.has_value() && !legacyPoints.request.context.vertex->pointList && legacyPoints.request.context.vertex->pointSize == 1.0f, "a version 32 point request acquired a merged hull or lost its point tail");
+    legacy.erase(legacy.end() - 13, legacy.end());
+    for (const auto version : {30u, 31u}) {
+        legacy[4] = static_cast<std::uint8_t>(version);
+        const auto upgraded = serializer.Deserialize(encodeBase64(legacy));
+        require(upgraded.request.graphics.has_value() && upgraded.request.graphics->tessellation.has_value() && !upgraded.request.graphics->tessellation->mergedHull, "a legacy tessellation request read a merged hull flag");
+    }
     require(mergedKey != separateKey && RecompileCacheKey::ContextHash(request) != RecompileCacheKey::ContextHash(serializer.Deserialize(separate).request), "the cache keys ignore whether the hull program is merged");
 }
 

@@ -8,6 +8,8 @@
 
 ### Unknown function info
 
+- [Combined tessellation/point validation](../../../core/libs/prx/libSceAgcDriver/Graphics/src/PipelineJournal.cpp) - the local integration combines the tessellation capture and sized-point codecs as journal format 5 and request version 33. Version 33 adds the merged-hull flag after the tessellation configuration; versions 31 and 32 retain the main and point-only layouts without that flag. This is integration compatibility, not a console serialization format.
+
 - [Initial point context](../../../core/libs/prx/libSceAgcDriver/Execution/include/QueueState.hpp) - new queues and CLEAR_STATE seed PA_SU_POINT_SIZE 0x00080008 and PA_SU_POINT_MINMAX 0xffff0000, matching every public context table in libSceAgc/Command/include/RegisterDefaultsData.hpp. Cocoon (PPSA08766) reaches geometry point output without writing these registers in the observed startup. Applying the SDK context defaults to initial/CLEAR_STATE driver context is inferred; GPU power-on reset state is not measured and is not the source of these values. Explicit writes and pushed/restored contexts retain their own values.
 
 - [Optional BMP frame dumps](../../../core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp) use checked host stdio. An open, header, pixel or close failure prints one diagnostic and disables subsequent BMP dumps for the process; queued frames drain without more file I/O. Pixel validation and allocation failures retain the existing fatal path. The CPU fixture checks identical BMP bytes and real pipe failures. VideoOut flips on an RTX 3060 continue after a first dump that cannot be opened; header, pixel and close failures during presentation are unmeasured.
