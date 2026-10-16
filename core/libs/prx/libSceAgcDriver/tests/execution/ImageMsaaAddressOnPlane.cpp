@@ -90,7 +90,11 @@ void Run(AgcDriver::VulkanDevice& device) {
                 else {
                     const auto index = ((lane / 4u) % 4u) * 3u + lane % 4u;
                     const auto expected = std::bit_cast<float>((format == 56u ? UnormExpected : SrgbExpected)[index]);
-                    Require(std::abs(std::bit_cast<float>(msaa[lane]) - expected) < 0.0001f, "MSAA-address normalized load differs from the Radeon oracle");
+                    const auto actual = std::bit_cast<float>(msaa[lane]);
+                    if (format == 130u) {
+                        const auto encoded = [](float linear) { return std::lround((linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f) * 255.0f); };
+                        Require(std::isfinite(actual) && encoded(actual) == encoded(expected), "MSAA-address sRGB load changed the oracle's encoded texel");
+                    } else Require(std::abs(actual - expected) < 0.0001f, "MSAA-address normalized load differs from the Radeon oracle");
                 }
             }
         }
