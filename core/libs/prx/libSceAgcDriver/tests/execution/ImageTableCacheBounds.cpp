@@ -6,6 +6,7 @@
 #include "Optimization/ResourceMaterializer.hpp"
 #include "Optimization/SrtWalker.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/GuestBufferMemory.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "prx/libc/include/GuestArena.hpp"
@@ -353,6 +354,7 @@ int main(int argc, char** argv) {
         GuestBlock block;
         Prepare(block);
         if (argc == 2 && std::string(argv[1]) == "--vouched-lookups") {
+            AgcDriver::Graphics::SetHostImportBudget(1);
             VouchedLookups(block);
             AgcDriverShutdown_nid_postfix();
             return 0;
