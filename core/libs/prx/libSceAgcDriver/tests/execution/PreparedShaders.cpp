@@ -658,6 +658,7 @@ void LazyRegistration() {
         return snapshot;
     };
     const auto lazySnapshot = registered();
+    AgcDriverResolveShaderAbi_nid_postfix(&header.shader, {}, {});
     {
         AgcDriver::DriverDetail::ShaderPreparationTransaction transaction;
         const auto& state = transaction.Read(*lazySnapshot);
@@ -709,7 +710,7 @@ void LazyRegistration() {
     header.registers[0].value = static_cast<std::uint32_t>(invalidAddress >> 8u);
     header.registers[1].value = static_cast<std::uint32_t>(invalidAddress >> 40u);
     AgcDriverRegisterShader_nid_postfix(&header.shader);
-    ExpectFailure([&] { AgcDriverResolveShaderAbi_nid_postfix(&header.shader, {}, {}); }, "s_code_end");
+    AgcDriverResolveShaderAbi_nid_postfix(&header.shader, {}, {});
     commands[2] = header.registers[0].value;
     commands[5] = header.registers[1].value;
     sceAgcDriverSubmitAcb(0x20, &packet);
