@@ -495,7 +495,9 @@ bool rasterizesSampleZeroOnly(const Registers& cx, const State& state) {
     if (state.samples <= 1 || state.alphaToCoverage || (read(cx, 0x292) & 1u) == 0) return false;
     const auto inputs = read(cx, 0x1b3) & read(cx, 0x1b4);
     const auto refused = state.perSampleShading ? ShaderRecompiler::PixelInputBit(ShaderRecompiler::PixelInput::SampleCoverage) : SampleZeroRefusedInputs;
-    const bool sampleIndexMovesPosition = (inputs & ShaderRecompiler::PixelInputBit(ShaderRecompiler::PixelInput::Ancillary)) != 0 && (inputs & PixelCenterPositionInputs) != 0;
+    const auto baryc = find(cx, 0x1b8);
+    const bool unsupportedPosition = baryc == cx.end() || ((((baryc->second >> 16u) & 3u) == 1u) && (baryc->second & (1u << 20u)) == 0u);
+    const bool sampleIndexMovesPosition = unsupportedPosition && (inputs & ShaderRecompiler::PixelInputBit(ShaderRecompiler::PixelInput::Ancillary)) != 0 && (inputs & PixelCenterPositionInputs) != 0;
     return (inputs & refused) == 0 && !sampleIndexMovesPosition;
 }
 
