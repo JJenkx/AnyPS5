@@ -392,9 +392,12 @@ Texture::Texture(const Context& context, TextureDetiler& detiler, const GuestTex
             context.Function<PFN_vkCmdCopyBufferToImage>("vkCmdCopyBufferToImage")(commands, linear->Handle(), image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<std::uint32_t>(regions.size()), regions.data());
             std::unique_ptr<Buffer> dump;
             if (dumpWanted) {
-                dump = std::make_unique<Buffer>(context, static_cast<std::size_t>(mips[0].linearSize), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+                const auto slices = descriptor.dimension == TextureDimension::k3D ? geometry.imageDepth : 1u;
+                dump = std::make_unique<Buffer>(context, static_cast<std::size_t>(mips[0].linearSize * slices), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
                 RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-                CopyBuffer(context, commands, linear->Handle(), mips[0].linearOffset, dump->Handle(), 0, mips[0].linearSize);
+                for (std::uint32_t slice = 0; slice < slices; ++slice) {
+                    CopyBuffer(context, commands, linear->Handle(), geometry.LinearLayerOffset(slice) + mips[0].linearOffset, dump->Handle(), slice * mips[0].linearSize, mips[0].linearSize);
+                }
                 RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT);
             }
 
