@@ -1708,6 +1708,28 @@ void captureInputs(const Context& context, Recorder& recorder, VkCommandBuffer c
     });
 }
 
+std::uint32_t beginDrawProgramTiming(Recorder* recorder, std::span<const CompiledShader> shaders) {
+    static const bool enabled = std::getenv("APS5_PROFILE_DRAW_PROGRAMS") != nullptr;
+    if (!enabled || recorder == nullptr || !Recorder::GpuTimingEnabled() || shaders.empty()) return Recorder::NoTiming;
+    auto selected = std::find_if(shaders.begin(), shaders.end(), [](const auto& shader) { return shader.stage == ShaderRecompiler::ShaderStage::Fragment; });
+    if (selected == shaders.end()) selected = shaders.begin();
+    const auto& program = *selected->program;
+    const auto key = program.PipelineVariantId();
+    static std::set<std::uint64_t> dumped;
+    if (!dumped.contains(key)) {
+        char name[96];
+        std::snprintf(name, sizeof(name), "gpu-draw-program-%016llx.spv", static_cast<unsigned long long>(key));
+        auto* file = std::fopen(name, "wb");
+        if (file == nullptr) throw std::runtime_error("cannot open diagnostic draw program output");
+        const bool written = std::fwrite(program.spirv.data(), sizeof(std::uint32_t), program.spirv.size(), file) == program.spirv.size();
+        const bool closed = std::fclose(file) == 0;
+        if (!written || !closed) throw std::runtime_error("cannot write diagnostic draw program output");
+        dumped.insert(key);
+        std::fprintf(stderr, "[gpu-draw-program] key=0x%llx stage=%u words=%zu subgroup=%u\n", static_cast<unsigned long long>(key), static_cast<unsigned>(selected->stage), program.spirv.size(), program.hostSubgroupSize);
+    }
+    return recorder->BeginGpuTiming(key);
+}
+
 void recordDraw(const Context& context, const State& state, const Pm4::DrawParameters& draw, std::span<const CompiledShader> shaders, DrawInputs& inputs, RecordedDraw& record, DrawOutcome& outcome, DrawTimer& timer, double& ownWaitedMs) {
     auto* recorder = record.recorder;
     auto& resources = *record.resources;
@@ -1816,6 +1838,7 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
     APS5_LOG_CHARS_OUT_DEBUG("Resources bound");
     pushDrawConstants(*record.pipeline, commands, state, draw, shaders, resources, record.pushBytes, record.pushStages, meshArguments != nullptr ? meshArguments->DeviceAddress() : 0, !inputs.restartTable.empty());
     APS5_LOG_CHARS_OUT_DEBUG("Push constants recorded");
+    const auto programTiming = beginDrawProgramTiming(recorder, shaders);
     if (record.stencilReplay.empty()) recordDrawCommands(context, commands, state, draw, inputs, record.indirect, argumentBuffer, argumentOffset);
     else {
         recordStencilReplay(context, commands, state, draw, inputs, record.stencilReplay, shaders, resources, record.pushBytes, record.pushStages);
@@ -1829,6 +1852,7 @@ void recordDraw(const Context& context, const State& state, const Pm4::DrawParam
         record.pipeline->ContinueSecondChannel(commands);
         recordDrawCommands(context, commands, state, draw, inputs, record.indirect, argumentBuffer, argumentOffset);
     }
+    recorder->EndGpuTiming(programTiming);
     if (meshArguments != nullptr) recorder->Keep(meshArguments);
     if (args != nullptr) CountIndirectDraw(record.indirect->path, record.indirect->readMs, rewritten);
     auto checkRecords = indirectRecordCheck(record.indirect);
@@ -2389,6 +2413,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     APS5_LOG_CHARS_OUT_DEBUG("Resources bound");
     pushDrawConstants(*pipeline, commands, state, draw, shaders, *resources, nullptr, 0, meshArguments != nullptr ? meshArguments->DeviceAddress() : 0, !inputs.restartTable.empty());
     APS5_LOG_CHARS_OUT_DEBUG("Push constants recorded");
+    const auto programTiming = beginDrawProgramTiming(recorded ? recorder : nullptr, shaders);
     if (stencilReplay.empty()) recordDrawCommands(context, commands, state, draw, inputs, args != nullptr ? &indirect : nullptr, argumentBuffer, argumentOffset);
     else {
         recordStencilReplay(context, commands, state, draw, inputs, stencilReplay, shaders, *resources);
@@ -2402,6 +2427,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         pipeline->ContinueSecondChannel(commands);
         recordDrawCommands(context, commands, state, draw, inputs, args != nullptr ? &indirect : nullptr, argumentBuffer, argumentOffset);
     }
+    if (recorded) recorder->EndGpuTiming(programTiming);
     if (meshArguments != nullptr && recorded) recorder->Keep(meshArguments);
     if (args != nullptr) CountIndirectDraw(indirect.path, indirect.readMs, rewritten);
     auto checkRecords = indirectRecordCheck(args != nullptr ? &indirect : nullptr);
