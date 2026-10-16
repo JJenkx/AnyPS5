@@ -331,6 +331,10 @@ void DefineModule(SpirvEmitterState& state) {
         state.module.EmitCapability(spv::CapabilityDenormFlushToZero);
         state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeDenormFlushToZero, 32u);
     }
+    if (state.float32DenormPreserve) {
+        state.module.EmitCapability(spv::CapabilityDenormPreserve);
+        state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeDenormPreserve, 32u);
+    }
     if (state.requirements.float64) {
         if (std::find(state.supportedCapabilities.begin(), state.supportedCapabilities.end(), static_cast<std::uint32_t>(spv::CapabilityFloat64)) == state.supportedCapabilities.end()) {
             throw std::runtime_error("64-bit float instructions need the Float64 capability, which the device lacks");
