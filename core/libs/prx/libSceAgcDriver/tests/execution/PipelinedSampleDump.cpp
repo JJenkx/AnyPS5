@@ -209,6 +209,7 @@ int main() {
             const GuestBlock guest;
             DumpsCountTheDrawsBeforeThem(guest);
         }
+        AgcDriver::DriverDetail::reportSync();
         AgcDriverShutdown_nid_postfix();
         std::puts("pipelined sample dump tests passed");
         return 0;
