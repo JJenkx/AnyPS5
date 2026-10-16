@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <spirv/unified1/spirv.hpp>
 
 namespace {
 
@@ -389,6 +390,31 @@ bool IsNan(std::uint32_t value) {
     return (value & 0x7fffffffu) > 0x7f800000u;
 }
 
+void CheckPreservationMode(AgcDriver::VulkanDevice& device, std::optional<ShaderRecompiler::ShaderFloatMode> floatMode, bool preserve) {
+    std::vector<std::uint32_t> userData(8, 0u);
+    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(Code.data()), std::as_bytes(std::span(Code))}}};
+    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
+    ShaderRecompiler::RecompileRequest request{
+        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(Code.data()), Code, 0, {}},
+        {32, 0, userData, compute, std::nullopt, std::nullopt, memory},
+        device.Target(),
+        {0, 0, 0, 128}
+    };
+    request.useCache = false;
+    request.context.floatMode = floatMode;
+    request.target.float32DenormPreserve = preserve && request.target.float32DenormPreserve;
+    const auto result = ShaderRecompiler::Recompile(request);
+    const auto words = result.spirv.Words();
+    bool declaresPreserve = false;
+    for (std::size_t cursor = 5; cursor < words.size();) {
+        const auto count = words[cursor] >> 16u;
+        if ((words[cursor] & 0xffffu) == spv::OpExecutionMode && count == 4u && words[cursor + 2u] == spv::ExecutionModeDenormPreserve && words[cursor + 3u] == 32u) declaresPreserve = true;
+        cursor += count;
+    }
+    const bool expected = request.target.float32DenormPreserve && floatMode.has_value() && ((floatMode->floatMode >> 4u) & 3u) == 3u;
+    Require(declaresPreserve == expected, "f32 denormal preservation: module mode does not match the guest mode and width-specific device support");
+}
+
 void Run(AgcDriver::VulkanDevice& device, const std::optional<ShaderRecompiler::ShaderFloatMode>& floatMode, std::span<const std::uint32_t> code = Code, const std::uint32_t (*rows)[Inputs] = Rows) {
     for (std::uint32_t tid = 0; tid < Threads; ++tid) std::copy(std::begin(rows[tid]), std::end(rows[tid]), &Input[tid * Inputs]);
     Output.fill(0xdeadbeefu);
@@ -477,6 +503,20 @@ int main() {
     try {
         const auto device = OpenVulkanTestDevice();
         if (!device) return VulkanTestSkipped;
+        for (const bool preserve : {false, true}) {
+            CheckPreservationMode(*device, std::nullopt, preserve);
+            CheckPreservationMode(*device, ShaderRecompiler::ShaderFloatMode{0xc0u, true, false, false}, preserve);
+            CheckPreservationMode(*device, ShaderRecompiler::ShaderFloatMode{0xf0u, true, false, false}, preserve);
+        }
+        if (device->Target().float32DenormPreserve) {
+            Run(*device, ShaderRecompiler::ShaderFloatMode{0xf0u, true, false, false});
+            Expect(3u, Output[3u * Results], 0x00fffffeu, "denormals preserved v_add_f32 normal result");
+            Expect(31u, Output[31u * Results], 0x00000002u, "denormals preserved v_add_f32 subnormal result");
+            Expect(30u, Output[30u * Results], 0x80000002u, "denormals preserved v_add_f32 negative subnormal result");
+            Expect(26u, Output[26u * Results + 2u], 0x00400000u, "denormals preserved v_mul_f32 subnormal result");
+        } else {
+            std::puts("f32 denormal preservation: numerical checks skipped, device lacks independent f32 preservation");
+        }
         Run(*device, std::nullopt);
         Check("no float mode");
         Run(*device, ShaderRecompiler::ShaderFloatMode{0xc0u, true, false, false});

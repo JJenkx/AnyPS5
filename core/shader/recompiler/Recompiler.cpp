@@ -530,6 +530,7 @@ CompiledVariant emitVariant(const RecompileRequest& request, IrProgram& program)
     targetOptions.registrationModules = registration;
     targetOptions.fragmentDescriptorSet = request.target.registrationModules;
     targetOptions.float16DenormPreserve = request.target.float16DenormPreserve;
+    targetOptions.float32DenormPreserve = request.target.float32DenormPreserve && request.context.floatMode.has_value() && ((request.context.floatMode->floatMode >> 4u) & 3u) == 3u;
     targetOptions.spannedWaves = request.target.spannedWaves;
 
     constexpr SpirvEmitter spirvEmitter;

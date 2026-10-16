@@ -25,6 +25,7 @@ struct SpirvTargetOptions {
     bool registrationModules = false;
     bool fragmentDescriptorSet = false;
     bool float16DenormPreserve = false;
+    bool float32DenormPreserve = false;
     bool spannedWaves = false;
 };
 
