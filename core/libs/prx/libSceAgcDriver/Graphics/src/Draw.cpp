@@ -1714,7 +1714,7 @@ std::uint32_t beginDrawProgramTiming(Recorder* recorder, std::span<const Compile
     auto selected = std::find_if(shaders.begin(), shaders.end(), [](const auto& shader) { return shader.stage == ShaderRecompiler::ShaderStage::Fragment; });
     if (selected == shaders.end()) selected = shaders.begin();
     const auto& program = *selected->program;
-    const auto key = program.PipelineVariantId();
+    const auto key = 0x8000000000000000ull | program.PipelineVariantId();
     static std::set<std::uint64_t> dumped;
     if (!dumped.contains(key)) {
         char name[96];
@@ -1727,7 +1727,7 @@ std::uint32_t beginDrawProgramTiming(Recorder* recorder, std::span<const Compile
         dumped.insert(key);
         std::fprintf(stderr, "[gpu-draw-program] key=0x%llx stage=%u words=%zu subgroup=%u\n", static_cast<unsigned long long>(key), static_cast<unsigned>(selected->stage), program.spirv.size(), program.hostSubgroupSize);
     }
-    return recorder->BeginGpuTiming(key);
+    return recorder->BeginInPassGpuTiming(key);
 }
 
 void recordDraw(const Context& context, const State& state, const Pm4::DrawParameters& draw, std::span<const CompiledShader> shaders, DrawInputs& inputs, RecordedDraw& record, DrawOutcome& outcome, DrawTimer& timer, double& ownWaitedMs) {

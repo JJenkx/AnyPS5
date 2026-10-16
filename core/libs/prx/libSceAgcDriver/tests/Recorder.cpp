@@ -319,6 +319,14 @@ public:
     bool NullDescriptors() const { return nullDescriptors; }
     const Context& GetContext() const { return context; }
     bool Graphics() const { return graphics; }
+    bool Timestamps() const {
+        std::uint32_t count = 0;
+        const auto queues = function<PFN_vkGetPhysicalDeviceQueueFamilyProperties>("vkGetPhysicalDeviceQueueFamilyProperties");
+        queues(context.physical, &count, nullptr);
+        std::vector<VkQueueFamilyProperties> families(count);
+        queues(context.physical, &count, families.data());
+        return families.at(context.queueFamily).timestampValidBits != 0;
+    }
     VkPhysicalDeviceProperties Properties() const {
         VkPhysicalDeviceProperties properties{};
         function<PFN_vkGetPhysicalDeviceProperties>("vkGetPhysicalDeviceProperties")(context.physical, &properties);
@@ -5458,6 +5466,37 @@ private:
     VkPipeline pipeline = VK_NULL_HANDLE;
 };
 
+int inPassGpuTimingTests(const Device& device) {
+    if (!device.Graphics() || !device.Timestamps()) {
+        std::cout << "skipped, graphics timestamp queries unavailable\n";
+        return 77;
+    }
+    Require(Recorder::GpuTimingEnabled(), "in-pass timing requires GPU profiling");
+    const auto& context = device.GetContext();
+    std::unique_lock gpu(GpuMutex());
+    Recorder recorder(context);
+    recorder.Activate();
+    CoverPass cover(context);
+    Require(recorder.BeginInPassGpuTiming(0x8000000000012340ull) == Recorder::NoTiming, "in-pass timing created an unrequested batch");
+    Require(!cover.Draw(recorder), "first timed draw continued a render pass");
+    const auto first = recorder.BeginInPassGpuTiming(0x8000000000012340ull);
+    Require(first != Recorder::NoTiming, "in-pass timestamp range was not allocated");
+    Require(cover.Draw(recorder), "timing ended the render pass before the next draw");
+    recorder.EndGpuTiming(first);
+    const auto second = recorder.BeginInPassGpuTiming(0x8000000000012341ull);
+    Require(second != Recorder::NoTiming && second != first, "second in-pass timestamp range was not allocated");
+    Require(cover.Draw(recorder), "second timing range ended the render pass");
+    recorder.EndGpuTiming(second);
+    recorder.Sync();
+    Require(recorder.Idle(), "timed render pass did not complete");
+    Require(recorder.BeginInPassGpuTiming(0x8000000000012340ull) == Recorder::NoTiming, "in-pass timing reopened a completed batch");
+    std::size_t missing = 0;
+    const auto completed = recorder.CompletedBatches(0, recorder.Submissions(), missing);
+    Require(missing == 0 && completed.size() == 1 && completed.front().gpuStartNs > 0 && completed.front().gpuEndNs >= completed.front().gpuStartNs, "timed render pass lost its GPU timestamps");
+    std::cout << "In-pass GPU timing preserved three draws and completed timestamps\n";
+    return 0;
+}
+
 void inPassSampleDumpTests(Recorder& recorder, const Context& context, const CoverPass& cover, std::uint64_t* words, std::uint64_t address, VkDeviceAddress target) {
     const auto samples = [&](std::uint64_t word) { return word & ~SampleReady; };
     recorder.Sync();
@@ -8016,6 +8055,7 @@ int main(int argc, char** argv) {
             return 77;
         }
         Device& device = *created;
+        if (argc == 2 && std::string_view(argv[1]) == "--gpu-timing-inpass-only") return inPassGpuTimingTests(device);
         if (argc == 2 && std::string_view(argv[1]) == "--import-watch-only") {
             importWatchTests(device);
             return 0;
