@@ -84,6 +84,10 @@ ShaderStageKind toShaderStageKind(ShaderStage stage) {
 
 namespace {
 
+bool HardwareFloat32Flush(const RecompileRequest& request) {
+    return request.target.float32FlushToZero && (!request.context.floatMode.has_value() || ((request.context.floatMode->floatMode >> 4u) & 3u) == 0u);
+}
+
 // The host subgroup width wave64 programs are laid out for. Debug aid: APS5_SINGLE_LANE=<hex code
 // addresses, comma separated, or "all"> keeps the listed programs at one guest lane per invocation.
 std::uint32_t HostSubgroupSize(const RecompileRequest& request) {
@@ -210,7 +214,7 @@ IrProgram PrepareResourceProgram(const RecompileRequest& request, ShaderPreparat
     const auto supports = [&](spv::Capability capability) { return std::ranges::find(request.target.supportedCapabilities, static_cast<std::uint32_t>(capability)) != request.target.supportedCapabilities.end(); };
     translateOptions.nativeFloat16 = supports(spv::CapabilityFloat16) && supports(spv::CapabilityRoundingModeRTE) && supports(spv::CapabilityDenormPreserve);
     translateOptions.floatMode = request.context.floatMode;
-    translateOptions.float32FlushToZero = request.target.float32FlushToZero;
+    translateOptions.float32FlushToZero = HardwareFloat32Flush(request);
     translateOptions.inputInfo = inputInfo;
 
     constexpr InstructionTranslator translator;
@@ -532,7 +536,7 @@ CompiledVariant emitVariant(const RecompileRequest& request, IrProgram& program)
     targetOptions.fragmentDescriptorSet = request.target.registrationModules;
     targetOptions.float16DenormPreserve = request.target.float16DenormPreserve;
     targetOptions.spannedWaves = request.target.spannedWaves;
-    targetOptions.float32FlushToZero = request.target.float32FlushToZero;
+    targetOptions.float32FlushToZero = HardwareFloat32Flush(request);
 
     constexpr SpirvEmitter spirvEmitter;
     CompiledShaderArtifact result;
