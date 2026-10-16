@@ -5481,12 +5481,14 @@ int inPassGpuTimingTests(const Device& device) {
     Require(!cover.Draw(recorder), "first timed draw continued a render pass");
     const auto first = recorder.BeginInPassGpuTiming(0x8000000000012340ull);
     Require(first != Recorder::NoTiming, "in-pass timestamp range was not allocated");
-    Require(cover.Draw(recorder), "timing ended the render pass before the next draw");
+    const bool firstContinued = cover.Draw(recorder);
     recorder.EndGpuTiming(first);
+    Require(firstContinued, "timing ended the render pass before the next draw");
     const auto second = recorder.BeginInPassGpuTiming(0x8000000000012341ull);
     Require(second != Recorder::NoTiming && second != first, "second in-pass timestamp range was not allocated");
-    Require(cover.Draw(recorder), "second timing range ended the render pass");
+    const bool secondContinued = cover.Draw(recorder);
     recorder.EndGpuTiming(second);
+    Require(secondContinued, "second timing range ended the render pass");
     recorder.Sync();
     Require(recorder.Idle(), "timed render pass did not complete");
     Require(recorder.BeginInPassGpuTiming(0x8000000000012340ull) == Recorder::NoTiming, "in-pass timing reopened a completed batch");
