@@ -688,7 +688,7 @@ bool LayerReplaySafe(const IrProgram& program, std::string_view* failure) {
         if (failure != nullptr) *failure = reason;
         return false;
     };
-    if (program.Info().bdaWrites || program.Info().usesDma) return reject("address memory writes or DMA");
+    if (program.Info().bdaWrites) return reject("address memory writes");
     for (const auto& block : program.Blocks()) {
         for (const auto* instruction : block->Instructions()) {
             const auto opcode = instruction->Opcode();
