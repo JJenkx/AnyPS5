@@ -551,7 +551,9 @@ CompiledVariant emitVariant(const RecompileRequest& request, IrProgram& program)
         result.spirv = spirvEmitter.Emit(program, inputInfo, bindings, targetOptions);
     }
     result.registrationModule = registration;
-    result.layerReplaySafe = LayerReplaySafe(program);
+    std::string_view replayFailure;
+    result.layerReplaySafe = LayerReplaySafe(program, &replayFailure);
+    if (!result.layerReplaySafe && std::getenv("APS5_TRACE_LAYER_REPLAY") != nullptr) std::fprintf(stderr, "[layer-replay] code=0x%llx stage=%u rejected=%.*s\n", static_cast<unsigned long long>(request.shader.codeAddress), static_cast<unsigned>(request.shader.stage), static_cast<int>(replayFailure.size()), replayFailure.data());
     result.stencilReplaySafe = (request.shader.stage == ShaderStage::Vertex || stencilReplay) && StencilReplaySafe(program);
     if (stencilReplay) {
         result.stencilReferences = StencilReferenceValues(program);

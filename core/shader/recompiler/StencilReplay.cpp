@@ -683,17 +683,21 @@ bool StencilReferenceDefinedForKeptInvocations(const IrProgram& program) {
     return valid;
 }
 
-bool LayerReplaySafe(const IrProgram& program) {
-    if (program.Info().bdaWrites || program.Info().usesDma) return false;
+bool LayerReplaySafe(const IrProgram& program, std::string_view* failure) {
+    const auto reject = [&](std::string_view reason) {
+        if (failure != nullptr) *failure = reason;
+        return false;
+    };
+    if (program.Info().bdaWrites || program.Info().usesDma) return reject("address memory writes or DMA");
     for (const auto& block : program.Blocks()) {
         for (const auto* instruction : block->Instructions()) {
             const auto opcode = instruction->Opcode();
-            if (opcode == IrOpcode::ImageBvhIntersectRay || (BufferAccessOf(opcode) == BufferAccess::Write || BufferAccessOf(opcode) == BufferAccess::Atomic) || AddressOpcodeInfoOf(opcode).access == AddressAccess::Write || AddressOpcodeInfoOf(opcode).access == AddressAccess::Atomic || ImageOpcodeInfoOf(opcode).access == ImageAccess::Write || ImageOpcodeInfoOf(opcode).access == ImageAccess::Atomic) return false;
-            if (opcode == IrOpcode::UndefU1 || opcode == IrOpcode::UndefU8 || opcode == IrOpcode::UndefU16 || opcode == IrOpcode::UndefU32 || opcode == IrOpcode::UndefU64) return false;
-            if (opcode == IrOpcode::ShaderClock || opcode == IrOpcode::RealtimeClock) return false;
+            if (opcode == IrOpcode::ImageBvhIntersectRay || (BufferAccessOf(opcode) == BufferAccess::Write || BufferAccessOf(opcode) == BufferAccess::Atomic) || AddressOpcodeInfoOf(opcode).access == AddressAccess::Write || AddressOpcodeInfoOf(opcode).access == AddressAccess::Atomic || ImageOpcodeInfoOf(opcode).access == ImageAccess::Write || ImageOpcodeInfoOf(opcode).access == ImageAccess::Atomic) return reject(IrOpcodeName(opcode));
+            if (opcode == IrOpcode::UndefU1 || opcode == IrOpcode::UndefU8 || opcode == IrOpcode::UndefU16 || opcode == IrOpcode::UndefU32 || opcode == IrOpcode::UndefU64) return reject(IrOpcodeName(opcode));
+            if (opcode == IrOpcode::ShaderClock || opcode == IrOpcode::RealtimeClock) return reject(IrOpcodeName(opcode));
             if (SharedAccessOf(opcode) != SharedAccess::None) {
                 const auto memory = instruction->Flags<MemoryFlags>().index;
-                if (memory >= program.Resources().memoryInfo.size() || program.Resources().memoryInfo[memory].kind != ResourceKind::Lds) return false;
+                if (memory >= program.Resources().memoryInfo.size() || program.Resources().memoryInfo[memory].kind != ResourceKind::Lds) return reject(IrOpcodeName(opcode));
                 continue;
             }
             if (!instruction->MayHaveSideEffects()) continue;
@@ -728,10 +732,10 @@ bool LayerReplaySafe(const IrProgram& program) {
                 case IrOpcode::InstPrefetch:
                     break;
                 case IrOpcode::Sendmsg:
-                    if (instruction->ArgumentCount() != 0u) return false;
+                    if (instruction->ArgumentCount() != 0u) return reject(IrOpcodeName(opcode));
                     break;
                 default:
-                    return false;
+                    return reject(IrOpcodeName(opcode));
             }
         }
     }
