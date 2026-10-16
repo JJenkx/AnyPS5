@@ -449,7 +449,20 @@ int main() {
 
     for (const bool spanned : {false, true}) {
         request.target.spannedWaves = spanned;
-        Require(serializer.Deserialize(serializer.Serialize(request)).request.target.spannedWaves == spanned);
+        for (const bool flush : {false, true}) {
+            request.target.float32FlushToZero = flush;
+            auto bytes = DecodeBase64(serializer.Serialize(request));
+            const auto current = serializer.Deserialize(EncodeBase64(bytes));
+            Require(current.request.target.spannedWaves == spanned && current.request.target.float32FlushToZero == flush);
+            bytes.pop_back();
+            bytes[4] = 32u;
+            const auto version32 = serializer.Deserialize(EncodeBase64(bytes));
+            Require(version32.request.target.spannedWaves == spanned && !version32.request.target.float32FlushToZero);
+            bytes.pop_back();
+            bytes[4] = 31u;
+            const auto version31 = serializer.Deserialize(EncodeBase64(bytes));
+            Require(!version31.request.target.spannedWaves && !version31.request.target.float32FlushToZero);
+        }
     }
 
     return 0;
