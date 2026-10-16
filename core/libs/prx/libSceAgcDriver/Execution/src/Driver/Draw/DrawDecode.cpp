@@ -3,6 +3,8 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Diagnostics.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <spirv/unified1/spirv.hpp>
 
 namespace AgcDriver::DriverDetail {
@@ -122,7 +124,31 @@ void DecodeGraphicsPrograms(DrawDecode& decoded, const QueueState& queue, const 
 
 std::shared_ptr<DrawDecode> Driver::decodeDraw(const QueueState& queue, const Submission& submission) {
     auto product = std::make_shared<DrawDecode>();
-    product->state = Graphics::DecodeState(queue, VertexWorkgroupRequired(queue, *submission.shaders));
+    try {
+        product->state = Graphics::DecodeState(queue, VertexWorkgroupRequired(queue, *submission.shaders));
+    } catch (...) {
+        if (std::getenv("APS5_DUMP_SHADERS") != nullptr) {
+            try {
+                product->state.stages = Graphics::DecodeShaderStages(queue, VertexWorkgroupRequired(queue, *submission.shaders));
+                DecodeGraphicsPrograms(*product, queue, *submission.shaders, false, true);
+                for (const auto& program : product->programs) {
+                    if (program.binary.stage != ShaderRecompiler::ShaderStage::Fragment) continue;
+                    const auto pixel = Graphics::DecodePixelStageInfo(queue.context, {});
+                    const auto localDevice = device.Load();
+                    const ShaderRecompiler::RecompileRequest request{
+                        program.binary,
+                        {product->state.stages.fragmentWaveSize, program.firstUserSgpr, program.userData, std::nullopt, pixel, std::nullopt, program.memory, RegisteredFloatMode(*program.snapshot)},
+                        localDevice->Target(), {0, 0, 0, Graphics::PipelinePushSlotBytes}, std::nullopt
+                    };
+                    const auto name = dumpRequest(program.binary.codeAddress, request);
+                    std::fprintf(stderr, "[gpu] rejected-state pixel request: %s (%zu words); descriptor memory and full output state are not captured\n", name.c_str(), program.binary.code.size());
+                }
+            } catch (const std::exception& error) {
+                std::fprintf(stderr, "[gpu] rejected-state request capture failed: %s\n", error.what());
+            }
+        }
+        throw;
+    }
     DecodeGraphicsPrograms(*product, queue, *submission.shaders, false, true);
     product->pixel = Graphics::DecodePixelStageInfo(queue.context, Graphics::ExportMappings(product->state), Graphics::PixelProgramSkipped(queue));
     product->pixel.targetExportPacking = Graphics::ExportPackings(product->state);
