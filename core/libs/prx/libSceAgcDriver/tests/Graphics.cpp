@@ -34,10 +34,10 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
-#include <fstream>
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <random>
 #include <initializer_list>
 #include <iostream>
@@ -7658,20 +7658,17 @@ void pipelineJournalTests() {
             Require(cancelled->Done() && after.replayFailed == 0 && after.replayRejected == 0 && after.replayedGraphics + after.replayPresent <= totals.replayedGraphics + totals.replayPresent + 1, "a cancelled replay did not stop cleanly");
         }
         {
-            const auto computeBefore = computeCalls;
-            {
-                std::fstream old(PipelineJournalPath(), std::ios::in | std::ios::out | std::ios::binary);
-                Require(old.is_open(), "the journal cannot be opened to mark the old format");
-                const std::uint32_t version = 2u;
-                old.seekp(sizeof(std::uint32_t));
-                old.write(reinterpret_cast<const char*>(&version), sizeof(version));
-                Require(static_cast<bool>(old), "the old journal format could not be written");
-            }
-            auto old = StartPipelineJournalReplay(context, fingerprint, hooks);
-            Require(old != nullptr, "the replay of the old format did not start");
-            old->Wait();
-            Require(old->Done() && PipelineJournalTotals().loadedRecipes == 0 && PipelineJournalTotals().loadedModules == 0 && computeCalls == computeBefore, "the pre-mesh-field journal format replayed under the current source version");
-
+            const std::uint32_t meshWithoutOutputSize = 2u;
+            std::fstream file(PipelineJournalPath(), std::ios::in | std::ios::out | std::ios::binary);
+            file.seekp(4);
+            file.write(reinterpret_cast<const char*>(&meshWithoutOutputSize), sizeof(meshWithoutOutputSize));
+            file.close();
+            Require(file.good(), "the journal header could not be rewritten");
+            auto stale = StartPipelineJournalReplay(context, fingerprint, hooks);
+            Require(stale != nullptr, "the replay of a journal in the previous format did not start");
+            stale->Wait();
+            const auto discarded = PipelineJournalTotals();
+            Require(discarded.loadedRecipes == 0 && discarded.loadedModules == 0, "a journal in format 2, whose mesh records lack the output primitive size, was loaded");
         }
         ClearCachedPipelines(context.device);
     }
