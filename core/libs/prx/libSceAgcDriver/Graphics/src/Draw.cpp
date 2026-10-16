@@ -2437,6 +2437,17 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         if (binding.resident != nullptr) {
             imageBarrier(context, commands, binding.resident->Image(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT);
             countBarrier();
+            if (dumpLimit > 0 && binding.color.mip == 0 && binding.color.arraySlice == 0 && binding.color.layers == 1 && binding.resident->ImageDepth() == 1 && binding.resident->ImageLayers() == 1) {
+                std::lock_guard lock(dumpMutex);
+                if (dumped[binding.color.address] < dumpLimit) {
+                    const auto bytes = static_cast<VkDeviceSize>(binding.color.extent.width) * binding.color.extent.height * binding.color.elementBytes;
+                    binding.dump = std::make_unique<Buffer>(context, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+                    VkBufferImageCopy copy{};
+                    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                    copy.imageExtent = {binding.color.extent.width, binding.color.extent.height, 1};
+                    context.Resolved(&DeviceFunctions::cmdCopyImageToBuffer, "vkCmdCopyImageToBuffer")(commands, binding.resident->Image(), VK_IMAGE_LAYOUT_GENERAL, binding.dump->Handle(), 1, &copy);
+                }
+            }
             continue;
         }
         VkBufferImageCopy copy{};
