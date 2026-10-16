@@ -4776,8 +4776,13 @@ void ShaderResources::CheckFaults() const {
 
 std::shared_ptr<const void> ShaderResources::BeginUse() {
     if (!addressReuse) return {};
-    usesInFlight.fetch_add(1, std::memory_order_acq_rel);
-    return guestMemory.SpaceHold();
+    struct Use {
+        Use(std::shared_ptr<std::atomic<std::uint32_t>> counter, std::shared_ptr<const void> hold) : uses(std::move(counter)), space(std::move(hold)) { uses->fetch_add(1, std::memory_order_acq_rel); }
+        ~Use() { uses->fetch_sub(1, std::memory_order_acq_rel); }
+        std::shared_ptr<std::atomic<std::uint32_t>> uses;
+        std::shared_ptr<const void> space;
+    };
+    return std::make_shared<const Use>(usesInFlight, guestMemory.SpaceHold());
 }
 
 void ShaderResources::CompleteUse() {
@@ -4785,10 +4790,6 @@ void ShaderResources::CompleteUse() {
         CheckFaults();
         return;
     }
-    struct Completed {
-        std::atomic<std::uint32_t>& uses;
-        ~Completed() { uses.fetch_sub(1, std::memory_order_acq_rel); }
-    } completed{usesInFlight};
     try {
         CheckFaults();
     } catch (...) {
