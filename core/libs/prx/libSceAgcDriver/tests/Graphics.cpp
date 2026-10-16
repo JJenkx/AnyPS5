@@ -2705,7 +2705,7 @@ void multisampleTests() {
     Require(state.samples == 1 && state.depth && state.depth->samples == 1 && !state.perSampleShading, "PS_ITER_SAMPLE into one-sample depth and color targets did not rasterize sample 0 alone");
     auto singleScan = queue;
     singleScan.context[0x292] = 2;
-    expectFailure([&] { DecodeState(singleScan); }, "without MSAA_ENABLE");
+    expectFailure([&] { DecodeState(singleScan); }, "a color target's sample count differs from the rasterizer's");
     queue = multisampled();
     queue.context[0x2f8] = 0;
     queue.context[0x292] = 2;
