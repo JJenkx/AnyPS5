@@ -410,6 +410,10 @@ int main() {
             std::puts("tessellation geometry: skipped, the device has no tessellation, mesh or geometry shaders");
             return VulkanTestSkipped;
         }
+        if ((device->SubgroupStages() & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) == 0) {
+            std::puts("tessellation geometry: skipped, the device has no subgroup operations in tessellation-evaluation shaders, which the captured domain half uses");
+            return VulkanTestSkipped;
+        }
         for (const auto wave : {64u, 32u}) {
             for (const auto cull : {VK_CULL_MODE_NONE, VK_CULL_MODE_BACK_BIT}) {
                 ClearPixels();

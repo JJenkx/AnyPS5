@@ -890,7 +890,8 @@ int main() {
         ExpectRefusal(target, ShaderStage::TessellationControl, HullDescendingRecords, "outside its control points and patch constants", {{3u, 3u, 1u, 2u, 2u, 129u}, Indices});
 
         RequirePatches(*device, target, HullCode, "hull program");
-        RequirePatches(*device, target, MergedHullCode, "merged local and hull program", MergedTriangles, MergedHullCode);
+        if ((device->SubgroupStages() & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != 0) RequirePatches(*device, target, MergedHullCode, "merged local and hull program", MergedTriangles, MergedHullCode);
+        else std::puts("tessellation: skipped, the merged local and hull program needs subgroup operations in tessellation-control shaders, which the device has not");
         RequirePatches(*device, target, HullRestoredExecSaved, "hull program saving its restored exec");
         RequirePatches(*device, target, HullNextInput, "hull program reading the next of 4 input control points of 24 bytes", NextInputTriangles, LocalCodeStride24);
         RequirePatches(*device, target, HullDynamicIndex, "hull program reading a control point at a computed index");

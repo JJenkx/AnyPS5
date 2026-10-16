@@ -96,7 +96,8 @@ void DecodeGraphicsPrograms(DrawDecode& decoded, const QueueState& queue, const 
         const auto& graphics = product->state;
         if (graphics.stages.path == Graphics::ShaderPath::Tessellation || graphics.stages.path == Graphics::ShaderPath::TessellationGeometry) {
             const auto localAddress = programAddress(0x148);
-            if (localAddress != 0 && RegisteredProgram(registry, localAddress, {3}) != nullptr) {
+            const auto local = localAddress != 0 ? RegisteredProgram(registry, localAddress, {3, 5}) : nullptr;
+            if (local != nullptr && local->type == 3) {
                 append(0x148, 3, Stage::Local, 0x10b, 0x10c, Role::Local);
                 InitializeMerged(queue, programs.back(), 0x102, true, staticAbi);
                 append(0x148, 3, Stage::TessellationControl, 0x10b, 0x10c, Role::Hull);
