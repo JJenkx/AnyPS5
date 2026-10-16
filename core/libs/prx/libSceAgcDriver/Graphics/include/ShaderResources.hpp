@@ -227,6 +227,7 @@ public:
     bool Reusable() const { return reusable; }
     const std::vector<std::uint64_t>& MultisampleSources() const { return multisampleSources; }
     static bool NeverReusable(std::span<const CompiledShader> shaders);
+    static std::uint64_t GuestBufferBytes(const Context& context, std::span<const std::uint32_t> words);
     const std::vector<std::shared_ptr<Texture>>& SampledTextures() const { return textures; }
     bool ChecksFaults() const { return bda != nullptr; }
     void CheckFaults() const;
