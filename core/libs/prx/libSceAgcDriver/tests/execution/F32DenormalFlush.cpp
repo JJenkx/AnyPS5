@@ -392,7 +392,7 @@ bool IsNan(std::uint32_t value) {
 
 bool HardwareFlush = false;
 
-std::size_t CompiledWords(AgcDriver::VulkanDevice& device, bool hardwareFlush, bool& declaresFlush) {
+std::size_t CompiledWords(AgcDriver::VulkanDevice& device, bool hardwareFlush, bool& declaresFlush, std::optional<ShaderRecompiler::ShaderFloatMode> floatMode = std::nullopt, bool* declaresPreserve = nullptr, bool preservationAvailable = true) {
     std::vector<std::uint32_t> userData(8, 0u);
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(Code.data()), std::as_bytes(std::span(Code))}}};
     const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
@@ -404,12 +404,16 @@ std::size_t CompiledWords(AgcDriver::VulkanDevice& device, bool hardwareFlush, b
     };
     request.useCache = false;
     request.target.float32FlushToZero = hardwareFlush;
+    request.context.floatMode = floatMode;
+    request.target.float32DenormPreserve = request.target.float32DenormPreserve && preservationAvailable;
     const auto result = ShaderRecompiler::Recompile(request);
     const auto words = result.spirv.Words();
     declaresFlush = false;
+    if (declaresPreserve != nullptr) *declaresPreserve = false;
     for (std::size_t cursor = 5; cursor < words.size();) {
         const auto count = words[cursor] >> 16u;
         if ((words[cursor] & 0xffffu) == spv::OpExecutionMode && count == 4u && words[cursor + 2u] == spv::ExecutionModeDenormFlushToZero && words[cursor + 3u] == 32u) declaresFlush = true;
+        if (declaresPreserve != nullptr && (words[cursor] & 0xffffu) == spv::OpExecutionMode && count == 4u && words[cursor + 2u] == spv::ExecutionModeDenormPreserve && words[cursor + 3u] == 32u) *declaresPreserve = true;
         cursor += count;
     }
     return words.size();
@@ -519,8 +523,24 @@ int main() {
             HardwareFlush = flush;
             Run(*device, std::nullopt);
             Check("no float mode");
-            Run(*device, ShaderRecompiler::ShaderFloatMode{0xf0u, true, false, false});
-            Expect(3u, Output[3u * Results], 0x00fffffeu, "denormals preserved v_add_f32");
+            const ShaderRecompiler::ShaderFloatMode preservingMode{0xf0u, true, false, false};
+            bool declaresFlush = true;
+            bool declaresPreserve = false;
+            static_cast<void>(CompiledWords(*device, flush, declaresFlush, preservingMode, &declaresPreserve));
+            Require(!declaresFlush && declaresPreserve == device->Target().float32DenormPreserve, "f32 denormal preservation: execution modes do not match the guest mode and device support");
+            static_cast<void>(CompiledWords(*device, flush, declaresFlush, preservingMode, &declaresPreserve, false));
+            Require(!declaresFlush && !declaresPreserve, "f32 denormal preservation: a target without width-specific support declares a mode");
+            static_cast<void>(CompiledWords(*device, flush, declaresFlush, ShaderRecompiler::ShaderFloatMode{0xc0u, true, false, false}, &declaresPreserve));
+            Require(declaresFlush == flush && !declaresPreserve, "f32 denormal flush: a flushing shader declares preservation or loses hardware flush");
+            if (device->Target().float32DenormPreserve) {
+                Run(*device, preservingMode);
+                Expect(3u, Output[3u * Results], 0x00fffffeu, "denormals preserved v_add_f32 normal result");
+                Expect(31u, Output[31u * Results], 0x00000002u, "denormals preserved v_add_f32 subnormal result");
+                Expect(30u, Output[30u * Results], 0x80000002u, "denormals preserved v_add_f32 negative subnormal result");
+                Expect(26u, Output[26u * Results + 2u], 0x00400000u, "denormals preserved v_mul_f32 subnormal result");
+            } else {
+                std::printf("f32 denormal preservation: numerical checks skipped, device lacks independent f32 preservation\n");
+            }
             Run(*device, ShaderRecompiler::ShaderFloatMode{0xc0u, true, false, false});
             Check("IEEE=0 f32 denormals flushed");
             Run(*device, ShaderRecompiler::ShaderFloatMode{0x00u, false, true, false});

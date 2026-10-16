@@ -269,6 +269,7 @@ struct SpirvTarget {
     bool float16DenormPreserve = false;
     bool spannedWaves = false;
     bool float32FlushToZero = false;
+    bool float32DenormPreserve = false;
 };
 
 struct BindingLayout {
