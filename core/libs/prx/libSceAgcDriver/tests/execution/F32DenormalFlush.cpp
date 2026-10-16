@@ -519,6 +519,8 @@ int main() {
             HardwareFlush = flush;
             Run(*device, std::nullopt);
             Check("no float mode");
+            Run(*device, ShaderRecompiler::ShaderFloatMode{0xf0u, true, false, false});
+            Expect(3u, Output[3u * Results], 0x00fffffeu, "denormals preserved v_add_f32");
             Run(*device, ShaderRecompiler::ShaderFloatMode{0xc0u, true, false, false});
             Check("IEEE=0 f32 denormals flushed");
             Run(*device, ShaderRecompiler::ShaderFloatMode{0x00u, false, true, false});
