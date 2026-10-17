@@ -116,17 +116,99 @@ void ExplicitStop() {
     try { output.Write("after stop"); }
     catch (const std::runtime_error& error) { failed = std::string(error.what()) == "profile output is stopping"; }
     Check(failed, "write after stop was accepted");
+    failed = false;
+    try { output.Print("%s", std::string(5 * 1024 * 1024, 'x').c_str()); }
+    catch (const std::runtime_error& error) { failed = std::string(error.what()) == "profile output is stopping"; }
+    Check(failed, "oversized print after stop was accepted");
+    output.Flush();
 }
+
+void SynchronousDrain() {
+    std::string written;
+    AgcDriver::ProfileOutput output([&](std::string_view text) { written += text; }, 16);
+    output.Write("pending\n");
+    output.DrainToSynchronous();
+    Check(written == "pending\n", "transition did not drain queued output");
+    output.Print("late\n");
+    Check(written == "pending\nlate\n", "late output was not written synchronously");
+    output.DrainToSynchronous();
+    output.Print("%s", std::string(6000, 'x').c_str());
+    Check(!output.Write(std::string(17, 'y')), "oversized synchronous write was accepted");
+    output.Flush();
+    const std::string notice = "[profile-output] dropped 1 chunks because the diagnostic writer fell behind\n";
+    Check(written == "pending\nlate\n" + notice + notice, "late oversized output was not reported");
+}
+
+void ConcurrentDrain() {
+    std::string written;
+    AgcDriver::ProfileOutput output([&](std::string_view text) { written += text; });
+    std::promise<void> ready;
+    auto start = ready.get_future().share();
+    std::vector<std::thread> producers;
+    for (int thread = 0; thread < 8; ++thread) {
+        producers.emplace_back([&, thread] {
+            start.wait();
+            for (int item = 0; item < 100; ++item) output.Print("%d:%d\n", thread, item);
+        });
+    }
+    ready.set_value();
+    output.DrainToSynchronous();
+    for (auto& producer : producers) producer.join();
+    output.Flush();
+    std::istringstream stream(written);
+    std::array<int, 8> next{};
+    for (int thread, item; stream >> thread;) {
+        char separator;
+        Check(static_cast<bool>(stream >> separator >> item) && separator == ':' && thread >= 0 && thread < 8,
+            "transition corrupted an output line");
+        Check(item == next[thread]++, "transition lost, duplicated or reordered a producer's output");
+    }
+    Check(std::all_of(next.begin(), next.end(), [](int count) { return count == 100; }), "transition lost output");
+}
+
+void SynchronousFailure() {
+    AgcDriver::ProfileOutput output([](std::string_view) { throw std::runtime_error("late writer failure"); });
+    output.DrainToSynchronous();
+    for (int operation = 0; operation < 2; ++operation) {
+        bool failed = false;
+        try {
+            if (operation == 0) output.Write("late");
+            else output.Flush();
+        } catch (const std::runtime_error& error) {
+            failed = std::string(error.what()) == "late writer failure";
+        }
+        Check(failed, "synchronous writer failure was not propagated");
+    }
+}
+
+struct FinalReporter {
+    ~FinalReporter() { AgcDriver::ProfilePrint_nid_no_patch("late static report\n"); }
+};
 
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 2) {
+            const std::string_view mode = argv[1];
+            if (mode == "--late-before-init" || mode == "--late-auto") {
+                static FinalReporter reporter;
+                AgcDriver::ProfilePrint_nid_no_patch("before shutdown\n");
+            } else if (mode == "--late-after-init") {
+                AgcDriver::ProfilePrint_nid_no_patch("before shutdown\n");
+                static FinalReporter reporter;
+            } else throw std::runtime_error("unknown profile output test mode");
+            if (mode != "--late-auto") AgcDriver::StopProfileOutput_nid_no_patch();
+            return 0;
+        }
         FormatAndDrain();
         SlowWriter();
         ConcurrentWriters();
         WriterFailure();
         ExplicitStop();
+        SynchronousDrain();
+        ConcurrentDrain();
+        SynchronousFailure();
         std::cout << "profile output tests passed\n";
         return 0;
     } catch (const std::exception& error) {
