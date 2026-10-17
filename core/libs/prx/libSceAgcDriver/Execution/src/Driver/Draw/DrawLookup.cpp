@@ -89,6 +89,7 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
             std::optional<DrawMiss> miss;
             std::vector<std::size_t> ranks(programs.size(), 0);
             std::uint64_t stageValidations = 0, stageEqual = 0, compared = 0, imagesFlushed = 0, runsSynced = 0, dataStages = 0, dataWords = 0;
+            std::uint64_t bufferStagePatches = 0;
             std::vector<std::pair<std::uint32_t, std::uint32_t>> liveData;
             auto* live = drawStageDataHits() ? &liveData : nullptr;
             if (entry->stages.size() != programs.size()) miss = DrawMiss::Stages;
@@ -125,6 +126,7 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
                             auto patched = patchBufferWords(*variant, liveData);
                             result = patched != nullptr ? EntryOutcome::Equal : EntryOutcome::Differing;
                             if (patched != nullptr) {
+                                ++bufferStagePatches;
                                 variant = std::move(patched);
                                 regions.clear();
                                 appendEntryRegions(*variant, regions);
@@ -159,6 +161,7 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
             std::lock_guard cacheLock(drawCacheMutex);
             auto& counters = drawEntryCounters;
             counters.stageValidations += stageValidations;
+            counters.bufferStagePatches += bufferStagePatches;
             counters.stageEqual += stageEqual;
             counters.variantsCompared += compared;
             if (drawHit) {

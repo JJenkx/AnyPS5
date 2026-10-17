@@ -119,13 +119,20 @@ void MovedBufferHitsTheCache(bool libraries) {
     };
     draw({First.data()}, 255);
     const auto first = draw({First.data()}, 255);
+    Require(first.bufferStagePatches == 0, mode + ": unchanged buffers counted as patched stages");
     Require(first.lookups == 2 && first.hits == 0 && first.inserts == 1, mode + ": the second sight of the draw made " + std::to_string(first.hits) + " hits and " + std::to_string(first.inserts) + " inserts, expected 0 and 1");
     const auto moved = draw({Moved.data()}, 64);
+    Require(moved.bufferStagePatches == 1, mode + ": the first moved buffer did not count one patched stage");
     Require(moved.lookups == 3 && moved.hits == 1, mode + ": a draw whose buffer moved did not reuse the cached stages (" + std::to_string(moved.hits) + " hits)");
     const auto other = draw({Other.data()}, 128);
+    Require(other.bufferStagePatches == 2, mode + ": the second moved buffer did not count another patched stage");
     Require(other.lookups == 4 && other.hits == 2, mode + ": a draw whose moved buffer holds other data did not reuse the cached stages (" + std::to_string(other.hits) + " hits)");
     const auto again = draw({First.data()}, 255);
+    Require(again.bufferStagePatches == other.bufferStagePatches, mode + ": returning to a retained unchanged variant counted another buffer patch");
     Require(again.lookups == 5 && again.hits == 3, mode + ": a draw from the first buffer did not reuse the cached stages (" + std::to_string(again.hits) + " hits)");
+    const auto same = draw({First.data()}, 255);
+    Require(same.hits == again.hits + 1 && same.bufferStagePatches == again.bufferStagePatches,
+        mode + ": an unchanged cached draw counted as another buffer patch");
 }
 
 }
