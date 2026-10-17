@@ -1,6 +1,8 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
+#include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "VulkanTestDevice.hpp"
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -19,11 +21,14 @@ namespace {
 using AgcDriver::Graphics::Require;
 using AgcDriver::DriverDetail::DrawMiss;
 
-alignas(256) constexpr std::array<std::uint32_t, 8> VertexCode{0x7e000208u, 0x7e020280u, 0x7e040280u, 0x7e0602f2u, 0xf80008cfu, 0x03020100u, 0xbf810000u, 0xbf810000u};
+alignas(256) constexpr std::array<std::uint32_t, 16> VertexCode{
+    0x7e000d05u, 0x080200f4u, 0x10020300u, 0x100202f4u, 0x060202f3u, 0x060400f3u, 0x10040500u, 0x060404f3u,
+    0x7e060280u, 0x7e0802f2u, 0xf80008cfu, 0x04030201u, 0xbf810000u,
+};
 alignas(256) constexpr std::array<std::uint32_t, 12> PixelCode{0xf4080100u, 0xfa000000u, 0xf4200202u, 0xfa000000u, 0x7e000208u, 0x7e020280u, 0xf800180fu, 0x00010100u, 0xbf810000u, 0xbf810000u, 0xbf810000u, 0xbf810000u};
 alignas(16) std::array<std::uint32_t, 4> Table{};
 alignas(16) std::array<float, 4> First{1.0f, 0.0f, 0.0f, 0.0f};
-alignas(16) std::array<float, 4> Moved{1.0f, 0.0f, 0.0f, 0.0f};
+alignas(16) std::array<float, 4> Moved{0.25f, 0.0f, 0.0f, 0.0f};
 alignas(16) std::array<float, 4> Other{0.5f, 0.0f, 0.0f, 0.0f};
 alignas(256) std::array<std::byte, 1024> ColorMemory{};
 
@@ -78,7 +83,7 @@ std::vector<std::uint32_t> DrawFrom(std::initializer_list<const float*> sources)
         {0xb4, 0}, {0xb5, std::bit_cast<std::uint32_t>(1.0f)},
     };
     const std::vector<std::pair<std::uint32_t, std::uint32_t>> shader{
-        {0xc8, static_cast<std::uint32_t>(vertex >> 8u)}, {0xc9, static_cast<std::uint32_t>(vertex >> 40u)}, {0x8b, 1u << 1u}, {0x8c, 0},
+        {0xc8, static_cast<std::uint32_t>(vertex >> 8u)}, {0xc9, static_cast<std::uint32_t>(vertex >> 40u)}, {0x8b, 0}, {0x8c, 0},
         {0x008, static_cast<std::uint32_t>(pixel >> 8u)}, {0x009, static_cast<std::uint32_t>(pixel >> 40u)}, {0x00b, 2u << 1u},
     };
     std::vector<std::uint32_t> commands;
@@ -99,23 +104,27 @@ void MovedBufferHitsTheCache(bool libraries) {
     Registered(VertexHeader, VertexCode.data(), sizeof(VertexCode), 2);
     Registered(PixelHeader, PixelCode.data(), sizeof(PixelCode), 1);
     const auto mode = std::string(libraries ? "with" : "without") + " graphics pipeline libraries";
-    const auto draw = [&](std::initializer_list<const float*> sources) {
+    const auto draw = [&](std::initializer_list<const float*> sources, unsigned expected) {
         const auto address = reinterpret_cast<std::uintptr_t>(*sources.begin());
         Table = {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), 16u, 0x31016facu};
         auto commands = DrawFrom(sources);
         Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
         Require(sceAgcDriverSubmitDcb(&packet) == 0, "the draw submission failed");
         AgcDriverWaitIdle_nid_postfix();
+        AgcDriver::GuestMemory::FlushGpuWrites(reinterpret_cast<std::uintptr_t>(ColorMemory.data()), ColorMemory.size());
+        unsigned brightest = 0;
+        for (const auto value : ColorMemory) brightest = std::max(brightest, static_cast<unsigned>(value));
+        Require(brightest == expected, mode + ": moved-buffer draw wrote " + std::to_string(brightest) + ", expected " + std::to_string(expected));
         return AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
     };
-    draw({First.data()});
-    const auto first = draw({First.data()});
+    draw({First.data()}, 255);
+    const auto first = draw({First.data()}, 255);
     Require(first.lookups == 2 && first.hits == 0 && first.inserts == 1, mode + ": the second sight of the draw made " + std::to_string(first.hits) + " hits and " + std::to_string(first.inserts) + " inserts, expected 0 and 1");
-    const auto moved = draw({Moved.data()});
+    const auto moved = draw({Moved.data()}, 64);
     Require(moved.lookups == 3 && moved.hits == 1, mode + ": a draw whose buffer moved did not reuse the cached stages (" + std::to_string(moved.hits) + " hits)");
-    const auto other = draw({Other.data()});
+    const auto other = draw({Other.data()}, 128);
     Require(other.lookups == 4 && other.hits == 2, mode + ": a draw whose moved buffer holds other data did not reuse the cached stages (" + std::to_string(other.hits) + " hits)");
-    const auto again = draw({First.data()});
+    const auto again = draw({First.data()}, 255);
     Require(again.lookups == 5 && again.hits == 3, mode + ": a draw from the first buffer did not reuse the cached stages (" + std::to_string(again.hits) + " hits)");
 }
 
