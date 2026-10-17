@@ -4,9 +4,11 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <exception>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -28,34 +30,11 @@ public:
         Stop();
     }
 
-    void Stop() {
-        std::lock_guard stopLock(stopMutex);
-        {
-            std::lock_guard lock(mutex);
-            stopping = true;
-        }
-        changed.notify_one();
-        if (worker.joinable()) worker.join();
-    }
+    void Stop() { stop(false); }
 
-    bool Write(std::string text) {
-        {
-            std::lock_guard lock(mutex);
-            if (failure) std::rethrow_exception(failure);
-            if (stopping) throw std::runtime_error("profile output is stopping");
-            if (text.empty()) return true;
-            if (text.size() > capacity - bytes) {
-                ++dropped;
-                changed.notify_one();
-                return false;
-            }
-            const auto size = text.size();
-            pending.push_back(std::move(text));
-            bytes += size;
-        }
-        changed.notify_one();
-        return true;
-    }
+    void DrainToSynchronous() { stop(true); }
+
+    bool Write(std::string text) { return write(std::move(text), false); }
 
     void Print(const char* text) { Print("%s", text); }
 
@@ -67,10 +46,7 @@ public:
         if (static_cast<std::size_t>(size) < local.size()) {
             Write(std::string(local.data(), size));
         } else if (static_cast<std::size_t>(size) > capacity) {
-            std::lock_guard lock(mutex);
-            if (failure) std::rethrow_exception(failure);
-            ++dropped;
-            changed.notify_one();
+            write({}, true);
         } else {
             std::vector<char> text(static_cast<std::size_t>(size) + 1);
             if (std::snprintf(text.data(), text.size(), format, args...) != size) throw std::runtime_error("profile output formatting changed");
@@ -79,12 +55,56 @@ public:
     }
 
     void Flush() {
+        std::lock_guard stopLock(stopMutex);
         std::unique_lock lock(mutex);
         idle.wait(lock, [&] { return failure || (pending.empty() && !writing && dropped == 0); });
         if (failure) std::rethrow_exception(failure);
     }
 
 private:
+    void stop(bool synchronous) {
+        std::lock_guard stopLock(stopMutex);
+        {
+            std::lock_guard lock(mutex);
+            stopping = true;
+        }
+        changed.notify_one();
+        if (worker.joinable()) worker.join();
+        this->synchronous = synchronous;
+    }
+
+    bool write(std::string text, bool oversized) {
+        std::lock_guard stopLock(stopMutex);
+        {
+            std::lock_guard lock(mutex);
+            if (failure) std::rethrow_exception(failure);
+            if (stopping && !synchronous) throw std::runtime_error("profile output is stopping");
+            if (!oversized && text.empty()) return true;
+            oversized = oversized || text.size() > capacity;
+            if (!synchronous) {
+                if (oversized || text.size() > capacity - bytes) {
+                    ++dropped;
+                    changed.notify_one();
+                    return false;
+                }
+                const auto size = text.size();
+                pending.push_back(std::move(text));
+                bytes += size;
+                changed.notify_one();
+                return true;
+            }
+        }
+        try {
+            if (oversized) writer("[profile-output] dropped 1 chunks because the diagnostic writer fell behind\n");
+            else writer(text);
+        } catch (...) {
+            std::lock_guard lock(mutex);
+            failure = std::current_exception();
+            throw;
+        }
+        return !oversized;
+    }
+
     void run() noexcept {
         try {
             for (;;) {
@@ -134,6 +154,7 @@ private:
     std::size_t dropped = 0;
     bool writing = false;
     bool stopping = false;
+    bool synchronous = false;
     std::exception_ptr failure;
     std::thread worker;
 };
@@ -141,16 +162,22 @@ private:
 inline std::atomic<ProfileOutput*> createdProfileOutput{nullptr};
 
 inline ProfileOutput& ProfileOutput_nid_no_patch() {
-    static ProfileOutput output([](std::string_view text) {
-        if (std::fwrite(text.data(), 1, text.size(), stderr) != text.size() || std::fflush(stderr) != 0)
-            throw std::runtime_error("profile output write failed");
-    });
-    createdProfileOutput.store(&output, std::memory_order_release);
-    return output;
+    static ProfileOutput* output = [] {
+        auto value = std::make_unique<ProfileOutput>([](std::string_view text) {
+            if (std::fwrite(text.data(), 1, text.size(), stderr) != text.size() || std::fflush(stderr) != 0)
+                throw std::runtime_error("profile output write failed");
+        });
+        if (std::atexit([] {
+            if (auto* output = createdProfileOutput.load(std::memory_order_acquire)) output->DrainToSynchronous();
+        }) != 0) throw std::runtime_error("profile output exit registration failed");
+        createdProfileOutput.store(value.get(), std::memory_order_release);
+        return value.release();
+    }();
+    return *output;
 }
 
 inline void StopProfileOutput_nid_no_patch() {
-    if (auto* output = createdProfileOutput.load(std::memory_order_acquire)) output->Stop();
+    if (auto* output = createdProfileOutput.load(std::memory_order_acquire)) output->DrainToSynchronous();
 }
 
 template<typename... TArgs>
