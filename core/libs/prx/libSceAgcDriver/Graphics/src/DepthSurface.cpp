@@ -443,9 +443,16 @@ public:
         if (target.samples != 1 || hostFormat != target.format) return;
         const bool d16 = target.format == VK_FORMAT_D16_UNORM || target.format == VK_FORMAT_D16_UNORM_S8_UINT;
         const auto bytes = DepthSliceBytes(target.extent, d16 ? 2u : 4u);
-        auto storage = StorageTexture::FindPending(target.address, bytes);
+        auto storage = StorageTexture::FindPendingSlice(target.address, bytes);
         if (storage == nullptr) storage = StorageTexture::FindLive(target.address, bytes);
         if (storage == nullptr || !storageFits(target, storage->Descriptor())) return;
+        const auto& descriptor = storage->Descriptor();
+        const auto geometry = DescribeSurface(descriptor);
+        if (target.address < descriptor.baseAddress) return;
+        const auto offset = target.address - descriptor.baseAddress;
+        if (offset != 0u && storage->ImageLayers() == 1u) return;
+        const auto sourceLayer = offset == 0u ? 0u : offset / geometry.GuestLayerOffset(1u);
+        if (sourceLayer >= storage->ImageLayers() || sourceLayer < descriptor.baseArray || geometry.GuestLayerOffset(static_cast<std::uint32_t>(sourceLayer)) != offset) return;
         storage->Refresh();
         if (depthPlane.staging == nullptr) depthPlane.staging = std::make_unique<DeviceBuffer>(context, static_cast<std::size_t>(target.extent.width) * target.extent.height * (d16 ? 2u : 4u), VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
         auto* recorder = RecorderFor(context);
@@ -456,6 +463,7 @@ public:
         VkBufferImageCopy depthRegion{0, 0, 0, {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1}, {0, 0, 0}, {target.extent.width, target.extent.height, 1}};
         VkBufferImageCopy colorRegion = depthRegion;
         colorRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        colorRegion.imageSubresource.baseArrayLayer = static_cast<std::uint32_t>(sourceLayer);
         RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
         context.Function<PFN_vkCmdCopyImageToBuffer>("vkCmdCopyImageToBuffer")(commands, storage->Image(), VK_IMAGE_LAYOUT_GENERAL, depthPlane.staging->Handle(), 1, &colorRegion);
         RecordMemoryBarrier(context, commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);

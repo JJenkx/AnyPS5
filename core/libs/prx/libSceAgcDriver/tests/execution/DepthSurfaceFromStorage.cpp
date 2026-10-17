@@ -40,7 +40,7 @@ constexpr std::uint32_t TileDepth64KB = 0x18;
 constexpr std::uint32_t Type2D = 9;
 constexpr std::uint32_t Type2DArray = 13;
 constexpr std::size_t PlaneBytes = 65536;
-constexpr std::size_t BlockBytes = 9 * PlaneBytes;
+constexpr std::size_t BlockBytes = 15 * PlaneBytes;
 constexpr std::uint32_t RowPasses = 15;
 
 alignas(256) constexpr std::array<std::uint32_t, 9> StoreRowCode{
@@ -161,6 +161,12 @@ void NewSurfaceCase(AgcDriver::VulkanDevice& device, const DepthFastClearHarness
         Require(AgcDriver::Graphics::StorageTexture::FindPending(Address(plane), PlaneBytes) != nullptr, what + ": the stored row is not pending in a storage image");
     }
     RequireCount(DepthFastClearHarness::Draw(device, shaders, Plane(plane, format), {}), RowPasses, what);
+    for (std::uint32_t layer = 1; layer < layers; ++layer) {
+        const auto surface = Plane(plane + layer * PlaneBytes, format);
+        const auto label = what + " layer " + std::to_string(layer);
+        RequireCount(DepthFastClearHarness::Draw(device, shaders, surface, {}), 0u, label + " LESS");
+        RequireCount(DepthFastClearHarness::Draw(device, shaders, surface, {.depthCompare = VK_COMPARE_OP_GREATER}), Covered, label + " GREATER");
+    }
 }
 
 }
@@ -175,6 +181,7 @@ int main() {
         NewSurfaceCase(*device, shaders, block.Plane(1), VK_FORMAT_D16_UNORM, false, "a new D16 depth surface over a pending R16 unorm storage write");
         NewSurfaceCase(*device, shaders, block.Plane(2), VK_FORMAT_D32_SFLOAT, true, "a new D32 depth surface over a flushed R32F storage write");
         NewSurfaceCase(*device, shaders, block.Plane(7), VK_FORMAT_D32_SFLOAT, false, "a new D32 depth surface over a pending R32F storage write through a two-layer 2D array view", 2);
+        NewSurfaceCase(*device, shaders, block.Plane(9), VK_FORMAT_D16_UNORM, false, "a new D16 depth surface over a pending R16 unorm storage write through a six-layer 2D array view", 6);
 
         auto* cleared = block.Plane(3);
         const auto htile = Address(block.Plane(4));
