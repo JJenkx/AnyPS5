@@ -347,8 +347,13 @@ if(BUILD_TESTING)
     configure_windows_unwind(agc_profile_output_tests)
     add_test(NAME agc_profile_output COMMAND agc_profile_output_tests)
     set_tests_properties(agc_profile_output PROPERTIES TIMEOUT 20)
+    add_test(NAME agc_profile_output_late_before_init COMMAND agc_profile_output_tests --late-before-init)
+    add_test(NAME agc_profile_output_late_after_init COMMAND agc_profile_output_tests --late-after-init)
+    add_test(NAME agc_profile_output_late_auto COMMAND agc_profile_output_tests --late-auto)
+    set_tests_properties(agc_profile_output_late_before_init agc_profile_output_late_after_init agc_profile_output_late_auto PROPERTIES
+        TIMEOUT 20 PASS_REGULAR_EXPRESSION "late static report")
     if(WIN32)
-        set_tests_properties(agc_profile_output PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_profile_output agc_profile_output_late_before_init agc_profile_output_late_after_init agc_profile_output_late_auto PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 
