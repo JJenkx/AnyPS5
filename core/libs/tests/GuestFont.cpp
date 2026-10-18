@@ -49,6 +49,7 @@ int APS5_VABI sceFontGenerateCharGlyph(FontHandle, std::uint32_t, const FontGene
 int APS5_VABI sceFontGlyphDefineAttribute(FontGlyph, std::uint32_t, std::uint64_t);
 int APS5_VABI sceFontDeleteGlyph(const FontMemory*, FontGlyph*);
 int APS5_VABI sceFontTextSourceInit(FontTextSource*, const void*, std::uint32_t, FontTextParseFunction, void*);
+int APS5_VABI sceFontTextSourceSetWritingForm(FontTextSource*, std::int32_t);
 int APS5_VABI sceFontCreateString(const FontMemory*, FontTextSource*, const FontCreateStringDetail*, FontString*);
 int APS5_VABI sceFontDestroyString(FontString*);
 FontTextCharacter* APS5_VABI sceFontStringRefersTextCharacters(FontString, std::uint32_t*);
@@ -396,32 +397,38 @@ int main() {
     Require(sceFontUnbindRenderer(font) == SCE_FONT_OK);
     Require(sceFontGetRenderScaledKerning(font, 'A', 'V', &kerning) == SCE_FONT_ERROR_NOT_BOUND_RENDERER);
 
-    ParsedText parsed{"AV", 0, font};
-    FontTextSource source{};
-    Require(sceFontTextSourceInit(&source, parsed.text, 2, ParseText, &parsed) == SCE_FONT_OK);
-    FontString string = nullptr;
-    Require(sceFontCreateString(&memory, &source, nullptr, &string) == SCE_FONT_OK && string != nullptr);
-    std::uint32_t characterCount = 0;
-    FontTextCharacter* characters = sceFontStringRefersTextCharacters(string, &characterCount);
-    Require(characters != nullptr && characterCount == 2);
-    FontWriting writing{};
-    Require(sceFontWritingInit(&writing, string, characters) == SCE_FONT_OK);
-    constexpr std::uint64_t guard = 0x5a5a5a5a5a5a5a5aull;
-    struct {
-        const FontWritingLetterStep* letter;
-        std::uint64_t guard;
-    } out{reinterpret_cast<const FontWritingLetterStep*>(&memory), guard};
-    Require(sceFontWritingRefersRenderStepCharacter(&writing, &out.letter) == nullptr && out.letter == nullptr && out.guard == guard);
-    const FontWritingStep* step = sceFontWritingRefersRenderStep(&writing);
-    Require(step != nullptr);
-    Require(sceFontWritingRefersRenderStepCharacter(&writing, &out.letter) == characters && out.letter != nullptr && out.guard == guard);
-    Require(out.letter->x == step->x && out.letter->advanceX == step->advanceX && out.letter->Components.textsIndex == 0 && out.letter->Components.characterTextCount == 1);
-    step = sceFontWritingRefersRenderStep(&writing);
-    Require(step != nullptr);
-    Require(sceFontWritingRefersRenderStepCharacter(&writing, &out.letter) == characters + 1 && out.guard == guard);
-    Require(out.letter->x == step->x && out.letter->Components.textsIndex == 1 && out.letter->Components.glyphsIndex == 1);
-    Require(sceFontWritingRefersRenderStepCharacter(&writing, nullptr) == characters + 1);
-    Require(sceFontDestroyString(&string) == SCE_FONT_OK);
+    for (const std::int32_t form : {0x10, 0x11, 0x12}) {
+        ParsedText parsed{"AV", 0, font};
+        FontTextSource source{};
+        Require(sceFontTextSourceInit(&source, parsed.text, 2, ParseText, &parsed) == SCE_FONT_OK);
+        Require(sceFontTextSourceSetWritingForm(&source, form) == SCE_FONT_OK);
+        FontString string = nullptr;
+        Require(sceFontCreateString(&memory, &source, nullptr, &string) == SCE_FONT_OK && string != nullptr);
+        std::uint32_t characterCount = 0;
+        FontTextCharacter* characters = sceFontStringRefersTextCharacters(string, &characterCount);
+        Require(characters != nullptr && characterCount == 2);
+        FontWriting writing{};
+        Require(sceFontWritingInit(&writing, string, characters) == SCE_FONT_OK);
+        constexpr std::uint64_t guard = 0x5a5a5a5a5a5a5a5aull;
+        struct {
+            const FontWritingLetterStep* letter;
+            std::uint64_t guard;
+        } out{reinterpret_cast<const FontWritingLetterStep*>(&memory), guard};
+        Require(sceFontWritingRefersRenderStepCharacter(&writing, &out.letter) == nullptr && out.letter == nullptr && out.guard == guard);
+        const FontWritingStep* step = sceFontWritingRefersRenderStep(&writing);
+        Require(step != nullptr);
+        Require(step->x == 0.0f && step->y == 0.0f && step->advanceX > 0.0f && step->advanceY == 0.0f);
+        const float firstAdvance = step->advanceX;
+        Require(sceFontWritingRefersRenderStepCharacter(&writing, &out.letter) == characters && out.letter != nullptr && out.guard == guard);
+        Require(out.letter->x == step->x && out.letter->advanceX == step->advanceX && out.letter->Components.textsIndex == 0 && out.letter->Components.characterTextCount == 1);
+        step = sceFontWritingRefersRenderStep(&writing);
+        Require(step != nullptr);
+        Require(step->x == firstAdvance && step->y == 0.0f && step->advanceY == 0.0f);
+        Require(sceFontWritingRefersRenderStepCharacter(&writing, &out.letter) == characters + 1 && out.guard == guard);
+        Require(out.letter->x == step->x && out.letter->Components.textsIndex == 1 && out.letter->Components.glyphsIndex == 1);
+        Require(sceFontWritingRefersRenderStepCharacter(&writing, nullptr) == characters + 1);
+        Require(sceFontDestroyString(&string) == SCE_FONT_OK);
+    }
     CheckTextCodes(&memory, font);
     Require(sceFontCloseFont(font) == SCE_FONT_OK);
 
