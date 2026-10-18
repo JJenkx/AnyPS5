@@ -1225,6 +1225,42 @@ static void CheckArenaHonoursHintsWithoutGoingBelowThem() {
     GuestArena::GuestArenaRelease_nid_postfix(placed, page);
 }
 
+static void CheckArenaSearchAfterPartialReleases() {
+    constexpr std::size_t page = 0x4000;
+    auto* block = static_cast<unsigned char*>(GuestArena::GuestArenaAllocate_nid_postfix(32 * page, 32 * page));
+    GuestArena::GuestArenaRelease_nid_postfix(block, 32 * page);
+    auto* first = GuestArena::GuestArenaAllocate_nid_postfix(8 * page, 32 * page);
+    auto* second = GuestArena::GuestArenaAllocate_nid_postfix(8 * page, 32 * page);
+    Require(first == block && second != first);
+    GuestArena::GuestArenaRelease_nid_postfix(block, 4 * page);
+    auto* third = GuestArena::GuestArenaAllocate_nid_postfix(8 * page, 32 * page);
+    Require(third != block);
+    GuestArena::GuestArenaRelease_nid_postfix(block + 4 * page, 4 * page);
+    auto* reused = GuestArena::GuestArenaAllocate_nid_postfix(8 * page, 32 * page);
+    Require(reused == block);
+    GuestArena::GuestArenaRelease_nid_postfix(reused, 8 * page);
+    GuestArena::GuestArenaRelease_nid_postfix(second, 8 * page);
+    GuestArena::GuestArenaRelease_nid_postfix(third, 8 * page);
+}
+
+static void CheckArenaSearchHintsDoNotSkipEarlierGaps() {
+    constexpr std::size_t page = 0x4000;
+    auto* first = GuestArena::GuestArenaAllocate_nid_postfix(page, page);
+    const auto address = reinterpret_cast<std::uintptr_t>(first);
+    auto* hinted = GuestArena::GuestArenaAllocateAtOrAbove_nid_postfix(address + 8 * page, page, page);
+    GuestArena::GuestArenaRelease_nid_postfix(first, page);
+    auto* second = GuestArena::GuestArenaAllocate_nid_postfix(page, page);
+    Require(second == first);
+    GuestArena::GuestArenaRelease_nid_postfix(second, page);
+    std::uintptr_t base = 0;
+    std::size_t size = 0;
+    GuestArena::GuestArenaRange_nid_postfix(&base, &size);
+    auto* wrapped = GuestArena::GuestArenaAllocateFromHint_nid_postfix(base + size, page, page);
+    Require(wrapped == first);
+    GuestArena::GuestArenaRelease_nid_postfix(wrapped, page);
+    GuestArena::GuestArenaRelease_nid_postfix(hinted, page);
+}
+
 static void CheckFixedMappingsReachTheApplicationAreaEnd() {
     constexpr std::size_t page = 0x4000;
     std::uintptr_t base = 0;
@@ -2759,6 +2795,13 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
     _putenv_s("APS5_PIN_WAIT_MS", "1000");
 #endif
+    if (argc == 2 && std::strcmp(argv[1], "arena-search") == 0) {
+        CheckArenaReusesAFreedRange();
+        CheckArenaHonoursHintsWithoutGoingBelowThem();
+        CheckArenaSearchAfterPartialReleases();
+        CheckArenaSearchHintsDoNotSkipEarlierGaps();
+        return 0;
+    }
     if (argc == 2 && std::strcmp(argv[1], "fixed-anonymous") == 0) {
         CheckPosixFixedAnonymousMapping();
         CheckPosixFixedAnonymousReleasesFlexibleAccounting();
@@ -2829,6 +2872,8 @@ int main(int argc, char** argv) {
     CheckArenaPlacesUnhintedMappingsInsideTheWindow();
     CheckArenaReusesAFreedRange();
     CheckArenaHonoursHintsWithoutGoingBelowThem();
+    CheckArenaSearchAfterPartialReleases();
+    CheckArenaSearchHintsDoNotSkipEarlierGaps();
     CheckSharedWriteTracking();
     CheckSharedWritePages();
     CheckSharedWritesDuringHostWrite();

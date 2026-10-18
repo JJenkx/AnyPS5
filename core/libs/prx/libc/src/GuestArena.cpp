@@ -144,6 +144,9 @@ public:
         for (const auto& [holeStart, holeEnd] : _holes) {
             if (holeStart < end && start < holeEnd) _used.emplace(holeStart, holeEnd);
         }
+        const auto next = _used.lower_bound(start);
+        const auto floor = next == _used.begin() ? _base : std::max(_base, std::min(start, std::prev(next)->second));
+        for (auto& search : _searchFloors) search.address = std::min(search.address, floor);
     }
 
 private:
@@ -245,13 +248,23 @@ private:
     std::map<std::uintptr_t, std::uintptr_t> _used;
     std::vector<std::pair<std::uintptr_t, std::uintptr_t>> _holes;
     std::vector<std::pair<std::uintptr_t, std::uintptr_t>> _hostRegions;
+    struct SearchFloor {
+        std::size_t bytes;
+        std::size_t alignment;
+        std::uintptr_t address;
+    };
+    std::vector<SearchFloor> _searchFloors;
     void RequireAllocatable(std::size_t alignment) const {
         if (_base == 0) throw std::runtime_error("guest address space arena is unavailable");
         if (alignment == 0 || (alignment & (alignment - 1)) != 0) throw std::invalid_argument("invalid guest arena alignment");
     }
 
-    std::uintptr_t FindAtOrAbove(std::uintptr_t hint, std::size_t bytes, std::size_t alignment) const {
-        std::uintptr_t candidate = alignUp(std::max(_base, hint), alignment);
+    std::uintptr_t FindAtOrAbove(std::uintptr_t hint, std::size_t bytes, std::size_t alignment) {
+        auto search = std::find_if(_searchFloors.begin(), _searchFloors.end(), [&](const auto& entry) {
+            return entry.bytes == bytes && entry.alignment == alignment;
+        });
+        const auto floor = search == _searchFloors.end() ? _base : search->address;
+        std::uintptr_t candidate = alignUp(std::max(floor, hint), alignment);
         auto it = _used.upper_bound(candidate);
         if (it != _used.begin() && std::prev(it)->second > candidate) --it;
         for (; it != _used.end(); ++it) {
@@ -260,6 +273,13 @@ private:
             candidate = std::max(candidate, alignUp(end, alignment));
         }
         if (candidate > _end || bytes > _end - candidate) return 0;
+        if (hint <= _base && bytes != 0) {
+            if (search != _searchFloors.end()) search->address = candidate;
+            else {
+                if (_searchFloors.size() == 64) _searchFloors.clear();
+                _searchFloors.push_back({bytes, alignment, candidate});
+            }
+        }
         return candidate;
     }
 
