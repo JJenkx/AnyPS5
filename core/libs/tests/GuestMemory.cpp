@@ -2520,9 +2520,6 @@ static void CheckRegularFileMapping() {
 }
 #endif
 
-// The overlap queries must start at the range that reaches into the queried address,
-// not at the first range whose base is above it: a query landing inside a registered
-// range is the case these two functions exist to report.
 static void CheckOverlapQueriesSeeRangesStartingBelowTheAddress() {
     constexpr std::size_t page = 0x4000;
     constexpr std::size_t many = 4096;

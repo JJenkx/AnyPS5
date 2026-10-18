@@ -428,10 +428,6 @@ void GuestAllocationsRequireUnpinned_nid_postfix(void* mutation, const void* poi
     }
 }
 
-// The lowest registered range that can touch `address`: the one that starts at or
-// after it, or the one before it when that one reaches into the address. Starting a
-// scan at lower_bound alone misses a range the address falls inside, which is exactly
-// the overlap these queries have to report.
 decltype(registry().ranges)::iterator firstRangeTouching(std::uintptr_t address) {
     auto& ranges = registry().ranges;
     auto it = ranges.lower_bound(address);
