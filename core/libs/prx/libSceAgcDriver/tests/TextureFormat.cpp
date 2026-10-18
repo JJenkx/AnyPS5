@@ -187,6 +187,51 @@ void singleDccKeysTests() {
     Require(read(56) == DccKeys::Uncompressed, "comp-to-single keys mixed with uncompressed ones must read as stored");
 }
 
+void dccClearSpanTests() {
+    struct ClearCase {
+        VkFormat format;
+        std::size_t channelBytes;
+        std::size_t channels;
+        std::uint32_t one;
+    };
+    for (const auto test : {
+        ClearCase{VK_FORMAT_R8_UNORM, 1, 1, 0xff},
+        ClearCase{VK_FORMAT_R8G8B8A8_SNORM, 1, 4, 0x7f},
+        ClearCase{VK_FORMAT_R16_SFLOAT, 2, 1, 0x3c00},
+        ClearCase{VK_FORMAT_R16G16_SFLOAT, 2, 2, 0x3c00},
+        ClearCase{VK_FORMAT_R16G16B16A16_SFLOAT, 2, 4, 0x3c00},
+        ClearCase{VK_FORMAT_R32G32B32A32_SFLOAT, 4, 4, 0x3f800000}
+    }) {
+        const auto elementBytes = test.channelBytes * test.channels;
+        for (const bool alphaOnMsb : {false, true}) {
+            for (const auto keys : {DccKeys::Clear0000, DccKeys::Clear0001, DccKeys::Clear1110, DccKeys::Clear1111}) {
+                for (const auto size : {std::size_t{0}, elementBytes - 1, elementBytes, elementBytes + 1, 31 * elementBytes - 1, 31 * elementBytes, 31 * elementBytes + 1, 4096 * elementBytes + 3}) {
+                    std::vector<std::byte> bytes(size + 8, std::byte{0xa5});
+                    auto expected = bytes;
+                    for (std::size_t i = 0; i < size; ++i) {
+                        if (keys == DccKeys::Clear0000) {
+                            expected[3 + i] = std::byte{0};
+                            continue;
+                        }
+                        if (i >= size - size % elementBytes) continue;
+                        const auto channel = i % elementBytes / test.channelBytes;
+                        const bool alpha = channel == (alphaOnMsb ? test.channels - 1 : 0);
+                        const bool set = alpha ? keys == DccKeys::Clear0001 || keys == DccKeys::Clear1111 : keys == DccKeys::Clear1110 || keys == DccKeys::Clear1111;
+                        expected[3 + i] = static_cast<std::byte>(set ? (test.one >> (8 * (i % test.channelBytes))) & 0xff : 0);
+                    }
+                    Require(FillDccClear(test.format, keys, alphaOnMsb, std::span(bytes).subspan(3, size)), "DCC clear rejected a supported span");
+                    Require(bytes == expected, "DCC clear changed a guard, partial texel or encoded channel");
+                }
+            }
+        }
+    }
+    std::array<std::byte, 17> unsupported{};
+    unsupported.fill(std::byte{0xa5});
+    const auto original = unsupported;
+    Require(!FillDccClear(VK_FORMAT_UNDEFINED, DccKeys::Clear1111, true, unsupported), "DCC clear accepted an unsupported format");
+    Require(unsupported == original, "unsupported DCC clear changed the span");
+}
+
 void packedFloatDccClearTests() {
     for (const bool alphaOnMsb : {false, true}) {
         for (const auto keys : {DccKeys::Clear0000, DccKeys::Clear0001, DccKeys::Clear1110, DccKeys::Clear1111}) {
@@ -266,4 +311,5 @@ void RunTextureFormatTests() {
     convertedDccClearTests();
     singleDccKeysTests();
     packedFloatDccClearTests();
+    dccClearSpanTests();
 }

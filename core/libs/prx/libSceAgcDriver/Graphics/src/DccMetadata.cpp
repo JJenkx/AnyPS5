@@ -648,7 +648,14 @@ bool FillDccClear(VkFormat format, DccKeys keys, bool alphaOnMsb, std::span<std:
             if (((value >> i) & 1u) != 0) element[bit / 8u] |= static_cast<std::byte>(1u << (bit % 8u));
         }
     }
-    for (std::size_t offset = 0; offset + element.size() <= bytes.size(); offset += element.size()) std::memcpy(bytes.data() + offset, element.data(), element.size());
+    const auto completeBytes = bytes.size() - bytes.size() % element.size();
+    if (completeBytes == 0) return true;
+    std::memcpy(bytes.data(), element.data(), element.size());
+    for (auto filled = element.size(); filled < completeBytes;) {
+        const auto count = std::min(filled, completeBytes - filled);
+        std::memcpy(bytes.data() + filled, bytes.data(), count);
+        filled += count;
+    }
     return true;
 }
 
