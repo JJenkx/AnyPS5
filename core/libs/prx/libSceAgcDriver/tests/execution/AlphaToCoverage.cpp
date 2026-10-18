@@ -462,7 +462,7 @@ void DccFastClearTests(AgcDriver::VulkanDevice& device, std::uint32_t selectedSa
     } clearTargets{device};
     for (const auto samples : {2u, 4u, 8u}) {
         if (selectedSamples != 0 && samples != selectedSamples) continue;
-        for (const auto code : {0x00u, 0x40u, 0x80u, 0xc0u}) {
+        for (const auto code : {0x00u, 0x20u, 0x40u, 0x80u, 0xc0u}) {
             for (const auto alphaOnMsb : {false, true}) {
                 for (const auto cmaskMode : {0u, 0xccu, 0xffu}) {
                     blocks.push_back(std::make_unique<Block>(layout.Bytes() * samples));
@@ -475,6 +475,7 @@ void DccFastClearTests(AgcDriver::VulkanDevice& device, std::uint32_t selectedSa
                     target.dccAddress = metadata.Address();
                     target.dccPipeAligned = true;
                     target.dccAlphaOnMsb = alphaOnMsb;
+                    if (code == 0x20u) target.clearWords = {0x38003000u, 0x3c003a00u};
                     if (cmaskMode != 0) {
                         blocks.push_back(std::make_unique<Block>(BlockBytes));
                         auto& cmask = *blocks.back();
@@ -488,6 +489,7 @@ void DccFastClearTests(AgcDriver::VulkanDevice& device, std::uint32_t selectedSa
                     const bool alphaOne = code == 0x40u || code == 0xc0u;
                     Color initial{};
                     for (std::uint32_t channel = 0; channel < 4; ++channel) initial[channel] = channel == (alphaOnMsb ? 3u : 0u) ? static_cast<float>(alphaOne) : static_cast<float>(colorOne);
+                    if (code == 0x20u) initial = {0.125f, 0.5f, 0.75f, 1.0f};
                     const Color written{0.25f, 0.25f, 0.25f, 0.25f};
                     if (cmaskMode != 0) device.ColorMetadataPass({AgcDriver::Graphics::ColorMetadataPass::Mode::FmaskDecompress, {target}});
                     Draw(device, target, false, Float32Export, Program(written, Float32Export, 1u), false, true);
