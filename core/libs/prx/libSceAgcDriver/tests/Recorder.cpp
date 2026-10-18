@@ -4003,6 +4003,18 @@ void unitShadowTests(const Device& device, Recorder& recorder) {
     Require(words[2 * unit] == 0x99 && words[3 * unit - 1] == 0x99, "the retire did not publish the unit still registered");
     Require(words[5 * unit] == 0x88 && words[5 * unit + unit - 1] == 0x88, "the retire did not publish a unit covered by the old registration");
     Require(words[127 * unit] == 0x66 && words[128 * unit] == 0x77, "the retire did not publish the second slab's units covered by the old registration");
+    import = HostImportFor(context, address, static_cast<std::size_t>(5 * unit));
+    Require(import != nullptr, "the shortened registration cannot be reimported for the lease waiter");
+    retile(*ShadowDestinationFor(context, *import, unit3, unit4), unit3, unit, 0xaa, false);
+    Require(AnyShadowedOverlaps(unit3, unit), "the lease waiter's import has no live shadow");
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.RequireUnpinned(block, static_cast<std::size_t>(unit));
+    }
+    Require(!HostImportCovers(context, address, static_cast<std::size_t>(unit)), "the lease waiter kept the pinned import");
+    Require(!AnyShadowedOverlaps(address, static_cast<std::size_t>(5 * unit)), "the lease waiter kept the import's shadow");
+    recorder.Sync();
+    Require(words[3 * unit] == 0xaa && words[4 * unit - 1] == 0xaa, "the lease waiter lost shadow results outside the requested unpin range");
 }
 
 void storageRefreshTests(const Device& device, Recorder& recorder, bool watched) {

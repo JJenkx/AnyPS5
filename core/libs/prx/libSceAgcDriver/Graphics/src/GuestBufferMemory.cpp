@@ -2462,6 +2462,15 @@ bool WaitForLeasesAndImports(std::uintptr_t address, std::size_t bytes) {
     bool synced = false;
     bool drained = false;
     bool retiredImport = false;
+    GuestAllocations::Lease retirementLease;
+    bool retirementLeaseAcquired = false;
+    const auto leaseForRetirement = [&](const HostImport& entry) -> const GuestAllocations::Lease& {
+        if (!retirementLeaseAcquired && AnyShadowedOverlaps(entry.base, entry.bytes)) {
+            retirementLease = GuestAllocations::GuestAllocationsAcquire_nid_postfix();
+            retirementLeaseAcquired = true;
+        }
+        return retirementLease;
+    };
     // A range pinned only by the cached address space is released by dropping the cache's
     // reference: no GPU wait, no device lock (the mutating thread may be a driver thread holding
     // it). The registry rescans; a range still pinned by a build or a batch holding the space comes
@@ -2490,7 +2499,6 @@ bool WaitForLeasesAndImports(std::uintptr_t address, std::size_t bytes) {
         const auto end = static_cast<std::uint64_t>(address) + bytes;
         auto& imports = Imports();
         if (releaseParkedImports(imports, address, end)) retiredImport = true;
-        const auto lease = GuestAllocations::GuestAllocationsAcquire_nid_postfix();
         {
             std::lock_guard importsLock(imports.mutex);
             for (auto it = imports.imports.begin(); it != imports.imports.end();) {
@@ -2500,7 +2508,7 @@ bool WaitForLeasesAndImports(std::uintptr_t address, std::size_t bytes) {
                     continue;
                 }
                 const auto next = std::next(it);
-                retireImport(imports.device, imports, it, lease, false);
+                retireImport(imports.device, imports, it, leaseForRetirement(it->second), false);
                 it = next;
                 retiredImport = true;
             }
@@ -2556,7 +2564,6 @@ bool WaitForLeasesAndImports(std::uintptr_t address, std::size_t bytes) {
                 synced = true;
                 drained = true;
             }
-            const auto lease = GuestAllocations::GuestAllocationsAcquire_nid_postfix();
             {
                 std::lock_guard importsLock(imports.mutex);
                 for (auto it = imports.imports.begin(); it != imports.imports.end();) {
@@ -2566,7 +2573,7 @@ bool WaitForLeasesAndImports(std::uintptr_t address, std::size_t bytes) {
                         continue;
                     }
                     const auto next = std::next(it);
-                    retireImport(imports.device, imports, it, lease, false);
+                    retireImport(imports.device, imports, it, leaseForRetirement(it->second), false);
                     it = next;
                     retiredImport = true;
                 }
