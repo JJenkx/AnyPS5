@@ -141,13 +141,18 @@ private:
             }
             case IrOpcode::Phi: {
                 IrValue* resolved = ResolveInvariantPhi(plan, value);
-                return resolved != nullptr ? compile(resolved, context, depth + 1) : fail();
+                if (resolved == nullptr) return fail();
+                Node node;
+                node.op = Op::Forward;
+                node.argumentCount = 1;
+                node.arguments[0] = compile(resolved, context, depth + 1);
+                return emit(node);
             }
             case IrOpcode::ReadFirstLane: {
                 if (value->ArgumentCount() < 2) return malformedFail();
                 IrValue* laneMask = value->Argument(1);
                 contexts.push_back({laneMask != nullptr ? laneMask->Resolve() : nullptr, current.clean, current.cleanSlots});
-                return compile(value->Argument(0), static_cast<std::uint32_t>(contexts.size() - 1), depth + 1);
+                return operation(Op::Forward, value, static_cast<std::uint32_t>(contexts.size() - 1), depth, 1);
             }
             case IrOpcode::BitCastU32F32:
             case IrOpcode::BitCastF32U32:
@@ -172,7 +177,11 @@ private:
                 if (source->Opcode() == IrOpcode::Void) return fail();
                 if (source->Opcode() == IrOpcode::CompositeConstructU32x2) {
                     if (source->ArgumentCount() <= component) return malformedFail();
-                    return compile(source->Argument(component), context, depth + 1);
+                    Node node;
+                    node.op = Op::Forward;
+                    node.argumentCount = 1;
+                    node.arguments[0] = compile(source->Argument(component), context, depth + 1);
+                    return emit(node);
                 }
                 if (source->Opcode() == IrOpcode::IAddCarry32) {
                     if (source->ArgumentCount() < 2) return malformedFail();
@@ -322,9 +331,11 @@ struct SrtTape::Frame {
     std::uint64_t* values;
     std::uint8_t* states;
     bool nullRoot = false;
+    std::uint32_t nested = 0;
 };
 
 bool SrtTape::evaluate(Frame& frame, std::uint32_t index, std::uint64_t& result) const {
+    if (frame.nested != 0 && frame.runtime.userDataUse != nullptr && nodes[index].source != nullptr) frame.runtime.userDataUse->operandReads.push_back(nodes[index].source);
     const auto state = frame.states[index];
     if (state == 1) {
         result = frame.values[index];
@@ -352,7 +363,10 @@ bool SrtTape::compute(Frame& frame, const Node& node, std::uint64_t& result) con
             frame.runtime.userDataUse->asBase |= std::uint64_t {1} << origin;
             continue;
         }
-        if (!evaluate(frame, node.arguments[index], operand[index])) return false;
+        ++frame.nested;
+        const bool evaluated = evaluate(frame, node.arguments[index], operand[index]);
+        --frame.nested;
+        if (!evaluated) return false;
     }
     const auto a = operand[0];
     const auto b = operand[1];
@@ -367,6 +381,7 @@ bool SrtTape::compute(Frame& frame, const Node& node, std::uint64_t& result) con
             result = frame.runtime.userData[static_cast<std::size_t>(node.immediate)];
             return true;
         case Op::ShaderBase: result = frame.runtime.shaderBase; return true;
+        case Op::Forward: result = a; return true;
         case Op::Read:
         case Op::ReadConstBuffer: {
             const auto base = ((b << 32u) | static_cast<std::uint32_t>(a)) & AddressMask;
@@ -391,7 +406,10 @@ bool SrtTape::compute(Frame& frame, const Node& node, std::uint64_t& result) con
                 frame.nullRoot = true;
                 return false;
             }
-            if (frame.runtime.userDataUse != nullptr) frame.runtime.userDataUse->reads.emplace_back(address, origin);
+            if (frame.runtime.userDataUse != nullptr) {
+                frame.runtime.userDataUse->reads.emplace_back(address, origin);
+                frame.runtime.userDataUse->readInstructions.push_back(node.source);
+            }
             if (node.loaded && frame.runtime.accessible != nullptr && !frame.runtime.accessible(frame.runtime.userContext, address, sizeof(std::uint32_t))) return false;
             if (auto* trace = frame.runtime.readTrace; trace != nullptr) {
                 if (node.source == trace->leaf) trace->leaves.emplace_back(trace->leafSlot, address);
@@ -503,6 +521,9 @@ bool SrtTape::Run(const IrResourcePlan& plan, const SrtRuntime& runtime, std::ve
     const auto baseBefore = use != nullptr ? use->asBase : 0;
     const auto valueBefore = use != nullptr ? use->asValue : 0;
     const auto useReadsBefore = use != nullptr ? use->reads.size() : 0;
+    const auto instructionsBefore = use != nullptr ? use->readInstructions.size() : 0;
+    const auto operandsBefore = use != nullptr ? use->operandReads.size() : 0;
+    const auto leadsBefore = use != nullptr ? use->sourceLeads.size() : 0;
     const auto refuse = [&] {
         if (trace != nullptr) {
             trace->leaves.resize(leavesBefore);
@@ -513,6 +534,9 @@ bool SrtTape::Run(const IrResourcePlan& plan, const SrtRuntime& runtime, std::ve
             use->asBase = baseBefore;
             use->asValue = valueBefore;
             use->reads.resize(useReadsBefore);
+            use->readInstructions.resize(instructionsBefore);
+            use->operandReads.resize(operandsBefore);
+            use->sourceLeads.resize(leadsBefore);
         }
         return false;
     };
@@ -594,6 +618,14 @@ bool SrtTape::Run(const IrResourcePlan& plan, const SrtRuntime& runtime, std::ve
                 if (!evaluate(frame, sourceDwords[sourceIndex][dword], word)) return refuse();
                 value.dwords[dword] = static_cast<std::uint32_t>(word);
             }
+        }
+        if (use != nullptr && source.dwordCount != 0) {
+            IrValue* lead = source.dwords[0]->Resolve();
+            if (!lead->HasImmediate() && lead->Opcode() == IrOpcode::ReadConst && lead->ArgumentCount() == 2) {
+                IrValue* slot = lead->Argument(1)->Resolve();
+                if (slot->HasImmediate() && slot->Type() == IrType::U32 && slot->ImmediateU32() < plan.srtReads.size()) lead = plan.srtReads[slot->ImmediateU32()].value->Resolve();
+            }
+            if (!lead->HasImmediate() && IsRawRead(plan, *lead)) use->sourceLeads.emplace_back(sourceIndex, lead);
         }
         evaluated.push_back(value);
     }

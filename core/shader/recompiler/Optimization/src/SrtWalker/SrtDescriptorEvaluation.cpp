@@ -11,6 +11,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 
 namespace ShaderRecompiler::Detail {
@@ -260,15 +261,30 @@ bool interpretRuntimeSources(const IrResourcePlan& program, std::span<const std:
     return evaluated;
 }
 
-bool sameUserDataUse(const SrtUserDataUse& tape, const SrtUserDataUse& interpreted) {
-    if (tape.asBase != interpreted.asBase || tape.asValue != interpreted.asValue) return false;
+std::string userDataDifference(const SrtUserDataUse& tape, const SrtUserDataUse& interpreted) {
+    if (tape.asBase != interpreted.asBase || tape.asValue != interpreted.asValue) return "user-data masks";
     auto tapeReads = tape.reads;
     auto interpretedReads = interpreted.reads;
     for (auto* reads : {&tapeReads, &interpretedReads}) {
         std::sort(reads->begin(), reads->end());
         reads->erase(std::unique(reads->begin(), reads->end()), reads->end());
     }
-    return tapeReads == interpretedReads;
+    if (tapeReads != interpretedReads) return "user-data reads";
+    const auto normalized = [](auto values) {
+        std::sort(values.begin(), values.end());
+        values.erase(std::unique(values.begin(), values.end()), values.end());
+        return values;
+    };
+    const auto instructions = [](const SrtUserDataUse& use) {
+        std::vector<std::tuple<std::uint64_t, std::int32_t, std::uintptr_t>> values;
+        for (std::size_t i = 0; i < use.reads.size(); ++i) values.emplace_back(use.reads[i].first, use.reads[i].second, reinterpret_cast<std::uintptr_t>(use.readInstructions[i]));
+        return values;
+    };
+    if (tape.readInstructions.size() != tape.reads.size() || interpreted.readInstructions.size() != interpreted.reads.size()) return "user-data instruction counts";
+    if (normalized(instructions(tape)) != normalized(instructions(interpreted))) return "user-data read instructions";
+    if (normalized(tape.operandReads) != normalized(interpreted.operandReads)) return "user-data operand reads";
+    if (normalized(tape.sourceLeads) != normalized(interpreted.sourceLeads)) return "user-data source leads";
+    return {};
 }
 
 void verifyTape(const IrResourcePlan& program, const SrtRuntime& runtime, std::vector<DescriptorValue>& results, std::vector<std::uint32_t>& flat, std::vector<std::uint8_t>& activeSources, std::vector<SrtReadPoison>* poison, std::uint32_t* nullRootReads, std::size_t leavesBefore, std::size_t readsBefore, const SrtUserDataUse* useBefore) {
@@ -309,7 +325,7 @@ void verifyTape(const IrResourcePlan& program, const SrtRuntime& runtime, std::v
             trace->otherReads.insert(trace->otherReads.end(), expectedTrace.otherReads.begin(), expectedTrace.otherReads.end());
         }
     }
-    if (difference.empty() && runtime.userDataUse != nullptr && !sameUserDataUse(*runtime.userDataUse, expectedUse)) difference = "user-data use";
+    if (difference.empty() && runtime.userDataUse != nullptr) difference = userDataDifference(*runtime.userDataUse, expectedUse);
     static std::atomic<std::uint64_t> walks {0};
     static std::atomic<std::uint64_t> differences {0};
     const auto walked = walks.fetch_add(1, std::memory_order_relaxed) + 1;

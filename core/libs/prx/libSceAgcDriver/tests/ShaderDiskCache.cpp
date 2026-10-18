@@ -10,6 +10,8 @@
 #include "ControlFlow/RequestSerializer.hpp"
 #include "Optimization/RequestMemoryView.hpp"
 #include "Optimization/SrtWalker.hpp"
+#include "Optimization/SrtWalker/SrtDescriptorEvaluation.hpp"
+#include "Optimization/SrtWalker/SrtTape.hpp"
 #include "IntermediateRepresentation/IrBlock.hpp"
 #include <algorithm>
 #include <array>
@@ -32,6 +34,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <vector>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -2046,6 +2049,41 @@ void appendSnapshot(std::vector<std::byte>& out, const ResourceCapture& capture)
     appendWords(out, reads);
 }
 
+void checkTapeRelocationUse(const IrResourcePlan& plan, SrtRuntime runtime, const std::string& name) {
+    const auto* tape = Detail::SrtTape::For(plan);
+    if (tape == nullptr) return;
+    SrtUserDataUse tapeUse;
+    SrtUserDataUse interpretedUse;
+    std::vector<DescriptorValue> tapeResults, interpretedResults;
+    std::vector<std::uint32_t> tapeFlat, interpretedFlat;
+    std::vector<std::uint8_t> tapeActive, interpretedActive;
+    runtime.readTrace = nullptr;
+    runtime.userDataUse = &tapeUse;
+    if (!tape->Run(plan, runtime, tapeResults, tapeFlat, tapeActive)) {
+        require(tapeUse.asBase == 0 && tapeUse.asValue == 0 && tapeUse.reads.empty() && tapeUse.readInstructions.empty() && tapeUse.operandReads.empty() && tapeUse.sourceLeads.empty(), name + ": a refused tape retained relocation metadata");
+        return;
+    }
+    auto sources = plan.materializationSources;
+    runtime.userDataUse = &interpretedUse;
+    require(Detail::EvaluateRuntimeSourcesImpl(plan, sources, runtime, interpretedResults, interpretedFlat, true, plan.cleanFlatSlots, interpretedActive), name + ": the interpreter refused a successful tape");
+    require(tapeResults == interpretedResults && tapeFlat == interpretedFlat && tapeActive == interpretedActive, name + ": tape and interpreter resources differ");
+    require(tapeUse.asBase == interpretedUse.asBase && tapeUse.asValue == interpretedUse.asValue, name + ": tape and interpreter user-data masks differ");
+    const auto normalized = [](auto values) {
+        std::sort(values.begin(), values.end());
+        values.erase(std::unique(values.begin(), values.end()), values.end());
+        return values;
+    };
+    const auto instructions = [&](const SrtUserDataUse& use) {
+        require(use.reads.size() == use.readInstructions.size(), name + ": read instructions do not match traced reads");
+        std::vector<std::tuple<std::uint64_t, std::int32_t, std::uintptr_t>> values;
+        for (std::size_t i = 0; i < use.reads.size(); ++i) values.emplace_back(use.reads[i].first, use.reads[i].second, reinterpret_cast<std::uintptr_t>(use.readInstructions[i]));
+        return normalized(std::move(values));
+    };
+    require(instructions(tapeUse) == instructions(interpretedUse), name + ": tape and interpreter read instructions differ");
+    require(normalized(tapeUse.operandReads) == normalized(interpretedUse.operandReads), name + ": tape and interpreter operand reads differ");
+    require(normalized(tapeUse.sourceLeads) == normalized(interpretedUse.sourceLeads), name + ": tape and interpreter source leads differ");
+}
+
 std::vector<std::vector<std::byte>> preparedOutputs(std::vector<PlanFixture>& fixtures, std::vector<std::shared_ptr<const IrResourcePlan>>* plans = nullptr) {
     std::vector<std::vector<std::byte>> outputs;
     for (auto& fixture : fixtures) {
@@ -2053,6 +2091,7 @@ std::vector<std::vector<std::byte>> preparedOutputs(std::vector<PlanFixture>& fi
         const auto handle = PrepareShader(request);
         RequestMemoryView view(request.context.memory);
         const auto capture = CaptureResources(request, view.MakeRuntime(request.context.userData, request.shader.codeAddress), *handle);
+        checkTapeRelocationUse(*capture->plan, view.MakeRuntime(request.context.userData, request.shader.codeAddress), fixture.name);
         const auto result = MaterializeShader(request, *capture, *handle);
         std::vector<std::byte> bytes;
         appendWords(bytes, GetPreparedArtifact(*handle).spirv.Words());
