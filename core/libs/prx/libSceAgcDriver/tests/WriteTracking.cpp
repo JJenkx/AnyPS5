@@ -89,7 +89,13 @@ void CheckSharedBlock() {
 
     const auto many = TrackerGeneration();
     for (int store = 0; store < 6; ++store) MarkWritten(base + Block + static_cast<std::uint64_t>(store) * 64, 4);
-    Require(StoredOver(boundary, static_cast<std::size_t>(sharedSecond), many), "forgotten driver stores are taken as missing the range");
+    Require(!StoredOver(boundary, static_cast<std::size_t>(sharedSecond), many), "forgotten driver stores on other pages count for the shared range");
+    Require(StoredOver(base + Block, 4, many), "an evicted overlapping driver store is missed");
+    Require(StoredOver(base + Block + 2048, 4, many), "evicted driver stores prove unchanged bytes within their page");
+    const auto afterMany = TrackerGeneration();
+    Require(!StoredOver(base + Block, 4, afterMany), "evicted stores older than the baseline invalidate the range");
+    for (int store = 0; store < 6; ++store) MarkWritten(base + Block + 4094 + static_cast<std::uint64_t>(store) * 4096, 4);
+    Require(StoredOver(base + Block + 4096, 2, afterMany), "an evicted driver store crossing a page boundary is missed");
 
     const auto beforeCpu = CollectWrites(base, 3 * Block);
     static_cast<volatile std::uint8_t*>(memory)[Block + 8] = 0x22;

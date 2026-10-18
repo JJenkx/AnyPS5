@@ -883,6 +883,7 @@ struct WriteTracker {
         std::uint32_t dropped = 0;
         std::uint32_t next = 0;
         std::array<DriverPiece, 4> pieces{};
+        std::array<std::uint32_t, WritePagesPerBlock> droppedPages{};
 
         bool covers(std::uint32_t begin, std::uint32_t end, std::uint64_t generation) const {
             if (generation == 0 || begin >= end || dropped > generation) return false;
@@ -931,6 +932,9 @@ struct WriteTracker {
         auto& entry = driverPieces[block];
         auto& slot = entry.pieces[entry.next++ % entry.pieces.size()];
         entry.dropped = std::max(entry.dropped, slot.generation);
+        if (slot.generation != 0) {
+            for (auto page = slot.begin / WritePageBytes; page <= (slot.end - 1) / WritePageBytes; ++page) entry.droppedPages[page] = std::max(entry.droppedPages[page], slot.generation);
+        }
         slot = {stampGeneration, from, to};
     }
 
@@ -1545,10 +1549,15 @@ bool StoredOver(std::uint64_t address, std::size_t bytes, std::uint64_t generati
         const auto found = tracker.driverPieces.find(block);
         if (found == tracker.driverPieces.end()) return true;
         const auto& entry = found->second;
-        if (entry.whole > generation || entry.dropped > generation) return true;
+        if (entry.whole > generation) return true;
         const auto begin = tracker.blockBegin(block);
         const auto from = std::max(address, begin) - begin;
         const auto to = std::min<std::uint64_t>(end, begin + WriteBlockBytes) - begin;
+        if (entry.dropped > generation) {
+            for (auto page = from / WritePageBytes; page <= (to - 1) / WritePageBytes; ++page) {
+                if (entry.droppedPages[page] > generation) return true;
+            }
+        }
         for (const auto& piece : entry.pieces) {
             if (piece.generation > generation && piece.begin < to && from < piece.end) return true;
         }
