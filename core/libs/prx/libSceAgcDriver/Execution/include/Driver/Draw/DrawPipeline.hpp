@@ -74,6 +74,7 @@ private:
     std::deque<Item> retired;
     std::thread reaper;
     bool reaperWaiting = false;
+    bool reaperClosing = false;
     std::uint64_t commits = 0;
     std::uint64_t commitNs = 0;
     std::uint64_t commitErrors = 0;
