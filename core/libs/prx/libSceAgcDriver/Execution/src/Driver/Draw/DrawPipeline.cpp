@@ -187,6 +187,7 @@ void DrawPipeline::run() {
         }
         retire(std::move(done));
     }
+    runningCommitters.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 void DrawPipeline::retire(Item&& item) {
@@ -208,14 +209,16 @@ void DrawPipeline::reap() {
         {
             std::unique_lock lock(retireMutex);
             reaperWaiting = true;
-            reapWake.wait_for(lock, std::chrono::milliseconds(2), [&] { return retired.size() >= 64; });
+            reapWake.wait_for(lock, std::chrono::milliseconds(2), [&] { return reaperClosing || retired.size() >= 64; });
             reaperWaiting = false;
-            if (retired.empty()) continue;
+            if (retired.empty()) {
+                if (reaperClosing) break;
+                continue;
+            }
             batch.swap(retired);
         }
         batch.clear();
     }
-    runningCommitters.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 void DrawPipeline::Stop() {
@@ -226,9 +229,21 @@ void DrawPipeline::Stop() {
         committer = std::move(thread);
     }
     wake.notify_all();
-    if (!committer.joinable()) return;
-    if (committer.get_id() == std::this_thread::get_id()) committer.detach();
-    else committer.join();
+    if (committer.joinable()) {
+        if (committer.get_id() == std::this_thread::get_id()) {
+            committer.detach();
+            return;
+        }
+        committer.join();
+    }
+    std::thread cleanup;
+    {
+        std::lock_guard lock(retireMutex);
+        reaperClosing = true;
+        cleanup = std::move(reaper);
+    }
+    reapWake.notify_all();
+    if (cleanup.joinable()) cleanup.join();
 }
 
 void DrawPipeline::Drain(DrainReason reason, std::uint32_t opcode) {
