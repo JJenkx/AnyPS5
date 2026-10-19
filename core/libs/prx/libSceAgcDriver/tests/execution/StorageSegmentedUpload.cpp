@@ -187,6 +187,10 @@ int main() {
             Require(ThreadLookupOutcomes().counts[LookupOutcomes::UploadDirect] == 1 && ThreadLookupOutcomes().counts[LookupOutcomes::UploadCpu] == 0, "segmented refresh took a CPU snapshot path");
             Require(Read(context, *actual, resource) == updatedPixels, "segmented partial refresh differs from CPU detile");
             {
+                struct RestoreRecorder {
+                    Recorder* previous = Recorder::Active();
+                    ~RestoreRecorder() { if (previous != nullptr) previous->Activate(); }
+                } restoreRecorder;
                 Recorder recorder(context);
                 recorder.Activate();
                 ThreadLookupOutcomes() = {};
