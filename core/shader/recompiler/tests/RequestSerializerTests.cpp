@@ -550,26 +550,55 @@ int main() {
     }
     Require(pointRejected);
 
+    ShaderRecompiler::RecompileRequest pointRequest{};
+    pointRequest.context.vertex = ShaderRecompiler::ShaderVertexStageInfo{};
+    pointRequest.context.vertex->paClVsOutCntl = 0x01210000u;
+    pointRequest.target.depthRangeRemap = true;
+    pointRequest.target.float32FlushToZero = true;
+    pointRequest.context.vertex->depthRemapMode = 2u;
+    pointRequest.context.vertex->pointList = true;
+    pointRequest.context.vertex->pointSize = 4.0f;
+    pointRequest.context.vertex->pointSizeMin = 0.5f;
+    pointRequest.context.vertex->pointSizeMax = 8.0f;
+    const auto pointEncoded = serializer.Serialize(pointRequest);
+    const auto pointReplay = serializer.Deserialize(pointEncoded);
+    Require(pointReplay.request.context.vertex.has_value() && pointReplay.request.context.vertex->paClVsOutCntl == 0x01210000u && pointReplay.request.context.vertex->pointList);
+    Require(pointReplay.request.context.vertex->pointSize == 4.0f && pointReplay.request.context.vertex->pointSizeMin == 0.5f && pointReplay.request.context.vertex->pointSizeMax == 8.0f);
+    Require(pointReplay.request.target.depthRangeRemap && pointReplay.request.context.vertex->depthRemapMode == 2u);
+    Require(serializer.Serialize(pointReplay.request) == pointEncoded);
+    auto pointBytes = DecodeBase64(pointEncoded);
+    pointBytes.pop_back();
+    bool pointRejected = false;
+    try {
+        static_cast<void>(serializer.Deserialize(EncodeBase64(pointBytes)));
+    } catch (const std::runtime_error& error) {
+        pointRejected = std::string_view(error.what()) == "RequestSerializer: truncated data";
+    }
+    Require(pointRejected);
+
     for (const bool spanned : {false, true}) {
-        for (const std::uint8_t version : {32u, 33u, 34u}) {
+        for (const std::uint8_t version : {32u, 33u, 34u, 35u, 36u, 37u, 38u}) {
             pointRequest.target.spannedWaves = spanned;
             auto legacy = DecodeBase64(serializer.Serialize(pointRequest));
-            legacy.resize(legacy.size() - 13u);
+            legacy.resize(legacy.size() - (version >= 36u ? 13u : version >= 35u ? 14u : 19u));
             legacy[4] = version;
             const auto replayLegacy = serializer.Deserialize(EncodeBase64(legacy));
             Require(replayLegacy.request.target.spannedWaves == spanned);
+            Require(replayLegacy.request.target.float32FlushToZero == (version >= 36u));
+            Require(replayLegacy.request.target.depthRangeRemap == (version >= 35u));
+            Require(replayLegacy.request.context.vertex->depthRemapMode == (version >= 35u ? 2u : 0u));
             Require(replayLegacy.request.context.vertex.has_value());
             Require(replayLegacy.request.context.vertex->paClVsOutCntl == pointRequest.context.vertex->paClVsOutCntl);
             Require(!replayLegacy.request.context.vertex->pointList && replayLegacy.request.context.vertex->pointSize == 1.0f);
             Require(replayLegacy.request.context.vertex->pointSizeMin == 0.0f && replayLegacy.request.context.vertex->pointSizeMax == 0.0f);
             const auto upgradedLegacy = DecodeBase64(serializer.Serialize(replayLegacy.request));
-            Require(upgradedLegacy[4] == 35u && upgradedLegacy.size() == legacy.size() + 13u);
+            Require(upgradedLegacy[4] == 39u && upgradedLegacy.size() == legacy.size() + (version >= 36u ? 13u : version >= 35u ? 14u : 19u));
         }
     }
 
     pointRequest.context.pixel = pixel;
     auto legacy34 = DecodeBase64(serializer.Serialize(pointRequest));
-    legacy34.resize(legacy34.size() - 13u);
+    legacy34.resize(legacy34.size() - 19u);
     legacy34[4] = 34u;
     const auto replay34 = serializer.Deserialize(EncodeBase64(legacy34));
     Require(replay34.request.context.pixel.has_value() && replay34.request.context.pixel->iteratesSamples && replay34.request.context.pixel->positionLocation == pixel.positionLocation && replay34.request.context.pixel->sampleLocations == pixel.sampleLocations);
