@@ -364,7 +364,9 @@ DrawVerdict Driver::draw(QueueState& queue, std::span<const std::uint32_t> packe
         std::vector<std::uint32_t> words;
         freshRuns(i, runs, words);
         const auto& compiled = *stageCaptures[i].compiled;
-        const char* what = runs != kept.runs ? "runs" : words != kept.words ? "words" : vertexInfos[i].has_value() != (kept.vertexInfo != nullptr) || (vertexInfos[i] && !sameVertexInfo(*vertexInfos[i], *kept.vertexInfo)) ? "vertex stage info" : compiled.variantId != kept.compiled->variantId ? "variant" : compiled.pushConstants != kept.compiled->pushConstants ? "push constants" : nullptr;
+        const auto& push = kept.patchedPushConstants.empty() ? kept.compiled->pushConstants : kept.patchedPushConstants;
+        const bool sameBindings = compiled.bindings.size() == kept.compiled->bindings.size() && std::equal(compiled.bindings.begin(), compiled.bindings.end(), kept.compiled->bindings.begin(), [](const auto& a, const auto& b) { return a.kind == b.kind && a.role == b.role && a.binding == b.binding && a.count == b.count && a.guestDescriptor == b.guestDescriptor; });
+        const char* what = runs != kept.runs ? "runs" : words != kept.words ? "words" : vertexInfos[i].has_value() != (kept.vertexInfo != nullptr) || (vertexInfos[i] && !sameVertexInfo(*vertexInfos[i], *kept.vertexInfo)) ? "vertex stage info" : compiled.variantId != kept.compiled->variantId ? "variant" : compiled.pushConstants != push ? "push constants" : !sameBindings ? "bindings" : nullptr;
         ++dataVerified;
         if (what == nullptr) return;
         char message[320];
@@ -440,7 +442,7 @@ DrawVerdict Driver::draw(QueueState& queue, std::span<const std::uint32_t> packe
         const auto slotEnd = (pushCursorBytes / Graphics::PipelinePushSlotBytes + 1u) * Graphics::PipelinePushSlotBytes;
         require(result.pushConstants.size() <= slotEnd - pushCursorBytes, "stage push constants exceed the pipeline push constant block");
         stages.push_back({program.binary.stage, &result, result.pushConstants.empty() ? 0u : pushCursorBytes});
-        if ((drawHit || stageReused) && !matched[i]->patchedPushConstants.empty()) stages.back().pushConstants = matched[i]->patchedPushConstants;
+        if ((drawHit || reused[i]) && !matched[i]->patchedPushConstants.empty()) stages.back().pushConstants = matched[i]->patchedPushConstants;
         pushCursorBytes += static_cast<std::uint32_t>(result.pushConstants.size());
     }
 

@@ -169,6 +169,17 @@ void UnreadUserWordsKeepTheStage(bool verify) {
     if (verify) Require(compiled == 2 && counters.dataVerified - before.dataVerified == 2, "verify mode: a draw that changed only an unread user word did not build and compare both stages: " + Counts(counters));
     else Require(reused == 2 && compiled == 0, "a draw that changed only a user word no stage reads did not reuse both stages: " + Counts(counters));
 
+    auto* identical = GuestBlock();
+    std::copy_n(first, 4, identical);
+    commands.clear();
+    PixelUserData(commands, identical, 0x33);
+    Append(commands, 0x2d, {3, 2});
+    const auto relocated = counters;
+    counters = Submit(std::move(commands));
+    Require(counters.dataHits == relocated.dataHits + 1, "a moved descriptor was not a data-only hit: " + Counts(counters));
+    if (verify) Require(counters.dataVerified - relocated.dataVerified == 2, "the moved descriptor did not verify both stages: " + Counts(counters));
+    else Require(counters.dataStagesReused - relocated.dataStagesReused == 2, "identical descriptors at different addresses did not reuse both stages: " + Counts(counters));
+
     commands.clear();
     PixelUserData(commands, second, 0x22);
     Append(commands, 0x2d, {3, 2});

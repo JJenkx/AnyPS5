@@ -360,6 +360,7 @@ std::shared_ptr<DispatchVariant> Driver::cloneVariant(const DispatchVariant& var
     copy->runBases = variant.runBases;
     copy->relocatableWords = variant.relocatableWords;
     copy->forwardedWords = variant.forwardedWords;
+    copy->userDataMask = variant.userDataMask;
     copy->words = variant.words;
     copy->forgetSerial = variant.forgetSerial;
     copy->compiled = variant.compiled;
