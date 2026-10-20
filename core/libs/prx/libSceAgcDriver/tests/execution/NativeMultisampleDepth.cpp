@@ -949,8 +949,14 @@ void CheckStencilTarget(Context context, std::uint32_t fragments, bool one, bool
     const Fetch fetch(context, *texture, output, FetchShader(extent.width, extent.height, fragments, false, true));
     const auto sample = [&](const DepthRaster* raster, float offset, std::optional<float> drawn) {
         std::memset(output.Bytes().data(), 0xa5, output.Bytes().size());
+        if (raster != nullptr) {
+            CommandBatch rasterBatch(context);
+            raster->Run(rasterBatch.Handle(), offset);
+            rasterBatch.SubmitAndWait();
+        }
+        Require(CachedSampledTexture(context, words) == texture, "native depth-stencil shadow view changed after a raster write");
+        recorder.Sync();
         CommandBatch batch(context);
-        if (raster != nullptr) raster->Run(batch.Handle(), offset);
         fetch.Run(batch.Handle(), count);
         RecordMemoryBarrier(context, batch.Handle(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT);
         batch.SubmitAndWait();
