@@ -186,8 +186,17 @@ void UnreadUserWordsKeepTheStage(bool verify) {
     const auto moved = counters;
     counters = Submit(std::move(commands));
     Require(counters.dataHits == moved.dataHits + 1, "a draw that pointed the pixel stage at another buffer descriptor was not a data-only hit: " + Counts(counters));
-    Require(counters.dataStagesCompiled - moved.dataStagesCompiled >= 1, "a draw that pointed the pixel stage at another buffer descriptor reused the pixel stage: " + Counts(counters));
-    if (!verify) Require(counters.dataStagesReused - moved.dataStagesReused == 1, "a draw that changed only the pixel stage's descriptor pointer did not reuse the vertex stage: " + Counts(counters));
+    if (verify) Require(counters.dataVerified - moved.dataVerified == 2, "a moved buffer base did not verify both stages: " + Counts(counters));
+    else Require(counters.dataStagesReused - moved.dataStagesReused == 2, "a moved buffer base did not reuse both stages: " + Counts(counters));
+
+    second[2] = 32;
+    commands.clear();
+    PixelUserData(commands, second, 0x44);
+    Append(commands, 0x2d, {3, 2});
+    const auto resized = counters;
+    counters = Submit(std::move(commands));
+    Require(counters.dataStagesCompiled - resized.dataStagesCompiled >= 1, "a changed buffer size reused the pixel stage: " + Counts(counters));
+    if (!verify) Require(counters.dataStagesReused - resized.dataStagesReused == 1, "a changed buffer size did not preserve the vertex stage: " + Counts(counters));
 }
 
 unsigned BrightestColorByte() {

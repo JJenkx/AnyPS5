@@ -261,9 +261,14 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
                     }
                     std::vector<ShaderRecompiler::MemoryRegion> regions;
                     appendEntryRegions(*candidate, regions);
-                    auto* live = profile && (drawStageDataHits() || (drawRelocationEnabled() && !variant->bufferWordBuffers.empty())) ? &liveData : nullptr;
+                    auto* live = ((profile && drawStageDataHits()) || (drawRelocationEnabled() && !variant->bufferWordBuffers.empty())) ? &liveData : nullptr;
                     auto result = validateVariant(programs[i].binary.codeAddress, submission.queue, *candidate, regions, imagesFlushed, runsSynced, sampling, live);
                     if (gateRetry() && (result == EntryOutcome::PublishMoved || result == EntryOutcome::PendingMoved)) result = validateVariant(programs[i].binary.codeAddress, submission.queue, *candidate, regions, imagesFlushed, runsSynced, sampling, live);
+                    if (result == EntryOutcome::EqualData && !candidate->bufferWordBuffers.empty()) {
+                        candidate = patchBufferWords(*candidate, liveData);
+                        if (!candidate) continue;
+                        result = EntryOutcome::Equal;
+                    }
                     if (result == EntryOutcome::Equal) {
                         if (candidate != variant) applyShaderDataPatches(*candidate);
                         candidates.emplace_back(std::move(candidate), std::move(regions));
