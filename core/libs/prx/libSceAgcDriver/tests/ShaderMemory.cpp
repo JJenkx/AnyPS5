@@ -1056,6 +1056,9 @@ void verifySrtTape() {
         std::uint64_t asBase = 0;
         std::uint64_t asValue = 0;
         std::vector<std::pair<std::uint64_t, std::int32_t>> userDataReads;
+        std::vector<std::pair<std::uint64_t, const void*>> readInstructions;
+        std::vector<const void*> operandReads;
+        std::vector<std::pair<std::uint32_t, const void*>> sourceLeads;
         bool operator==(const Walk&) const = default;
     };
     const auto walk = [](const IrResourcePlan& plan, SrtRuntime runtime, bool tape) {
@@ -1081,6 +1084,17 @@ void verifySrtTape() {
         out.userDataReads = use.reads;
         std::sort(out.userDataReads.begin(), out.userDataReads.end());
         out.userDataReads.erase(std::unique(out.userDataReads.begin(), out.userDataReads.end()), out.userDataReads.end());
+        require(use.readInstructions.size() == use.reads.size(), "SRT tape: read provenance has a different size from the reads");
+        for (std::size_t i = 0; i < use.reads.size(); ++i) out.readInstructions.emplace_back(use.reads[i].first, use.readInstructions[i]);
+        out.operandReads = use.operandReads;
+        out.sourceLeads = use.sourceLeads;
+        const auto canonicalize = [](auto& values) {
+            std::sort(values.begin(), values.end());
+            values.erase(std::unique(values.begin(), values.end()), values.end());
+        };
+        canonicalize(out.readInstructions);
+        canonicalize(out.operandReads);
+        canonicalize(out.sourceLeads);
         return out;
     };
     const auto answers = [](const IrResourcePlan& plan, const SrtRuntime& runtime) {
