@@ -949,8 +949,14 @@ void CheckStencilTarget(Context context, std::uint32_t fragments, bool one, bool
     const Fetch fetch(context, *texture, output, FetchShader(extent.width, extent.height, fragments, false, true));
     const auto sample = [&](const DepthRaster* raster, float offset, std::optional<float> drawn) {
         std::memset(output.Bytes().data(), 0xa5, output.Bytes().size());
+        if (raster != nullptr) {
+            CommandBatch rasterBatch(context);
+            raster->Run(rasterBatch.Handle(), offset);
+            rasterBatch.SubmitAndWait();
+        }
+        Require(CachedSampledTexture(context, words) == texture, "native depth-stencil sampled view changed after a raster write");
+        recorder.Sync();
         CommandBatch batch(context);
-        if (raster != nullptr) raster->Run(batch.Handle(), offset);
         fetch.Run(batch.Handle(), count);
         RecordMemoryBarrier(context, batch.Handle(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT);
         batch.SubmitAndWait();
@@ -959,6 +965,7 @@ void CheckStencilTarget(Context context, std::uint32_t fragments, bool one, bool
             std::array<float, 4> result{};
             std::memcpy(result.data(), output.Bytes().data() + (index + 1u) * 16u, 16u);
             const auto expected = drawn ? *drawn + static_cast<float>(index % fragments + 1u) / 16.0f : target.clearDepth;
+            if (result != std::array<float, 4>{expected, 0.0f, 0.0f, 1.0f}) std::fprintf(stderr, "Native depth-stencil mismatch samples=%u initial=%u filling=%u fault=%u index=%u raster=%u offset=%g expected=%g actual={%g,%g,%g,%g}\n", fragments, one, filling, static_cast<std::uint32_t>(fault), index, raster != nullptr, offset, expected, result[0], result[1], result[2], result[3]);
             Require(result == std::array<float, 4>{expected, 0.0f, 0.0f, 1.0f}, "native depth-stencil sampled fetch lost a depth sample or a stencil test outcome");
         }
     };
