@@ -15,7 +15,6 @@ namespace AgcDriver::DriverDetail {
 
 namespace {
 
-constexpr std::size_t MaxAliases = 16384;
 constexpr std::size_t MaxContentWords = 64;
 constexpr std::size_t MaxPooled = 1024;
 
@@ -168,26 +167,6 @@ void Driver::tagVariantRuns(DispatchVariant& variant, std::span<const ShaderReco
     }
 }
 
-namespace {
-
-template <typename TMap>
-std::size_t dropEveryOther(TMap& map) {
-    std::size_t dropped = 0;
-    bool drop = false;
-    for (auto it = map.begin(); it != map.end();) {
-        drop = !drop;
-        if (!drop) {
-            ++it;
-            continue;
-        }
-        it = map.erase(it);
-        ++dropped;
-    }
-    return dropped;
-}
-
-}
-
 void Driver::learnPendingRelocation() {
     const auto pending = drawRelocationPending;
     drawRelocationPending = {};
@@ -254,8 +233,6 @@ void Driver::learnPendingRelocation() {
         drawRelocations[pending.identity] = std::move(shape);
     }
     if (pending.aliases.structure == 0) return;
-    if (drawStageDonors.size() >= MaxAliases) drawRelocationCounters.evicted += dropEveryOther(drawStageDonors);
-    if (drawDecodes.size() >= MaxAliases) drawRelocationCounters.evicted += dropEveryOther(drawDecodes);
     DrawDecodeDonor donor{entry.decode, std::vector<std::uint64_t>(programs.size(), 0)};
     for (std::size_t i = 0; i < programs.size(); ++i) {
         if (entry.stages[i].empty() || entry.stages[i].front() == nullptr || entry.stages[i].front()->prepared == nullptr) continue;
@@ -274,7 +251,7 @@ void Driver::learnPendingRelocation() {
             if (!relocatable && index >= program.hiddenUserWords) mix(program.userData[index]);
         }
         donor.stageKeys[i] = key == 0 ? 1 : key;
-        drawStageDonors[pending.aliases.Key(donor.stageKeys[i], program.userDataBase)] = {variant, program.userData};
+        drawRelocationCounters.evicted += StoreDrawAlias(drawStageDonors, pending.aliases.Key(donor.stageKeys[i], program.userDataBase), DrawStageDonor{variant, program.userData});
     }
     const auto held = drawDecodes.find(pending.aliases.structure);
     if (held != drawDecodes.end() && held->second.stageKeys.size() == donor.stageKeys.size()) {
@@ -282,7 +259,7 @@ void Driver::learnPendingRelocation() {
             if (donor.stageKeys[i] == 0) donor.stageKeys[i] = held->second.stageKeys[i];
         }
     }
-    drawDecodes[pending.aliases.structure] = std::move(donor);
+    drawRelocationCounters.evicted += StoreDrawAlias(drawDecodes, pending.aliases.structure, std::move(donor));
 }
 
 bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& aliases, std::shared_ptr<DrawEntry>& entry, std::shared_ptr<const DrawDecode>& decode, std::vector<DrawUserPatch>& patches) {

@@ -146,6 +146,35 @@ void MovedDataHitsTheCache(bool libraries) {
     Require(again.lookups == 10 && again.hits == 5, mode + ": a draw at an address seen before did not reuse the cached draw (" + std::to_string(again.hits) + " hits)");
 }
 
+void FullAliasCachesRetainUpdates() {
+    using namespace AgcDriver::DriverDetail;
+    const auto check = []<typename TMap>(TMap& map, typename TMap::mapped_type value) {
+        constexpr std::uint64_t Capacity = 16384;
+        for (std::uint64_t key = 0; key < Capacity; ++key) {
+            Require(StoreDrawAlias(map, key, value) == 0, "alias cache evicted before it filled");
+        }
+        auto replacement = value;
+        if constexpr (requires { replacement.userData; }) replacement.userData = {99};
+        else replacement.stageKeys = {99};
+        Require(StoreDrawAlias(map, 0, replacement) == 0, "updating an existing alias evicted unrelated donors at capacity");
+        if constexpr (requires { replacement.userData; }) Require(map.at(0).userData == replacement.userData, "an alias update kept stale stage data");
+        else Require(map.at(0).stageKeys == replacement.stageKeys, "an alias update kept stale decode keys");
+        Require(map.size() == Capacity, "updating an alias changed the number of cached donors");
+        for (std::uint64_t key = 0; key < Capacity; ++key) Require(map.contains(key), "updating an alias lost another donor");
+        const auto dropped = StoreDrawAlias(map, Capacity, value);
+        Require(dropped != 0 && map.size() + dropped == Capacity + 1, "a new alias did not account for its capacity eviction");
+        Require(map.size() <= Capacity && map.contains(Capacity), "capacity eviction lost the newly learned alias");
+        for (std::uint64_t key = Capacity + 1; key < Capacity * 3; ++key) {
+            StoreDrawAlias(map, key, value);
+            Require(map.size() <= Capacity && map.contains(key), "repeated alias insertions exceeded the bound or lost the newest donor");
+        }
+    };
+    std::unordered_map<std::uint64_t, DrawStageDonor> stages;
+    check(stages, DrawStageDonor{std::make_shared<DispatchVariant>(), {17, 42}});
+    std::unordered_map<std::uint64_t, DrawDecodeDonor> decodes;
+    check(decodes, DrawDecodeDonor{std::make_shared<DrawDecode>(), {17, 42}});
+}
+
 void SplitRunsNameTheirSharedWords() {
     alignas(16) static std::array<std::uint32_t, 4> data{1u, 2u, 3u, 4u};
     auto table = std::make_shared<ShaderRecompiler::SrtGuestWords>();
@@ -273,6 +302,7 @@ void ForwardedValuesHitTheCache(bool libraries) {
 
 int main() {
     try {
+        FullAliasCachesRetainUpdates();
         SplitRunsNameTheirSharedWords();
         bool libraries = false;
         {

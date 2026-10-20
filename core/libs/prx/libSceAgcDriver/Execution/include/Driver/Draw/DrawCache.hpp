@@ -166,6 +166,26 @@ struct DrawDecodeDonor {
     std::vector<std::uint64_t> stageKeys;
 };
 
+template <typename TMap>
+std::size_t StoreDrawAlias(TMap& map, typename TMap::key_type key, typename TMap::mapped_type value) {
+    constexpr std::size_t MaxAliases = 16384;
+    std::size_t dropped = 0;
+    if (map.size() >= MaxAliases && !map.contains(key)) {
+        bool drop = false;
+        for (auto it = map.begin(); it != map.end();) {
+            drop = !drop;
+            if (!drop) {
+                ++it;
+                continue;
+            }
+            it = map.erase(it);
+            ++dropped;
+        }
+    }
+    map.insert_or_assign(key, std::move(value));
+    return dropped;
+}
+
 struct DrawRelocationPending {
     std::uint64_t key = 0, identity = 0;
     DrawAliasKeys aliases;
