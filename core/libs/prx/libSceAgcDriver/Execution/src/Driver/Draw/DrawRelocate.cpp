@@ -20,7 +20,7 @@ constexpr std::size_t MaxContentWords = 64;
 constexpr std::size_t MaxPooled = 1024;
 
 template <typename T>
-class RelocationPool {
+class RelocationPool : public std::enable_shared_from_this<RelocationPool<T>> {
 public:
     std::shared_ptr<T> Take() {
         T* object = nullptr;
@@ -32,7 +32,7 @@ public:
             }
         }
         if (object == nullptr) object = new T();
-        return std::shared_ptr<T>(object, [this](T* released) { Return(released); });
+        return std::shared_ptr<T>(object, [pool = this->shared_from_this()](T* released) { pool->Return(released); });
     }
     ~RelocationPool() {
         for (auto* object : spare) delete object;
@@ -54,13 +54,13 @@ private:
 };
 
 RelocationPool<DispatchVariant>& variantPool() {
-    static RelocationPool<DispatchVariant> pool;
-    return pool;
+    static auto pool = std::make_shared<RelocationPool<DispatchVariant>>();
+    return *pool;
 }
 
 RelocationPool<DrawEntry>& entryPool() {
-    static RelocationPool<DrawEntry> pool;
-    return pool;
+    static auto pool = std::make_shared<RelocationPool<DrawEntry>>();
+    return *pool;
 }
 
 struct RelocationMove {
