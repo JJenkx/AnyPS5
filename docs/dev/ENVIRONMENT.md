@@ -10,6 +10,8 @@ The code reads environment names through `getenv`, `IsEnvironmentSet`, `kibSetti
 | `ANYPS5_LOADEXEC_TEST_ROOT` | string | `core/libs/tests/GuestLoadExecHost.cpp` |  | directory the load-exec host test reads its guest executable from |
 | `ANYPS5_TEST_QUOTED_ARGV0` | presence | `core/libs/tests/GuestLoadExecHost.cpp` |  | makes the load-exec test's first argument one with quotes, a backslash and non-ASCII text |
 | `APS5_EBOOT` | string | `core/libs/tests/GuestSystemExit.cpp` |  | host path of the executable launched for /app0/eboot.bin, defaulting to the running executable |
+| `APS5_NO_DRAW_STATE_FILTER` | presence | `core/libs/prx/libSceAgcDriver/Graphics/src/Pipeline.cpp` |  | reapplies dynamic state on every draw instead of filtering unchanged state when using graphics pipeline libraries |
+| `APS5_NO_FORWARDED_RELOCATION` | presence | `core/libs/prx/libSceAgcDriver/Execution/src/Driver/Draw/DrawRelocate.cpp` |  | disables relocation of user words forwarded into shader data |
 | `APS5_SKIP_TIMING_TESTS` | presence | `core/libs/tests/PreciseWait.cpp` |  | treats the timing tests' runner as preempted, so they skip without probing the clock |
 | `APS5_USBD_DEVICE` | string | `core/libs/tests/GuestUsbd.cpp` |  | selects the USB device a test drives, as vendor:product in hex |
 

@@ -222,6 +222,7 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
                 counters.validateUs += phaseMs[DrawRowKeyLookupValidate] * 1000;
             }
         } else if (dataEntry != nullptr && graphics.stages.path == Graphics::ShaderPath::Vertex && dataEntry->stages.size() == programs.size() && dataEntry->decode->programs.size() == programs.size()) {
+            std::vector<std::pair<std::uint32_t, std::uint32_t>> liveData;
             std::uint64_t imagesFlushed = 0, runsSynced = 0;
             const GuestMemory::ReadSiteScope site(GuestMemory::ReadSite::DrawCache);
             std::optional<SampledReadScope> sampling;
@@ -261,7 +262,7 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
                     }
                     std::vector<ShaderRecompiler::MemoryRegion> regions;
                     appendEntryRegions(*candidate, regions);
-                    auto* live = ((profile && drawStageDataHits()) || (drawRelocationEnabled() && !variant->bufferWordBuffers.empty())) ? &liveData : nullptr;
+                    auto* live = (drawRelocationEnabled() && !variant->bufferWordBuffers.empty()) ? &liveData : nullptr;
                     auto result = validateVariant(programs[i].binary.codeAddress, submission.queue, *candidate, regions, imagesFlushed, runsSynced, sampling, live);
                     if (gateRetry() && (result == EntryOutcome::PublishMoved || result == EntryOutcome::PendingMoved)) result = validateVariant(programs[i].binary.codeAddress, submission.queue, *candidate, regions, imagesFlushed, runsSynced, sampling, live);
                     if (result == EntryOutcome::EqualData && !candidate->bufferWordBuffers.empty()) {
