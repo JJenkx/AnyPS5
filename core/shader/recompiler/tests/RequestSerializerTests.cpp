@@ -426,6 +426,25 @@ int main() {
                 Require(replay38.request.graphics->draw.indexAddress == 0xabcdef3400u && replay38.request.graphics->draw.indexCount == 57u && replay38.request.graphics->draw.indexElementBytes == 4u && replay38.request.graphics->draw.instanceCount == 9u);
                 Require(replay38.request.target.float16DenormPreserve == preserve);
                 Require(serializer.Serialize(replay38.request) == EncodeBase64(upgraded));
+                if (fixture.tessellation) {
+                    for (const bool merged : {false, true}) {
+                        auto pointed = request;
+                        pointed.graphics->tessellation->mergedHull = merged;
+                        pointed.context.vertex->pointList = true;
+                        pointed.context.vertex->pointSize = 3.0f;
+                        pointed.context.vertex->pointSizeMin = 1.0f;
+                        pointed.context.vertex->pointSizeMax = 8.0f;
+                        auto version40 = DecodeBase64(serializer.Serialize(pointed));
+                        Require(version40.size() > 13u && version40[4] == 40u);
+                        const auto replay40 = serializer.Deserialize(EncodeBase64(version40));
+                        Require(replay40.request.graphics->tessellation->mergedHull == merged && replay40.request.context.vertex->pointList && replay40.request.context.vertex->pointSize == 3.0f && replay40.request.context.vertex->pointSizeMin == 1.0f && replay40.request.context.vertex->pointSizeMax == 8.0f);
+                        auto version39 = version40;
+                        version39.resize(version39.size() - 13u);
+                        version39[4] = 39u;
+                        const auto replay39 = serializer.Deserialize(EncodeBase64(version39));
+                        Require(replay39.request.graphics->tessellation->mergedHull == merged && !replay39.request.context.vertex->pointList && replay39.request.context.vertex->pointSize == 1.0f && replay39.request.context.vertex->pointSizeMin == 0.0f && replay39.request.context.vertex->pointSizeMax == 0.0f);
+                    }
+                }
                 for (const bool dither : {false, true}) {
                     if (!fixture.pixel && dither) continue;
                     auto main25 = bytes;
