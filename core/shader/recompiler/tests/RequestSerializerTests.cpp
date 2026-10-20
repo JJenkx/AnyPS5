@@ -573,7 +573,7 @@ int main() {
             Require(!replayLegacy.request.context.vertex->pointList && replayLegacy.request.context.vertex->pointSize == 1.0f);
             Require(replayLegacy.request.context.vertex->pointSizeMin == 0.0f && replayLegacy.request.context.vertex->pointSizeMax == 0.0f);
             const auto upgradedLegacy = DecodeBase64(serializer.Serialize(replayLegacy.request));
-            Require(upgradedLegacy[4] == 39u && upgradedLegacy.size() == legacy.size() + (version >= 36u ? 13u : version >= 35u ? 14u : 19u));
+            Require(upgradedLegacy[4] == 40u && upgradedLegacy.size() == legacy.size() + (version >= 36u ? 13u : version >= 35u ? 14u : 19u));
         }
     }
 
