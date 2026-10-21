@@ -797,8 +797,9 @@ void CheckDepthTarget(Context context, VkFormat format, std::uint32_t fragments,
                 const auto storedBytes = fault == ClearFault::PartialStore ? 4u : static_cast<std::size_t>(metadataBytes);
                 if (source == ClearSource::QueuedFill) {
                     const std::uint32_t queuedPattern = fault == ClearFault::BadMetadata ? 0x0fu : clearPattern;
+                    const std::uint32_t hostPattern = fault == ClearFault::None ? (clearOne ? 0u : (depthOnly ? 0xfffffff0u : 0xfffc00f0u)) : queuedPattern;
                     AgcDriver::GuestMemory::StoreOwnBytes(target.htileAddress, static_cast<std::size_t>(metadataBytes), [&] {
-                        for (std::size_t i = 0u; i < metadataBytes / 4u; ++i) std::memcpy(metadata.Data() + i * 4u, &queuedPattern, 4u);
+                        for (std::size_t i = 0u; i < metadataBytes / 4u; ++i) std::memcpy(metadata.Data() + i * 4u, &hostPattern, 4u);
                     });
                     QueueTargetFill(context, recorder, target.htileAddress, static_cast<std::size_t>(metadataBytes), queuedPattern);
                     NoteDepthMetadataFill(target.htileAddress, static_cast<std::size_t>(metadataBytes), queuedPattern);
