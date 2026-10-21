@@ -2587,13 +2587,17 @@ void WriteChanged(std::uint64_t address, std::span<const std::byte> current, std
             const auto same = _mm_cmpeq_epi8(bytes, _mm_loadu_si128(reinterpret_cast<const __m128i*>(original.data() + at)));
             const auto equal = static_cast<std::uint32_t>(_mm_movemask_epi8(same));
             if (equal == 0xffffu) continue;
-            if (equal == 0) _mm_storeu_si128(reinterpret_cast<__m128i*>(destination + at), bytes);
-            else _mm_maskmoveu_si128(bytes, _mm_xor_si128(same, _mm_set1_epi8(-1)), reinterpret_cast<char*>(destination + at));
             const auto changed = ~equal & 0xffffu;
+            if (equal == 0) _mm_storeu_si128(reinterpret_cast<__m128i*>(destination + at), bytes);
+            else {
+                for (auto bits = changed; bits != 0; bits &= bits - 1) {
+                    const auto index = at + static_cast<std::size_t>(std::countr_zero(bits));
+                    destination[index] = current[index];
+                }
+            }
             firstChanged = std::min(firstChanged, at + static_cast<std::size_t>(std::countr_zero(changed)));
             lastChanged = std::max(lastChanged, at + 32 - static_cast<std::size_t>(std::countl_zero(changed)));
         }
-        _mm_sfence();
         for (; at < size; ++at) {
             if (current[at] == original[at]) continue;
             destination[at] = current[at];
