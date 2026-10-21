@@ -793,9 +793,9 @@ VkMemoryRequirements dmaBufBufferRequirements(const Context& context, const Host
     return requirements;
 }
 
-bool createSparseDmaBufImport(const Context& context, HostImport& entry, int file, std::uint64_t offset) {
-    const auto lead = offset % SparseBlockBytes;
-    offset -= lead;
+bool createSparseDmaBufImport(const Context& context, HostImport& entry, int file, std::span<const GuestArena::SharedBackingRun> runs) {
+    if (runs.empty()) return false;
+    const auto lead = runs[0].offset % SparseBlockBytes;
     const bool ownQueue = context.sparseQueue != VK_NULL_HANDLE && context.sparseQueueMutex != nullptr;
     if (!context.sparseBinding || entry.bytes <= ImportChunkBytes || (!ownQueue && !GuestMemory::GpuMutex().HeldByThisThread()) || udmabufDevice() < 0) return false;
     struct stat backing {};
@@ -804,8 +804,23 @@ bool createSparseDmaBufImport(const Context& context, HostImport& entry, int fil
     VkBuffer buffer = VK_NULL_HANDLE;
     const auto requirements = dmaBufBufferRequirements(context, entry, VK_BUFFER_CREATE_SPARSE_BINDING_BIT, SparseImportUsage, lead + entry.bytes, &buffer);
     const auto alignment = requirements.alignment;
-    const bool chosen = alignment != 0 && offset % alignment == 0 && ImportChunkBytes % alignment == 0 && (chunkTypes & ~requirements.memoryTypeBits) == 0 && (requirements.memoryTypeBits & chunkTypes) != 0 &&
-        (offset + requirements.size + ImportChunkBytes - 1) / ImportChunkBytes * ImportChunkBytes <= static_cast<std::uint64_t>(backing.st_size);
+    struct Piece {
+        std::uint64_t file;
+        VkDeviceSize resource;
+        VkDeviceSize bytes;
+    };
+    std::vector<Piece> pieces;
+    bool chosen = alignment != 0 && ImportChunkBytes % alignment == 0 && (chunkTypes & ~requirements.memoryTypeBits) == 0 && (requirements.memoryTypeBits & chunkTypes) != 0;
+    VkDeviceSize resource = 0;
+    for (std::size_t index = 0; chosen && index < runs.size(); ++index) {
+        const auto file = index == 0 ? runs[0].offset - lead : runs[index].offset;
+        const VkDeviceSize bytes = index == 0 ? lead + runs[0].bytes : runs[index].bytes;
+        const auto length = index + 1 == runs.size() ? requirements.size - resource : bytes;
+        chosen = file % alignment == 0 && resource % alignment == 0 && (index + 1 == runs.size() || bytes % alignment == 0) && resource + bytes <= requirements.size &&
+            (file + length + ImportChunkBytes - 1) / ImportChunkBytes * ImportChunkBytes <= static_cast<std::uint64_t>(backing.st_size);
+        pieces.push_back({file, resource, length});
+        resource += bytes;
+    }
     const auto fail = [&](const char* step, VkResult result) {
         context.Function<PFN_vkDestroyBuffer>("vkDestroyBuffer")(context.device, buffer, nullptr);
         throwSparseImport(entry, step, result);
@@ -816,19 +831,21 @@ bool createSparseDmaBufImport(const Context& context, HostImport& entry, int fil
     }
     auto chunks = std::make_shared<std::vector<std::shared_ptr<ImportChunk>>>();
     std::vector<VkSparseMemoryBind> binds;
-    for (VkDeviceSize resource = 0; resource < requirements.size;) {
-        const auto position = offset + resource;
-        const auto index = position / ImportChunkBytes;
-        const auto within = position - index * ImportChunkBytes;
-        const auto size = std::min<VkDeviceSize>(ImportChunkBytes - within, requirements.size - resource);
-        const char* step = nullptr;
-        VkResult failure = VK_SUCCESS;
-        auto chunk = importChunk(context, file, index, requirements.memoryTypeBits, step, failure);
-        if (chunk == nullptr) fail(step, failure);
-        if (((requirements.memoryTypeBits >> chunk->memoryType) & 1u) == 0) fail("the memory type of a chunk import", VK_ERROR_FORMAT_NOT_SUPPORTED);
-        binds.push_back({resource, size, chunk->memory, within, 0});
-        chunks->push_back(std::move(chunk));
-        resource += size;
+    for (const auto& piece : pieces) {
+        for (VkDeviceSize done = 0; done < piece.bytes;) {
+            const auto position = piece.file + done;
+            const auto index = position / ImportChunkBytes;
+            const auto within = position - index * ImportChunkBytes;
+            const auto size = std::min<VkDeviceSize>(ImportChunkBytes - within, piece.bytes - done);
+            const char* step = nullptr;
+            VkResult failure = VK_SUCCESS;
+            auto chunk = importChunk(context, file, index, requirements.memoryTypeBits, step, failure);
+            if (chunk == nullptr) fail(step, failure);
+            if (((requirements.memoryTypeBits >> chunk->memoryType) & 1u) == 0) fail("the memory type of a chunk import", VK_ERROR_FORMAT_NOT_SUPPORTED);
+            binds.push_back({piece.resource + done, size, chunk->memory, within, 0});
+            chunks->push_back(std::move(chunk));
+            done += size;
+        }
     }
     const VkSparseBufferMemoryBindInfo bufferBinds{buffer, static_cast<std::uint32_t>(binds.size()), binds.data()};
     VkBindSparseInfo bind{VK_STRUCTURE_TYPE_BIND_SPARSE_INFO};
@@ -866,7 +883,7 @@ const char* createBackingImport(const Context& context, HostImport& entry, int f
     bool fits = false;
     VkResult chunkFailure = VK_SUCCESS;
     if (count == 1 && createChunkedDmaBufImport(context, entry, file, runs[0].offset, fits, chunkFailure) == nullptr && fits) return nullptr;
-    if (count == 1 && !fits && createSparseDmaBufImport(context, entry, file, runs[0].offset)) return nullptr;
+    if ((count > 1 || !fits) && createSparseDmaBufImport(context, entry, file, std::span<const GuestArena::SharedBackingRun>(runs, count))) return nullptr;
     return createDmaBufImport(context, entry, file, std::span<const GuestArena::SharedBackingRun>(runs, count), failure);
 }
 
