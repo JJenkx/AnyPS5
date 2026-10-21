@@ -1,5 +1,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/ReferenceStorage.hpp"
 #include "AllocationFailure.hpp"
+#include <algorithm>
+#include <span>
 #include <cstddef>
 #include <cstdio>
 #include <new>
@@ -55,6 +57,21 @@ void ReuseSameStorage() {
     auto again = storage.Take(8 * KiB);
     Expect(again.data() == data && again.capacity() >= 16 * KiB, "a take reuses the held allocation");
     Expect(storage.IdleBytes() == 0 && storage.IdleCount() == 0, "a taken buffer leaves the store");
+}
+
+void LargerStorageTakesTheReferenceSize() {
+    ReferenceStorage storage(256 * KiB);
+    std::vector<std::byte> larger(64 * KiB, std::byte{0x5a});
+    const auto* data = larger.data();
+    storage.Return(std::move(larger));
+    std::vector<std::byte> reference(16 * KiB);
+    for (std::size_t index = 0; index < reference.size(); ++index) reference[index] = static_cast<std::byte>(index);
+    const std::span<const std::byte> bytes(reference);
+    auto taken = storage.Take(bytes.size());
+    taken.assign(bytes.begin(), bytes.end());
+    Expect(taken.data() == data, "a smaller reference reuses the larger held allocation");
+    Expect(taken.size() == bytes.size(), "a reference copied into larger storage keeps the reference's size");
+    Expect(std::equal(taken.begin(), taken.end(), bytes.begin()), "a reference copied into larger storage holds the reference's bytes");
 }
 
 void SmallestFit() {
@@ -142,6 +159,7 @@ void NoAllocationOnReturnOrTake() {
 int main() {
     TakeFromEmpty();
     ReuseSameStorage();
+    LargerStorageTakesTheReferenceSize();
     SmallestFit();
     CapacityEvictsOldest();
     OversizeDropped();
