@@ -2565,6 +2565,8 @@ void WriteChangedCommitted(std::uint64_t address, std::span<const std::byte> cur
     }
 }
 
+constexpr int MaskedStoreMinChangedBytes = 10;
+
 void WriteChanged(std::uint64_t address, std::span<const std::byte> current, std::span<const std::byte> original) {
     require(current.size() == original.size(), "write-back snapshot sizes differ");
     BreakProofs();
@@ -2582,14 +2584,19 @@ void WriteChanged(std::uint64_t address, std::span<const std::byte> current, std
         std::size_t firstChanged = size;
         std::size_t lastChanged = 0;
         std::size_t at = 0;
+        bool masked = false;
         for (; at + 16 <= size; at += 16) {
             const auto bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(current.data() + at));
             const auto same = _mm_cmpeq_epi8(bytes, _mm_loadu_si128(reinterpret_cast<const __m128i*>(original.data() + at)));
             const auto equal = static_cast<std::uint32_t>(_mm_movemask_epi8(same));
             if (equal == 0xffffu) continue;
             const auto changed = ~equal & 0xffffu;
-            if (equal == 0) _mm_storeu_si128(reinterpret_cast<__m128i*>(destination + at), bytes);
-            else {
+            if (equal == 0) {
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(destination + at), bytes);
+            } else if (std::popcount(changed) >= MaskedStoreMinChangedBytes) {
+                _mm_maskmoveu_si128(bytes, _mm_xor_si128(same, _mm_set1_epi8(-1)), reinterpret_cast<char*>(destination + at));
+                masked = true;
+            } else {
                 for (auto bits = changed; bits != 0; bits &= bits - 1) {
                     const auto index = at + static_cast<std::size_t>(std::countr_zero(bits));
                     destination[index] = current[index];
@@ -2598,6 +2605,7 @@ void WriteChanged(std::uint64_t address, std::span<const std::byte> current, std
             firstChanged = std::min(firstChanged, at + static_cast<std::size_t>(std::countr_zero(changed)));
             lastChanged = std::max(lastChanged, at + 32 - static_cast<std::size_t>(std::countl_zero(changed)));
         }
+        if (masked) _mm_sfence();
         for (; at < size; ++at) {
             if (current[at] == original[at]) continue;
             destination[at] = current[at];

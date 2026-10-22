@@ -12,6 +12,7 @@
 #include "prx/libc/include/FailureReport.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -813,6 +814,24 @@ void testWriteChangedStoresExactlyTheChangedRuns() {
     for (std::size_t i = 0; i < sizeof(guest); ++i) {
         const auto expected = current[i] != original[i] ? static_cast<std::uint8_t>(current[i]) : static_cast<std::uint8_t>(0xa0u ^ i);
         check(guest[i] == expected, "write-back stored a byte the GPU did not change or missed one it did");
+    }
+}
+
+void testWriteChangedChunksOnBothStorePaths() {
+    alignas(64) static std::uint8_t guest[64];
+    std::vector<std::byte> original(sizeof(guest)), current(sizeof(guest));
+    for (std::size_t i = 0; i < sizeof(guest); ++i) original[i] = current[i] = static_cast<std::byte>(i);
+    const std::array<std::uint32_t, 4> masks = {0x0421u, 0xfb7bu, 0x5ad7u, 0xffffu};
+    for (std::size_t chunk = 0; chunk < masks.size(); ++chunk) {
+        for (std::size_t bit = 0; bit < 16; ++bit) {
+            if ((masks[chunk] >> bit) & 1u) current[chunk * 16 + bit] ^= std::byte{0xff};
+        }
+    }
+    for (std::size_t i = 0; i < sizeof(guest); ++i) guest[i] = static_cast<std::uint8_t>(0xa0u ^ i);
+    AgcDriver::GuestMemory::WriteChanged(reinterpret_cast<std::uintptr_t>(guest), current, original);
+    for (std::size_t i = 0; i < sizeof(guest); ++i) {
+        const auto expected = current[i] != original[i] ? static_cast<std::uint8_t>(current[i]) : static_cast<std::uint8_t>(0xa0u ^ i);
+        check(guest[i] == expected, "write-back of a chunk with 3, 13, 10 or 16 changed bytes stored a byte the GPU did not change or missed one it did");
     }
 }
 
@@ -1983,6 +2002,7 @@ int main(int argc, char** argv) {
         testNopPad();
         testRewindPayloadBits();
         testWriteChangedKeepsUntouchedBytes();
+        testWriteChangedChunksOnBothStorePaths();
         testWriteChangedStoresExactlyTheChangedRuns();
         testRegisters();
         testRegisterFile();
