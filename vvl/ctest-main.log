@@ -1,0 +1,577 @@
+UpdateCTestConfiguration  from :<work>/build-join/DartConfiguration.tcl
+Test project <work>/build-join
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 344
+      Start 344: agc_host_import_unmap
+
+344: Test command: <work>/build-join/tests/agc_driver_recorder_tests "--host-import-unmap-only"
+344: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+344: Environment variables: 
+344:  APS5_NO_PIPELINE_JOURNAL=1
+344: Test timeout computed to be: 10000000
+344: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+344: [Vulkan Loader] LAYER:          Searching for implicit layer manifest files
+344: [Vulkan Loader] LAYER:             In following locations:
+344: [Vulkan Loader] LAYER:                /root/.config/vulkan/implicit_layer.d
+344: [Vulkan Loader] LAYER:                /etc/xdg/vulkan/implicit_layer.d
+344: [Vulkan Loader] LAYER:                /etc/vulkan/implicit_layer.d
+344: [Vulkan Loader] LAYER:                /root/.local/share/vulkan/implicit_layer.d
+344: [Vulkan Loader] LAYER:                /usr/local/share/vulkan/implicit_layer.d
+344: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d
+344: [Vulkan Loader] LAYER:             Found the following files:
+344: [Vulkan Loader] LAYER:                /etc/vulkan/implicit_layer.d/renderdoc_capture.json
+344: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/nvidia_layers.json
+344: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_anti_lag.json
+344: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json
+344: [Vulkan Loader] LAYER:          Searching for explicit layer manifest files
+344: [Vulkan Loader] LAYER:             In following locations:
+344: [Vulkan Loader] LAYER:                <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d
+344: [Vulkan Loader] LAYER:                /root/.config/vulkan/explicit_layer.d
+344: [Vulkan Loader] LAYER:                /etc/xdg/vulkan/explicit_layer.d
+344: [Vulkan Loader] LAYER:                /etc/vulkan/explicit_layer.d
+344: [Vulkan Loader] LAYER:                /root/.local/share/vulkan/explicit_layer.d
+344: [Vulkan Loader] LAYER:                /usr/local/share/vulkan/explicit_layer.d
+344: [Vulkan Loader] LAYER:                /usr/share/vulkan/explicit_layer.d
+344: [Vulkan Loader] LAYER:             Found the following files:
+344: [Vulkan Loader] LAYER:                <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+344: [Vulkan Loader] WARNING | LAYER: env var 'VK_INSTANCE_LAYERS' defined and adding layers "VK_LAYER_KHRONOS_validation"
+344: [Vulkan Loader] WARNING | LAYER: env var 'VK_INSTANCE_LAYERS' defined and adding layers "VK_LAYER_KHRONOS_validation"
+344: [Vulkan Loader] DEBUG | LAYER:  Loading layer library <home>/anyps5-work/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+344: [Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_KHRONOS_validation" (<work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so)
+344: [Vulkan Loader] DEBUG | LAYER:  Loading layer library libVkLayer_MESA_device_select.so
+344: [Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_MESA_device_select" (/usr/lib/libVkLayer_MESA_device_select.so)
+344: [Vulkan Loader] LAYER:          vkCreateInstance layer callstack setup to:
+344: [Vulkan Loader] LAYER:             <Application>
+344: [Vulkan Loader] LAYER:               ||
+344: [Vulkan Loader] LAYER:             <Loader>
+344: [Vulkan Loader] LAYER:               ||
+344: [Vulkan Loader] LAYER:             VK_LAYER_MESA_device_select
+344: [Vulkan Loader] LAYER:                     Type: Implicit
+344: [Vulkan Loader] LAYER:                     Enabled By: Implicit Layer
+344: [Vulkan Loader] LAYER:                         Disable Env Var:  NODEVICE_SELECT
+344: [Vulkan Loader] LAYER:                     Manifest: /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json
+344: [Vulkan Loader] LAYER:                     Library:  /usr/lib/libVkLayer_MESA_device_select.so
+344: [Vulkan Loader] LAYER:               ||
+344: [Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation
+344: [Vulkan Loader] LAYER:                     Type: Explicit
+344: [Vulkan Loader] LAYER:                     Enabled By: Environment Variable VK_INSTANCE_LAYERS
+344: [Vulkan Loader] LAYER:                     Manifest: <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+344: [Vulkan Loader] LAYER:                     Library:  <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+344: [Vulkan Loader] LAYER:               ||
+344: [Vulkan Loader] LAYER:             <Drivers>
+344: [Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_KHRONOS_validation" (<work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so)
+344: [Vulkan Loader] INFO | LAYER:   Failed to find vkGetDeviceProcAddr in layer "/usr/lib/libVkLayer_MESA_device_select.so"
+344: [Vulkan Loader] DRIVER:         vkCreateDevice layer callstack setup to:
+344: [Vulkan Loader] DRIVER:            <Application>
+344: [Vulkan Loader] DRIVER:              ||
+344: [Vulkan Loader] DRIVER:            <Loader>
+344: [Vulkan Loader] DRIVER:              ||
+344: [Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation
+344: [Vulkan Loader] LAYER:                     Type: Explicit
+344: [Vulkan Loader] LAYER:                     Enabled By: Environment Variable VK_INSTANCE_LAYERS
+344: [Vulkan Loader] LAYER:                     Manifest: <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+344: [Vulkan Loader] LAYER:                     Library:  <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+344: [Vulkan Loader] LAYER:               ||
+344: [Vulkan Loader] DRIVER:            <Device>
+344: [Vulkan Loader] DRIVER:                Using "AMD Radeon RX 6650 XT (RADV NAVI23)" with driver: "/usr/lib/libvulkan_radeon.so"
+344: [write-watch] host imports resolve write protection: yes (4 of 4 scratch pages written after a GPU read, 4 after a GPU write, 4 after the import); imported ranges are compared
+344: [write-watch] dma-buf imports keep write protection: yes (0 of 4 scratch pages written after a GPU read, 0 after a GPU write, 0 after the import, 1 seen after a CPU store); imported ranges stay watched
+344: [Vulkan Loader] DEBUG | LAYER:  Unloading layer library /usr/lib/libVkLayer_MESA_device_select.so
+344: [Vulkan Loader] DEBUG | LAYER:  Unloading layer library <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+344: Vulkan device: AMD Radeon RX 6650 XT (RADV NAVI23)
+344: Vulkan device: AMD Radeon RX 6650 XT (RADV NAVI23)
+344: host imports are compared
+344: host import unmap lifetime: ok
+ 1/15 Test #344: agc_host_import_unmap ...........................   Passed    0.20 sec
+test 346
+      Start 346: agc_host_import_retirement
+
+346: Test command: <work>/build-join/tests/agc_driver_recorder_tests "--host-import-retirement-only"
+346: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+346: Environment variables: 
+346:  APS5_NO_PIPELINE_JOURNAL=1
+346: Test timeout computed to be: 30
+346: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+346: [Vulkan Loader] LAYER:          Searching for implicit layer manifest files
+346: [Vulkan Loader] LAYER:             In following locations:
+346: [Vulkan Loader] LAYER:                /root/.config/vulkan/implicit_layer.d
+346: [Vulkan Loader] LAYER:                /etc/xdg/vulkan/implicit_layer.d
+346: [Vulkan Loader] LAYER:                /etc/vulkan/implicit_layer.d
+346: [Vulkan Loader] LAYER:                /root/.local/share/vulkan/implicit_layer.d
+346: [Vulkan Loader] LAYER:                /usr/local/share/vulkan/implicit_layer.d
+346: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d
+346: [Vulkan Loader] LAYER:             Found the following files:
+346: [Vulkan Loader] LAYER:                /etc/vulkan/implicit_layer.d/renderdoc_capture.json
+346: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/nvidia_layers.json
+346: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_anti_lag.json
+346: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json
+346: [Vulkan Loader] LAYER:          Searching for explicit layer manifest files
+346: [Vulkan Loader] LAYER:             In following locations:
+346: [Vulkan Loader] LAYER:                <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d
+346: [Vulkan Loader] LAYER:                /root/.config/vulkan/explicit_layer.d
+346: [Vulkan Loader] LAYER:                /etc/xdg/vulkan/explicit_layer.d
+346: [Vulkan Loader] LAYER:                /etc/vulkan/explicit_layer.d
+346: [Vulkan Loader] LAYER:                /root/.local/share/vulkan/explicit_layer.d
+346: [Vulkan Loader] LAYER:                /usr/local/share/vulkan/explicit_layer.d
+346: [Vulkan Loader] LAYER:                /usr/share/vulkan/explicit_layer.d
+346: [Vulkan Loader] LAYER:             Found the following files:
+346: [Vulkan Loader] LAYER:                <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+346: [Vulkan Loader] WARNING | LAYER: env var 'VK_INSTANCE_LAYERS' defined and adding layers "VK_LAYER_KHRONOS_validation"
+346: [Vulkan Loader] WARNING | LAYER: env var 'VK_INSTANCE_LAYERS' defined and adding layers "VK_LAYER_KHRONOS_validation"
+346: [Vulkan Loader] DEBUG | LAYER:  Loading layer library <home>/anyps5-work/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+346: [Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_KHRONOS_validation" (<work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so)
+346: [Vulkan Loader] DEBUG | LAYER:  Loading layer library libVkLayer_MESA_device_select.so
+346: [Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_MESA_device_select" (/usr/lib/libVkLayer_MESA_device_select.so)
+346: [Vulkan Loader] LAYER:          vkCreateInstance layer callstack setup to:
+346: [Vulkan Loader] LAYER:             <Application>
+346: [Vulkan Loader] LAYER:               ||
+346: [Vulkan Loader] LAYER:             <Loader>
+346: [Vulkan Loader] LAYER:               ||
+346: [Vulkan Loader] LAYER:             VK_LAYER_MESA_device_select
+346: [Vulkan Loader] LAYER:                     Type: Implicit
+346: [Vulkan Loader] LAYER:                     Enabled By: Implicit Layer
+346: [Vulkan Loader] LAYER:                         Disable Env Var:  NODEVICE_SELECT
+346: [Vulkan Loader] LAYER:                     Manifest: /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json
+346: [Vulkan Loader] LAYER:                     Library:  /usr/lib/libVkLayer_MESA_device_select.so
+346: [Vulkan Loader] LAYER:               ||
+346: [Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation
+346: [Vulkan Loader] LAYER:                     Type: Explicit
+346: [Vulkan Loader] LAYER:                     Enabled By: Environment Variable VK_INSTANCE_LAYERS
+346: [Vulkan Loader] LAYER:                     Manifest: <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+346: [Vulkan Loader] LAYER:                     Library:  <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+346: [Vulkan Loader] LAYER:               ||
+346: [Vulkan Loader] LAYER:             <Drivers>
+346: [Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_KHRONOS_validation" (<work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so)
+346: [Vulkan Loader] INFO | LAYER:   Failed to find vkGetDeviceProcAddr in layer "/usr/lib/libVkLayer_MESA_device_select.so"
+346: [Vulkan Loader] DRIVER:         vkCreateDevice layer callstack setup to:
+346: [Vulkan Loader] DRIVER:            <Application>
+346: [Vulkan Loader] DRIVER:              ||
+346: [Vulkan Loader] DRIVER:            <Loader>
+346: [Vulkan Loader] DRIVER:              ||
+346: [Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation
+346: [Vulkan Loader] LAYER:                     Type: Explicit
+346: [Vulkan Loader] LAYER:                     Enabled By: Environment Variable VK_INSTANCE_LAYERS
+346: [Vulkan Loader] LAYER:                     Manifest: <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+346: [Vulkan Loader] LAYER:                     Library:  <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+346: [Vulkan Loader] LAYER:               ||
+346: [Vulkan Loader] DRIVER:            <Device>
+346: [Vulkan Loader] DRIVER:                Using "AMD Radeon RX 6650 XT (RADV NAVI23)" with driver: "/usr/lib/libvulkan_radeon.so"
+346: [write-watch] host imports resolve write protection: yes (4 of 4 scratch pages written after a GPU read, 4 after a GPU write, 4 after the import); imported ranges are compared
+346: [write-watch] dma-buf imports keep write protection: yes (0 of 4 scratch pages written after a GPU read, 0 after a GPU write, 0 after the import, 1 seen after a CPU store); imported ranges stay watched
+346: [Vulkan Loader] DEBUG | LAYER:  Unloading layer library /usr/lib/libVkLayer_MESA_device_select.so
+346: [Vulkan Loader] DEBUG | LAYER:  Unloading layer library <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+346: Vulkan device: AMD Radeon RX 6650 XT (RADV NAVI23)
+346: Vulkan device: AMD Radeon RX 6650 XT (RADV NAVI23)
+346: host import retirement: same-base growth GPU readback verified; deferred=1; recorder preserved=1
+346: host import retirement: earlier-base overlap GPU readback verified; deferred=1; recorder preserved=1
+346: host import retirement: predecessor split GPU readback verified; deferred=1; recorder preserved=1
+346: Host import retirement locking and GPU readback tests passed
+ 2/15 Test #346: agc_host_import_retirement ......................   Passed    0.05 sec
+test 347
+      Start 347: agc_sparse_run_import
+
+347: Test command: <work>/build-join/tests/agc_driver_recorder_tests "--sparse-run-import-only"
+347: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+347: Environment variables: 
+347:  APS5_NO_PIPELINE_JOURNAL=1
+347: Test timeout computed to be: 30
+347: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+347: [Vulkan Loader] LAYER:          Searching for implicit layer manifest files
+347: [Vulkan Loader] LAYER:             In following locations:
+347: [Vulkan Loader] LAYER:                /root/.config/vulkan/implicit_layer.d
+347: [Vulkan Loader] LAYER:                /etc/xdg/vulkan/implicit_layer.d
+347: [Vulkan Loader] LAYER:                /etc/vulkan/implicit_layer.d
+347: [Vulkan Loader] LAYER:                /root/.local/share/vulkan/implicit_layer.d
+347: [Vulkan Loader] LAYER:                /usr/local/share/vulkan/implicit_layer.d
+347: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d
+347: [Vulkan Loader] LAYER:             Found the following files:
+347: [Vulkan Loader] LAYER:                /etc/vulkan/implicit_layer.d/renderdoc_capture.json
+347: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/nvidia_layers.json
+347: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_anti_lag.json
+347: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json
+347: [Vulkan Loader] LAYER:          Searching for explicit layer manifest files
+347: [Vulkan Loader] LAYER:             In following locations:
+347: [Vulkan Loader] LAYER:                <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d
+347: [Vulkan Loader] LAYER:                /root/.config/vulkan/explicit_layer.d
+347: [Vulkan Loader] LAYER:                /etc/xdg/vulkan/explicit_layer.d
+347: [Vulkan Loader] LAYER:                /etc/vulkan/explicit_layer.d
+347: [Vulkan Loader] LAYER:                /root/.local/share/vulkan/explicit_layer.d
+347: [Vulkan Loader] LAYER:                /usr/local/share/vulkan/explicit_layer.d
+347: [Vulkan Loader] LAYER:                /usr/share/vulkan/explicit_layer.d
+347: [Vulkan Loader] LAYER:             Found the following files:
+347: [Vulkan Loader] LAYER:                <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+347: [Vulkan Loader] WARNING | LAYER: env var 'VK_INSTANCE_LAYERS' defined and adding layers "VK_LAYER_KHRONOS_validation"
+347: [Vulkan Loader] WARNING | LAYER: env var 'VK_INSTANCE_LAYERS' defined and adding layers "VK_LAYER_KHRONOS_validation"
+347: [Vulkan Loader] DEBUG | LAYER:  Loading layer library <home>/anyps5-work/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+347: [Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_KHRONOS_validation" (<work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so)
+347: [Vulkan Loader] DEBUG | LAYER:  Loading layer library libVkLayer_MESA_device_select.so
+347: [Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_MESA_device_select" (/usr/lib/libVkLayer_MESA_device_select.so)
+347: [Vulkan Loader] LAYER:          vkCreateInstance layer callstack setup to:
+347: [Vulkan Loader] LAYER:             <Application>
+347: [Vulkan Loader] LAYER:               ||
+347: [Vulkan Loader] LAYER:             <Loader>
+347: [Vulkan Loader] LAYER:               ||
+347: [Vulkan Loader] LAYER:             VK_LAYER_MESA_device_select
+347: [Vulkan Loader] LAYER:                     Type: Implicit
+347: [Vulkan Loader] LAYER:                     Enabled By: Implicit Layer
+347: [Vulkan Loader] LAYER:                         Disable Env Var:  NODEVICE_SELECT
+347: [Vulkan Loader] LAYER:                     Manifest: /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json
+347: [Vulkan Loader] LAYER:                     Library:  /usr/lib/libVkLayer_MESA_device_select.so
+347: [Vulkan Loader] LAYER:               ||
+347: [Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation
+347: [Vulkan Loader] LAYER:                     Type: Explicit
+347: [Vulkan Loader] LAYER:                     Enabled By: Environment Variable VK_INSTANCE_LAYERS
+347: [Vulkan Loader] LAYER:                     Manifest: <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+347: [Vulkan Loader] LAYER:                     Library:  <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+347: [Vulkan Loader] LAYER:               ||
+347: [Vulkan Loader] LAYER:             <Drivers>
+347: [Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_KHRONOS_validation" (<work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so)
+347: [Vulkan Loader] INFO | LAYER:   Failed to find vkGetDeviceProcAddr in layer "/usr/lib/libVkLayer_MESA_device_select.so"
+347: [Vulkan Loader] DRIVER:         vkCreateDevice layer callstack setup to:
+347: [Vulkan Loader] DRIVER:            <Application>
+347: [Vulkan Loader] DRIVER:              ||
+347: [Vulkan Loader] DRIVER:            <Loader>
+347: [Vulkan Loader] DRIVER:              ||
+347: [Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation
+347: [Vulkan Loader] LAYER:                     Type: Explicit
+347: [Vulkan Loader] LAYER:                     Enabled By: Environment Variable VK_INSTANCE_LAYERS
+347: [Vulkan Loader] LAYER:                     Manifest: <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+347: [Vulkan Loader] LAYER:                     Library:  <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+347: [Vulkan Loader] LAYER:               ||
+347: [Vulkan Loader] DRIVER:            <Device>
+347: [Vulkan Loader] DRIVER:                Using "AMD Radeon RX 6650 XT (RADV NAVI23)" with driver: "/usr/lib/libvulkan_radeon.so"
+347: [write-watch] host imports resolve write protection: yes (4 of 4 scratch pages written after a GPU read, 4 after a GPU write, 4 after the import); imported ranges are compared
+347: [write-watch] dma-buf imports keep write protection: yes (0 of 4 scratch pages written after a GPU read, 0 after a GPU write, 0 after the import, 1 seen after a CPU store); imported ranges stay watched
+347: [Vulkan Loader] DEBUG | LAYER:  Unloading layer library /usr/lib/libVkLayer_MESA_device_select.so
+347: [Vulkan Loader] DEBUG | LAYER:  Unloading layer library <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+347: Vulkan device: AMD Radeon RX 6650 XT (RADV NAVI23)
+347: Vulkan device: AMD Radeon RX 6650 XT (RADV NAVI23)
+347: sparse run import tests passed (in place)
+ 3/15 Test #347: agc_sparse_run_import ...........................   Passed    0.05 sec
+test 348
+      Start 348: agc_sparse_run_import_copied
+
+348: Test command: <work>/build-join/tests/agc_driver_recorder_tests "--sparse-run-copied-only"
+348: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+348: Environment variables: 
+348:  APS5_NO_PIPELINE_JOURNAL=1
+348: Test timeout computed to be: 30
+348: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+348: [Vulkan Loader] LAYER:          Searching for implicit layer manifest files
+348: [Vulkan Loader] LAYER:             In following locations:
+348: [Vulkan Loader] LAYER:                /root/.config/vulkan/implicit_layer.d
+348: [Vulkan Loader] LAYER:                /etc/xdg/vulkan/implicit_layer.d
+348: [Vulkan Loader] LAYER:                /etc/vulkan/implicit_layer.d
+348: [Vulkan Loader] LAYER:                /root/.local/share/vulkan/implicit_layer.d
+348: [Vulkan Loader] LAYER:                /usr/local/share/vulkan/implicit_layer.d
+348: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d
+348: [Vulkan Loader] LAYER:             Found the following files:
+348: [Vulkan Loader] LAYER:                /etc/vulkan/implicit_layer.d/renderdoc_capture.json
+348: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/nvidia_layers.json
+348: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_anti_lag.json
+348: [Vulkan Loader] LAYER:                /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json
+348: [Vulkan Loader] LAYER:          Searching for explicit layer manifest files
+348: [Vulkan Loader] LAYER:             In following locations:
+348: [Vulkan Loader] LAYER:                <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d
+348: [Vulkan Loader] LAYER:                /root/.config/vulkan/explicit_layer.d
+348: [Vulkan Loader] LAYER:                /etc/xdg/vulkan/explicit_layer.d
+348: [Vulkan Loader] LAYER:                /etc/vulkan/explicit_layer.d
+348: [Vulkan Loader] LAYER:                /root/.local/share/vulkan/explicit_layer.d
+348: [Vulkan Loader] LAYER:                /usr/local/share/vulkan/explicit_layer.d
+348: [Vulkan Loader] LAYER:                /usr/share/vulkan/explicit_layer.d
+348: [Vulkan Loader] LAYER:             Found the following files:
+348: [Vulkan Loader] LAYER:                <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+348: [Vulkan Loader] WARNING | LAYER: env var 'VK_INSTANCE_LAYERS' defined and adding layers "VK_LAYER_KHRONOS_validation"
+348: [Vulkan Loader] WARNING | LAYER: env var 'VK_INSTANCE_LAYERS' defined and adding layers "VK_LAYER_KHRONOS_validation"
+348: [Vulkan Loader] DEBUG | LAYER:  Loading layer library <home>/anyps5-work/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+348: [Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_KHRONOS_validation" (<work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so)
+348: [Vulkan Loader] DEBUG | LAYER:  Loading layer library libVkLayer_MESA_device_select.so
+348: [Vulkan Loader] INFO | LAYER:   Insert instance layer "VK_LAYER_MESA_device_select" (/usr/lib/libVkLayer_MESA_device_select.so)
+348: [Vulkan Loader] LAYER:          vkCreateInstance layer callstack setup to:
+348: [Vulkan Loader] LAYER:             <Application>
+348: [Vulkan Loader] LAYER:               ||
+348: [Vulkan Loader] LAYER:             <Loader>
+348: [Vulkan Loader] LAYER:               ||
+348: [Vulkan Loader] LAYER:             VK_LAYER_MESA_device_select
+348: [Vulkan Loader] LAYER:                     Type: Implicit
+348: [Vulkan Loader] LAYER:                     Enabled By: Implicit Layer
+348: [Vulkan Loader] LAYER:                         Disable Env Var:  NODEVICE_SELECT
+348: [Vulkan Loader] LAYER:                     Manifest: /usr/share/vulkan/implicit_layer.d/VkLayer_MESA_device_select.json
+348: [Vulkan Loader] LAYER:                     Library:  /usr/lib/libVkLayer_MESA_device_select.so
+348: [Vulkan Loader] LAYER:               ||
+348: [Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation
+348: [Vulkan Loader] LAYER:                     Type: Explicit
+348: [Vulkan Loader] LAYER:                     Enabled By: Environment Variable VK_INSTANCE_LAYERS
+348: [Vulkan Loader] LAYER:                     Manifest: <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+348: [Vulkan Loader] LAYER:                     Library:  <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+348: [Vulkan Loader] LAYER:               ||
+348: [Vulkan Loader] LAYER:             <Drivers>
+348: [Vulkan Loader] INFO | LAYER:   Inserted device layer "VK_LAYER_KHRONOS_validation" (<work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so)
+348: [Vulkan Loader] INFO | LAYER:   Failed to find vkGetDeviceProcAddr in layer "/usr/lib/libVkLayer_MESA_device_select.so"
+348: [Vulkan Loader] DRIVER:         vkCreateDevice layer callstack setup to:
+348: [Vulkan Loader] DRIVER:            <Application>
+348: [Vulkan Loader] DRIVER:              ||
+348: [Vulkan Loader] DRIVER:            <Loader>
+348: [Vulkan Loader] DRIVER:              ||
+348: [Vulkan Loader] LAYER:             VK_LAYER_KHRONOS_validation
+348: [Vulkan Loader] LAYER:                     Type: Explicit
+348: [Vulkan Loader] LAYER:                     Enabled By: Environment Variable VK_INSTANCE_LAYERS
+348: [Vulkan Loader] LAYER:                     Manifest: <work>/workspace/doom-videoout/vulkan-layer/usr/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json
+348: [Vulkan Loader] LAYER:                     Library:  <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+348: [Vulkan Loader] LAYER:               ||
+348: [Vulkan Loader] DRIVER:            <Device>
+348: [Vulkan Loader] DRIVER:                Using "AMD Radeon RX 6650 XT (RADV NAVI23)" with driver: "/usr/lib/libvulkan_radeon.so"
+348: [write-watch] host imports resolve write protection: yes (4 of 4 scratch pages written after a GPU read, 4 after a GPU write, 4 after the import); imported ranges are compared
+348: [write-watch] dma-buf imports keep write protection: yes (0 of 4 scratch pages written after a GPU read, 0 after a GPU write, 0 after the import, 1 seen after a CPU store); imported ranges stay watched
+348: [Vulkan Loader] DEBUG | LAYER:  Unloading layer library /usr/lib/libVkLayer_MESA_device_select.so
+348: [Vulkan Loader] DEBUG | LAYER:  Unloading layer library <work>/workspace/doom-videoout/vulkan-layer/usr/lib/libVkLayer_khronos_validation.so
+348: Vulkan device: AMD Radeon RX 6650 XT (RADV NAVI23)
+348: Vulkan device: AMD Radeon RX 6650 XT (RADV NAVI23)
+348: sparse run import tests passed (copied)
+ 4/15 Test #348: agc_sparse_run_import_copied ....................   Passed    0.05 sec
+test 373
+      Start 373: agc_host_import_retire
+
+373: Test command: <work>/build-join/tests/agc_host_import_retire_tests
+373: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+373: Environment variables: 
+373:  APS5_NO_PIPELINE_JOURNAL=1
+373: Test timeout computed to be: 10000000
+373: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+373: [write-watch] host imports are compared, not watched (APS5_WRITE_WATCH_IMPORTS=unwatch)
+373: [gpu] host import of 0x55c0eacd0000+0x10000 failed at vkCreateBuffer (-1); falling back to copies, requested by access
+373: [gpu] host import of 0x55c0eacd0000+0x10000 failed at vkCreateBuffer (-2); falling back to copies, requested by access
+373: [gpu] host import of 0x55c0eacd0000+0x10000 failed at vkAllocateMemory (-1); falling back to copies, requested by access
+373: [gpu] host import of 0x55c0eacd0000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+373: [gpu] host import of 0x55c0eacd0000+0x10000 failed at vkBindBufferMemory (-1); falling back to copies, requested by access
+373: [gpu] host import of 0x55c0eacd0000+0x10000 failed at vkBindBufferMemory (-2); falling back to copies, requested by access
+373: host import step=1 result=-1 injected=1 rejected=1 threw=0 invalid releases=0 failure cleaned=1 retry cleaned=1 readbacks=0
+373: host import step=1 result=-2 injected=1 rejected=1 threw=0 invalid releases=0 failure cleaned=1 retry cleaned=1 readbacks=0
+373: host import step=2 result=-1 injected=1 rejected=1 threw=0 invalid releases=0 failure cleaned=1 retry cleaned=1 readbacks=0
+373: host import step=2 result=-2 injected=1 rejected=1 threw=0 invalid releases=0 failure cleaned=1 retry cleaned=1 readbacks=0
+373: host import step=3 result=-1 injected=1 rejected=1 threw=0 invalid releases=0 failure cleaned=1 retry cleaned=1 readbacks=0
+373: host import step=3 result=-2 injected=1 rejected=1 threw=0 invalid releases=0 failure cleaned=1 retry cleaned=1 readbacks=0
+373: host import retire tests passed
+ 5/15 Test #373: agc_host_import_retire ..........................   Passed    0.00 sec
+test 374
+      Start 374: agc_host_import_sparse
+
+374: Test command: <work>/build-join/tests/agc_host_import_sparse_tests
+374: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+374: Environment variables: 
+374:  APS5_NO_PIPELINE_JOURNAL=1
+374: Test timeout computed to be: 30
+374: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+374: [write-watch] host imports are compared, not watched (APS5_WRITE_WATCH_IMPORTS=unwatch)
+374: [write-watch] host imports are compared, not watched (APS5_WRITE_WATCH_IMPORTS=unwatch)
+374: [write-watch] host imports are compared, not watched (APS5_WRITE_WATCH_IMPORTS=unwatch)
+374: [write-watch] host imports are compared, not watched (APS5_WRITE_WATCH_IMPORTS=unwatch)
+374: [write-watch] host imports are compared, not watched (APS5_WRITE_WATCH_IMPORTS=unwatch)
+374: [write-watch] host imports are compared, not watched (APS5_WRITE_WATCH_IMPORTS=unwatch)
+374: [write-watch] host imports are compared, not watched (APS5_WRITE_WATCH_IMPORTS=unwatch)
+374: [gpu] host import of 0x7f9a54cb0000+0x8100000 failed at UDMABUF_CREATE (-1000072003); falling back to copies, requested by access
+374: [gpu] host import of 0x7f9a44680000+0x400000 failed at vkAllocateMemory (-1000072003); falling back to copies, requested by access
+374: [gpu] host import of 0x7f9a44280000+0x400000 failed at vkAllocateMemory (-1000072003); falling back to copies, requested by access
+374: host import sparse dma-buf tests passed
+ 6/15 Test #374: agc_host_import_sparse ..........................   Passed    0.28 sec
+test 448
+      Start 448: agc_driver_graphics
+
+448: Test command: <work>/build-join/tests/agc_driver_graphics_tests
+448: Working Directory: <work>/wt-join
+448: Environment variables: 
+448:  ANYPS5_NO_SHADER_CACHE=1
+448:  APS5_NO_PIPELINE_JOURNAL=1
+448: Test timeout computed to be: 10000000
+448: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+448: [gpu] always-pass depth/stencil state is rendered without a depth target (DB_DEPTH_CONTROL=0x007007b3)
+448: [gpu] viewport depth clamp bounds [-1, 2] on a float depth target are clipped to [0, 1]: the device has no VK_EXT_depth_range_unrestricted
+448: [gpu] layer/viewport index vertex exports are ignored (PA_CL_VS_OUT_CNTL=0x01240000)
+448: [gpu] DCC keys of mipmapped color targets are ignored
+448: [gpu] no 2x2 sample location grid at sample count 2 on this device: sample locations varying between pixels take pixel (0,0)'s in every pixel (the device lacks sampleRateShading)
+448: [gpu] no 2x2 sample location grid at sample count 1 on this device: sample locations varying between pixels take pixel (0,0)'s in every pixel (its pixels hold different locations)
+448: [gpu] no 2x2 sample location grid at sample count 2 on this device: pixel (0,0)'s sample locations stand in for every pixel, and each pixel's samples are put in the guest's order at the bounds of its render passes
+448: [gpu] host import of 0x55ea2c4f0000+0x20000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import of 0x55ea2c4f0000+0x20000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import of 0x55ea2c4f0000+0x20000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import budget: 0 MiB live of 0 MiB (APS5_HOST_IMPORT_MIB); 1 imports (0 MiB) refused so far, 0 of them remembered, last 0x55ea2dd50000+0x30000 by build
+448: [gpu] host import of 0x55ea2dcf0000+0x10000 failed at vkAllocateMemory (-1000072003); falling back to copies, requested by map
+448: [gpu] host import of 0x55ea2dcf0000+0x10000 failed at vkAllocateMemory (-1000072003); falling back to copies, requested by map
+448: [gpu] host import of 0x55ea2ef50000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import of 0x7fdd71800000+0x800000 failed at vkAllocateMemory (-2); falling back to copies, requested by build
+448: [gpu] host import of 0x55ea36a50000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import of 0x55ea36a90000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import of 0x55ea36ab0000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import of 0x55ea36ad0000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import budget lowered to the 0.1 MiB live after vkAllocateMemory failed 3 times in a row
+448: [gpu] host import of 0x55ea36a50000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import budget lowered to the 0.1 MiB live after vkAllocateMemory failed within an eighth of the budget
+448: [gpu] host import budget: host heap 1 reports a VK_EXT_memory_budget budget of 8 MiB and a usage of 8 MiB with 0 MiB of imports live, which leaves imports 0 MiB of the 4 MiB APS5_HOST_IMPORT_MIB sets; the setting stays, as the report never lowers it
+448: [gpu] host import of 0x55ea36a90000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import budget: host heap 1 reports a VK_EXT_memory_budget budget of 8 MiB and a usage of 8 MiB with 0 MiB of imports live, which leaves imports 0 MiB of the 8192 MiB of the default; the default stays until an import's vkAllocateMemory fails
+448: [gpu] host import of 0x55ea36de0000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import budget: host heap 1 reports a VK_EXT_memory_budget budget of 8 MiB and a usage of 8 MiB with 0 MiB of imports live, which leaves imports 0 MiB of the 8192 MiB of the default; imports are held to it since an import's vkAllocateMemory failed
+448: [gpu] host import budget: host heap 1 reports a VK_EXT_memory_budget budget of 8 MiB and a usage of 8 MiB with 0 MiB of imports live, which leaves imports 0 MiB of the 8192 MiB of the default; the default stays until an import's vkAllocateMemory fails
+448: [gpu] host import of 0x55ea36d80000+0x10000 failed at vkAllocateMemory (-2); falling back to copies, requested by access
+448: [gpu] host import budget: host heap 1 reports a VK_EXT_memory_budget budget of 8 MiB and a usage of 8 MiB with 0 MiB of imports live, which leaves imports 0 MiB of the 8192 MiB of the default; imports are held to it since an import's vkAllocateMemory failed
+448: [gpu] texture 0x7ffd2623ba00 (format 74) has single DCC keys at 0x7ffd2623b980; its texels are read as stored
+448: [gpu] texture 0x7ffd2623ba00 (format 56) has mixed DCC keys at 0x7ffd2623b980; its texels are read as stored
+448: [gpu] texture streaming feedback (LOD warning / mip statistics) is not reported
+448: [gpu] texture DCC color transform is ignored (word6=0x01980000 word7=0x00000000)
+448: content-key count=0 data=0 movable=0 words=70 capacity=70 hash=12276112778106431680
+448: content-key count=0 data=0 movable=1 words=70 capacity=70 hash=16547703523611771548
+448: content-key count=0 data=1 movable=0 words=327 capacity=327 hash=18195637788575597601
+448: content-key count=0 data=1 movable=1 words=70 capacity=70 hash=6884676608767608045
+448: content-key count=1 data=0 movable=0 words=89 capacity=89 hash=3582826753038562111
+448: content-key count=1 data=0 movable=1 words=89 capacity=89 hash=9518511843953525419
+448: content-key count=1 data=1 movable=0 words=346 capacity=346 hash=3684355951081846730
+448: content-key count=1 data=1 movable=1 words=89 capacity=89 hash=8486460719680651956
+448: content-key count=31 data=0 movable=0 words=389 capacity=389 hash=2872353339945041207
+448: content-key count=31 data=0 movable=1 words=389 capacity=389 hash=11292844791518677155
+448: content-key count=31 data=1 movable=0 words=646 capacity=646 hash=16275665856175105250
+448: content-key count=31 data=1 movable=1 words=389 capacity=389 hash=4084850990441387724
+448: content-key count=32 data=0 movable=0 words=399 capacity=399 hash=9001008430028590267
+448: content-key count=32 data=0 movable=1 words=399 capacity=399 hash=5471292191449946447
+448: content-key count=32 data=1 movable=0 words=656 capacity=656 hash=9565516749443825062
+448: content-key count=32 data=1 movable=1 words=399 capacity=399 hash=15118118974702537264
+448: content-key count=33 data=0 movable=0 words=418 capacity=418 hash=10382587997612106155
+448: content-key count=33 data=0 movable=1 words=418 capacity=418 hash=11706275810969384511
+448: content-key count=33 data=1 movable=0 words=675 capacity=675 hash=1776364597915029880
+448: content-key count=33 data=1 movable=1 words=418 capacity=418 hash=13690582611633829486
+448: content-key count=16384 data=0 movable=0 words=168518 capacity=168518 hash=15297671208421994211
+448: content-key count=16384 data=0 movable=1 words=168518 capacity=168518 hash=8322610684387165047
+448: content-key count=16384 data=1 movable=0 words=168775 capacity=168775 hash=13444188082477402620
+448: content-key count=16384 data=1 movable=1 words=168518 capacity=168518 hash=6566449801145079954
+448: Unused stencil reference sample equivalence passed: 22 accepted states, 12 dependent countermodels
+448: All 256 MSAA CMASK byte classifications passed
+448: Sparse imported heap tests passed
+448: guest arena unavailable or not write-watched: heap mirrors not tested
+448: guest arena unavailable or not write-watched: heap mirrors of imported ranges not tested
+448: Graphics validation tests passed
+ 7/15 Test #448: agc_driver_graphics .............................   Passed    3.54 sec
+test 945
+      Start 945: agc_sparse_buffer_holes
+
+945: Test command: <work>/build-join/tests/agc_driver_graphics_tests "--sparse-buffer-holes"
+945: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+945: Environment variables: 
+945:  APS5_NO_PIPELINE_JOURNAL=1
+945: Test timeout computed to be: 30
+945: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+945: sparse buffer holes: readable interior passed
+945: sparse buffer holes: readable shortened passed
+945: sparse buffer holes: readable committed passed
+945: sparse buffer holes: writable interior passed
+945: sparse buffer holes: writable shortened passed
+945: sparse buffer holes: writable committed passed
+945: sparse buffer hole tests passed
+ 8/15 Test #945: agc_sparse_buffer_holes .........................   Passed    0.01 sec
+test 957
+      Start 957: agc_heap_mirror_unwatch
+
+957: Test command: <work>/build-join/tests/agc_driver_graphics_tests "--heap-mirror-unwatch"
+957: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+957: Environment variables: 
+957:  APS5_NO_PIPELINE_JOURNAL=1
+957: Test timeout computed to be: 30
+957: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+957: [gpu] host import budget: 1 MiB live of 3 MiB (APS5_HOST_IMPORT_MIB); 1 imports (2 MiB) refused so far, 0 of them remembered, last 0x7f365c3c0000+0x200000 by build
+957: an address-based build keeps and refreshes a refused heap's mirror once its range has left the write watch, and imports the heap once the budget holds it
+ 9/15 Test #957: agc_heap_mirror_unwatch .........................   Passed    0.01 sec
+test 958
+      Start 958: agc_heap_mirror_unwatch_no_space_cache
+
+958: Test command: <work>/build-join/tests/agc_driver_graphics_tests "--heap-mirror-unwatch"
+958: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+958: Environment variables: 
+958:  APS5_NO_ADDRESS_SPACE_CACHE=1
+958:  APS5_NO_PIPELINE_JOURNAL=1
+958: Test timeout computed to be: 30
+958: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+958: [gpu] host import budget: 1 MiB live of 3 MiB (APS5_HOST_IMPORT_MIB); 1 imports (2 MiB) refused so far, 0 of them remembered, last 0x7f04235c0000+0x200000 by build
+958: an address-based build keeps and refreshes a refused heap's mirror once its range has left the write watch, and imports the heap once the budget holds it
+10/15 Test #958: agc_heap_mirror_unwatch_no_space_cache ..........   Passed    0.01 sec
+test 959
+      Start 959: agc_sparse_heap_mirror_unwatch
+
+959: Test command: <work>/build-join/tests/agc_driver_graphics_tests "--sparse-heap-mirror-unwatch"
+959: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+959: Environment variables: 
+959:  APS5_NO_PIPELINE_JOURNAL=1
+959: Test timeout computed to be: 30
+959: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+959: an address-based build keeps and refreshes a sparse heap's mirror once its range has left the write watch
+11/15 Test #959: agc_sparse_heap_mirror_unwatch ..................   Passed    0.01 sec
+test 960
+      Start 960: agc_sparse_heap_mirror_unwatch_no_space_cache
+
+960: Test command: <work>/build-join/tests/agc_driver_graphics_tests "--sparse-heap-mirror-unwatch"
+960: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+960: Environment variables: 
+960:  APS5_NO_ADDRESS_SPACE_CACHE=1
+960:  APS5_NO_PIPELINE_JOURNAL=1
+960: Test timeout computed to be: 30
+960: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+960: an address-based build keeps and refreshes a sparse heap's mirror once its range has left the write watch
+12/15 Test #960: agc_sparse_heap_mirror_unwatch_no_space_cache ...   Passed    0.01 sec
+test 961
+      Start 961: agc_heap_mirror_run_unwatch
+
+961: Test command: <work>/build-join/tests/agc_driver_graphics_tests "--heap-mirror-run-unwatch"
+961: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+961: Environment variables: 
+961:  APS5_NO_PIPELINE_JOURNAL=1
+961: Test timeout computed to be: 30
+961: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+961: an address-based build refreshes the unwatched heap of a run in full and its watched neighbour by its writes
+13/15 Test #961: agc_heap_mirror_run_unwatch .....................   Passed    0.01 sec
+test 962
+      Start 962: agc_heap_mirror_run_unwatch_no_space_cache
+
+962: Test command: <work>/build-join/tests/agc_driver_graphics_tests "--heap-mirror-run-unwatch"
+962: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+962: Environment variables: 
+962:  APS5_NO_ADDRESS_SPACE_CACHE=1
+962:  APS5_NO_PIPELINE_JOURNAL=1
+962: Test timeout computed to be: 30
+962: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+962: an address-based build refreshes the unwatched heap of a run in full and its watched neighbour by its writes
+14/15 Test #962: agc_heap_mirror_run_unwatch_no_space_cache ......   Passed    0.01 sec
+test 963
+      Start 963: agc_heap_mirror_unwatched_import
+
+963: Test command: <work>/build-join/tests/agc_driver_graphics_tests "--heap-mirror-unwatched-import"
+963: Working Directory: <work>/build-join/core/libs/prx/libSceAgcDriver
+963: Environment variables: 
+963:  APS5_NO_PIPELINE_JOURNAL=1
+963: Test timeout computed to be: 30
+963: [src/HostCpu.cpp:193 operator()] host CPU AMD Ryzen 9 7950X 16-Core Processor: has SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, LZCNT, BMI1, BMI2, MOVBE, CMPXCHG16B, LAHF/SAHF, AVX, AVX2, FMA, F16C, AES, PCLMULQDQ, RDRAND, RDSEED, ADX, SHA, CLFLUSHOPT, CLWB, RDPID, XSAVEOPT, XSAVEC, SSE4A, PREFETCHW, CLZERO, OS AVX state (XCR0); lacks none
+963: [gpu] host import budget: 1 MiB live of 3 MiB (APS5_HOST_IMPORT_MIB); 1 imports (2 MiB) refused so far, 0 of them remembered, last 0x7f92089c0000+0x200000 by build
+963: an address-based build plans a heap again once a host import took its mirror's range off the write watch
+15/15 Test #963: agc_heap_mirror_unwatched_import ................   Passed    0.01 sec
+
+The following tests passed:
+	agc_host_import_unmap
+	agc_host_import_retirement
+	agc_sparse_run_import
+	agc_sparse_run_import_copied
+	agc_host_import_retire
+	agc_host_import_sparse
+	agc_driver_graphics
+	agc_sparse_buffer_holes
+	agc_heap_mirror_unwatch
+	agc_heap_mirror_unwatch_no_space_cache
+	agc_sparse_heap_mirror_unwatch
+	agc_sparse_heap_mirror_unwatch_no_space_cache
+	agc_heap_mirror_run_unwatch
+	agc_heap_mirror_run_unwatch_no_space_cache
+	agc_heap_mirror_unwatched_import
+
+100% tests passed out of 15
+
+Total Test time (real) =   4.26 sec
