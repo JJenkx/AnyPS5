@@ -817,7 +817,7 @@ void testWriteChangedStoresExactlyTheChangedRuns() {
     }
 }
 
-void testWriteChangedChunksOnBothStorePaths() {
+void testWriteChangedChunksOfEveryDensity() {
     alignas(64) static std::uint8_t guest[64];
     std::vector<std::byte> original(sizeof(guest)), current(sizeof(guest));
     for (std::size_t i = 0; i < sizeof(guest); ++i) original[i] = current[i] = static_cast<std::byte>(i);
@@ -831,7 +831,7 @@ void testWriteChangedChunksOnBothStorePaths() {
     AgcDriver::GuestMemory::WriteChanged(reinterpret_cast<std::uintptr_t>(guest), current, original);
     for (std::size_t i = 0; i < sizeof(guest); ++i) {
         const auto expected = current[i] != original[i] ? static_cast<std::uint8_t>(current[i]) : static_cast<std::uint8_t>(0xa0u ^ i);
-        check(guest[i] == expected, "write-back of a chunk with 3, 13, 10 or 16 changed bytes stored a byte the GPU did not change or missed one it did");
+        check(guest[i] == expected, "write-back of chunks with 3, 13, 10 and 16 changed bytes stored a byte the GPU did not change or missed one it did");
     }
 }
 
@@ -2002,7 +2002,7 @@ int main(int argc, char** argv) {
         testNopPad();
         testRewindPayloadBits();
         testWriteChangedKeepsUntouchedBytes();
-        testWriteChangedChunksOnBothStorePaths();
+        testWriteChangedChunksOfEveryDensity();
         testWriteChangedStoresExactlyTheChangedRuns();
         testRegisters();
         testRegisterFile();
