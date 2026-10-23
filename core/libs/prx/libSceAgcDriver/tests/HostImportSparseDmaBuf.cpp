@@ -8,6 +8,7 @@
 #include <unistd.h>
 #endif
 #include <algorithm>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -204,12 +205,19 @@ struct Backing {
 };
 
 std::vector<Backing*> backings;
+// The descriptor the resolver last handed out: the import owns it, so after the import it is closed.
+int lastBackingFile = -1;
+
+void ExpectBackingClosed(const char* what) {
+    Expect(lastBackingFile >= 0 && fcntl(lastBackingFile, F_GETFD) == -1 && errno == EBADF, what);
+}
 
 bool Resolve(std::uintptr_t address, std::size_t bytes, int* file, std::uint64_t* offset) {
     for (const auto* backing : backings) {
         const auto begin = reinterpret_cast<std::uintptr_t>(backing->base);
         if (address < begin || address + bytes > begin + backing->bytes) continue;
         *file = dup(backing->file);
+        lastBackingFile = *file;
         *offset = backing->fileOffset + (address - begin);
         return *file >= 0;
     }
@@ -275,6 +283,7 @@ void SettlingSurvivesDeviceReplacement(bool reverse) {
     std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
     for (const auto& context : {first, second, first}) {
         const auto* imported = HostImportFor(context, range.Address(), 4096);
+        ExpectBackingClosed("a chunk import retained the backing descriptor");
         Expect(imported != nullptr && imported->dmaBuf, "replacement device did not settle its dma-buf import");
     }
     ClearHostImports(reverse ? second.device : first.device);
@@ -295,6 +304,7 @@ void ImportsALargeRangeAsOneSparseBuffer() {
     mock.binds.clear();
     std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
     const auto* import = HostImportFor(context, range.Address(), static_cast<std::size_t>(bytes));
+    ExpectBackingClosed("a sparse import retained the backing descriptor");
     Expect(import != nullptr, "a shared range larger than udmabuf's size limit was not imported");
     if (import == nullptr) return;
     Expect(import->base == range.Address() && import->bytes == bytes && import->dmaBuf, "the import does not cover the whole range as a dma-buf import");
@@ -367,6 +377,7 @@ bool ResolveRuns(std::uintptr_t address, std::size_t bytes, int* file, GuestAren
             cursor += run.bytes;
         }
         *file = dup(range->file);
+        lastBackingFile = *file;
         return *file >= 0;
     }
     std::uint64_t offset = 0;
@@ -388,6 +399,7 @@ void ScatteredRunsAboveTheLimitBindTheirChunks() {
     mock.binds.clear();
     std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
     const auto* import = HostImportFor(context, reinterpret_cast<std::uint64_t>(range.base), static_cast<std::size_t>(total));
+    ExpectBackingClosed("a scattered sparse import retained the backing descriptor");
     Expect(import != nullptr, "a range of two scattered runs larger than udmabuf's size limit was not imported");
     if (import != nullptr) {
         Expect(import->dmaBuf && mock.sparse.contains(import->buffer) && import->lead == 0, "the scattered range was not imported as one sparse buffer");
@@ -498,6 +510,7 @@ void FailureAfterTheDecisionThrows(bool sealed, VkResult bind, const char* step)
         thrown = error.what();
     }
     mock.bindResult = VK_SUCCESS;
+    ExpectBackingClosed("a throwing sparse import retained the backing descriptor");
     Expect(thrown.find("sparse dma-buf import") != std::string::npos && thrown.find(step) != std::string::npos, std::string("a failure at ") + step + " after the sparse path was chosen did not throw (got \"" + thrown + "\")");
     Expect(mock.buffers.size() == live, std::string("the sparse buffer outlived the failure at ") + step);
 }

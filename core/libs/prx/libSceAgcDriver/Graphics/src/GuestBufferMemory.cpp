@@ -805,7 +805,7 @@ bool createSparseDmaBufImport(const Context& context, HostImport& entry, int fil
     const auto requirements = dmaBufBufferRequirements(context, entry, VK_BUFFER_CREATE_SPARSE_BINDING_BIT, SparseImportUsage, lead + entry.bytes, &buffer);
     const auto alignment = requirements.alignment;
     struct Piece {
-        std::uint64_t file;
+        std::uint64_t fileOffset;
         VkDeviceSize resource;
         VkDeviceSize bytes;
     };
@@ -813,12 +813,12 @@ bool createSparseDmaBufImport(const Context& context, HostImport& entry, int fil
     bool chosen = alignment != 0 && ImportChunkBytes % alignment == 0 && (chunkTypes & ~requirements.memoryTypeBits) == 0 && (requirements.memoryTypeBits & chunkTypes) != 0;
     VkDeviceSize resource = 0;
     for (std::size_t index = 0; chosen && index < runs.size(); ++index) {
-        const auto file = index == 0 ? runs[0].offset - lead : runs[index].offset;
+        const auto fileOffset = index == 0 ? runs[0].offset - lead : runs[index].offset;
         const VkDeviceSize bytes = index == 0 ? lead + runs[0].bytes : runs[index].bytes;
         const auto length = index + 1 == runs.size() ? requirements.size - resource : bytes;
-        chosen = file % alignment == 0 && resource % alignment == 0 && (index + 1 == runs.size() || bytes % alignment == 0) && resource + bytes <= requirements.size &&
-            (file + length + ImportChunkBytes - 1) / ImportChunkBytes * ImportChunkBytes <= static_cast<std::uint64_t>(backing.st_size);
-        pieces.push_back({file, resource, length});
+        chosen = fileOffset % alignment == 0 && resource % alignment == 0 && (index + 1 == runs.size() || bytes % alignment == 0) && resource + bytes <= requirements.size &&
+            (fileOffset + length + ImportChunkBytes - 1) / ImportChunkBytes * ImportChunkBytes <= static_cast<std::uint64_t>(backing.st_size);
+        pieces.push_back({fileOffset, resource, length});
         resource += bytes;
     }
     const auto fail = [&](const char* step, VkResult result) {
@@ -833,7 +833,7 @@ bool createSparseDmaBufImport(const Context& context, HostImport& entry, int fil
     std::vector<VkSparseMemoryBind> binds;
     for (const auto& piece : pieces) {
         for (VkDeviceSize done = 0; done < piece.bytes;) {
-            const auto position = piece.file + done;
+            const auto position = piece.fileOffset + done;
             const auto index = position / ImportChunkBytes;
             const auto within = position - index * ImportChunkBytes;
             const auto size = std::min<VkDeviceSize>(ImportChunkBytes - within, piece.bytes - done);
@@ -879,12 +879,27 @@ bool createSparseDmaBufImport(const Context& context, HostImport& entry, int fil
 #endif
 
 #ifndef _WIN32
+// The shared-backing resolver hands out a duplicated descriptor, so this function owns it on every
+// exit. Neither import path below consumes it: a udmabuf holds its own reference to the memfd, so
+// without closing the duplicate here every imported buffer leaks one descriptor.
+struct OwnedDescriptor {
+    explicit OwnedDescriptor(int descriptor) : file(descriptor) {}
+    OwnedDescriptor(const OwnedDescriptor&) = delete;
+    OwnedDescriptor& operator=(const OwnedDescriptor&) = delete;
+    ~OwnedDescriptor() {
+        if (file >= 0) close(file);
+    }
+    int Release() { return std::exchange(file, -1); }
+    int file;
+};
+
 const char* createBackingImport(const Context& context, HostImport& entry, int file, const GuestArena::SharedBackingRun* runs, std::size_t count, VkResult& failure) {
     bool fits = false;
     VkResult chunkFailure = VK_SUCCESS;
-    if (count == 1 && createChunkedDmaBufImport(context, entry, file, runs[0].offset, fits, chunkFailure) == nullptr && fits) return nullptr;
-    if ((count > 1 || !fits) && createSparseDmaBufImport(context, entry, file, std::span<const GuestArena::SharedBackingRun>(runs, count))) return nullptr;
-    return createDmaBufImport(context, entry, file, std::span<const GuestArena::SharedBackingRun>(runs, count), failure);
+    OwnedDescriptor owned(file);
+    if (count == 1 && createChunkedDmaBufImport(context, entry, owned.file, runs[0].offset, fits, chunkFailure) == nullptr && fits) return nullptr;
+    if ((count > 1 || !fits) && createSparseDmaBufImport(context, entry, owned.file, std::span<const GuestArena::SharedBackingRun>(runs, count))) return nullptr;
+    return createDmaBufImport(context, entry, owned.Release(), std::span<const GuestArena::SharedBackingRun>(runs, count), failure);
 }
 
 const char* createSharedBackingImport(const Context& context, HostImport& entry, VkResult& failure) {
