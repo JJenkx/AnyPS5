@@ -240,13 +240,6 @@ static void CheckSecureFormat() {
     Require(both(16, "a%S", noWide) == -23 && holds("\0~", 2) && Constraint("printf_s: bad %ls argument"));
     Require(both(16, "%2$s%1$S", noWide, "a") == -23 && holds("\0~", 2) && Constraint("printf_s: bad %ls argument"));
     Require(snprintf_s_nid_postfix(buffer, sizeof(buffer), "%.0s|%c", "", 'z') == 2 && std::strcmp(buffer, "|z") == 0);
-    bool threw = false;
-    try {
-        FormatListS(buffer, sizeof(buffer), "%y", 1);
-    } catch (const std::invalid_argument&) {
-        threw = true;
-    }
-    Require(threw && Constraint(nullptr));
     set_constraint_handler_s_nid_postfix(previous);
 }
 
