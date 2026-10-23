@@ -36,6 +36,100 @@ extern SonyDconst _LSnan_nid_postfix;
 
 extern int signgam_nid_postfix;
 
+float APS5_VABI logbf_nid_postfix(float);
+int APS5_VABI ilogb_nid_postfix(double);
+int APS5_VABI ilogbf_nid_postfix(float);
+double APS5_VABI exp2_nid_postfix(double);
+float APS5_VABI __powisf2_nid_postfix(float, int);
+double APS5_VABI __powidf2_nid_postfix(double, int);
+double APS5_VABI ldexp_nid_postfix(double, int);
+double APS5_VABI scalbn_nid_postfix(double, int);
+float APS5_VABI scalbnf_nid_postfix(float, int);
+float APS5_VABI nextafterf_nid_postfix(float, float);
+double APS5_VABI nextafter_nid_postfix(double, double);
+double APS5_VABI frexp_nid_postfix(double, int*);
+float APS5_VABI frexpf_nid_postfix(float, int*);
+std::int64_t APS5_VABI lround_nid_postfix(double);
+std::div_t APS5_VABI div_nid_postfix(int, int);
+double APS5_VABI sinh_nid_postfix(double);
+double APS5_VABI cosh_nid_postfix(double);
+double APS5_VABI _Cosh_nid_postfix(double, double);
+float APS5_VABI coshf_nid_postfix(float);
+float APS5_VABI sinhf_nid_postfix(float);
+float APS5_VABI _FSinh_nid_postfix(float, float);
+float APS5_VABI _FCosh_nid_postfix(float, float);
+double APS5_VABI asinh_nid_postfix(double);
+float APS5_VABI asinhf_nid_postfix(float);
+double APS5_VABI acosh_nid_postfix(double);
+float APS5_VABI acoshf_nid_postfix(float);
+double APS5_VABI atanh_nid_postfix(double);
+double APS5_VABI sin_nid_postfix(double);
+double APS5_VABI cos_nid_postfix(double);
+double APS5_VABI tan_nid_postfix(double);
+float APS5_VABI atanhf_nid_postfix(float);
+std::int64_t APS5_VABI lroundf_nid_postfix(float);
+std::int64_t APS5_VABI llround_nid_postfix(double);
+std::int64_t APS5_VABI llroundf_nid_postfix(float);
+std::int64_t APS5_VABI llroundl_nid_postfix(long double);
+int APS5_VABI __isfinitef_nid_postfix(float);
+int APS5_VABI __isfinitel_nid_postfix(long double);
+int APS5_VABI __isnormal_nid_postfix(double);
+int APS5_VABI __isnormalf_nid_postfix(float);
+int APS5_VABI __isinff_nid_postfix(float);
+int APS5_VABI __isinf_nid_postfix(double);
+int APS5_VABI isnan_nid_postfix(double);
+int APS5_VABI isinf_nid_postfix(double);
+std::lldiv_t APS5_VABI lldiv_nid_postfix(long long, long long);
+std::lldiv_t APS5_VABI imaxdiv_nid_postfix(std::int64_t, std::int64_t);
+std::int64_t APS5_VABI labs_nid_postfix(std::int64_t);
+std::int64_t APS5_VABI llabs_nid_postfix(std::int64_t);
+std::int64_t APS5_VABI imaxabs_nid_postfix(std::int64_t);
+long double APS5_VABI scalbnl_nid_postfix(long double, int);
+float APS5_VABI significandf_nid_postfix(float);
+double APS5_VABI significand_nid_postfix(double);
+long double APS5_VABI acoshl_nid_postfix(long double);
+long double APS5_VABI asinhl_nid_postfix(long double);
+long double APS5_VABI atanhl_nid_postfix(long double);
+long double APS5_VABI atan2l_nid_postfix(long double, long double);
+long double APS5_VABI cbrtl_nid_postfix(long double);
+long double APS5_VABI erfl_nid_postfix(long double);
+long double APS5_VABI erfcl_nid_postfix(long double);
+long double APS5_VABI expm1l_nid_postfix(long double);
+long double APS5_VABI log1pl_nid_postfix(long double);
+long double APS5_VABI log2l_nid_postfix(long double);
+long double APS5_VABI lgammal_nid_postfix(long double);
+long double APS5_VABI tgammal_nid_postfix(long double);
+float APS5_VABI tgammaf_nid_postfix(float);
+long double APS5_VABI hypotl_nid_postfix(long double, long double);
+float APS5_VABI hypot3f_nid_postfix(float, float, float);
+double APS5_VABI hypot3_nid_postfix(double, double, double);
+long double APS5_VABI hypot3l_nid_postfix(long double, long double, long double);
+float APS5_VABI j0f_nid_postfix(float);
+float APS5_VABI j1f_nid_postfix(float);
+float APS5_VABI jnf_nid_postfix(int, float);
+float APS5_VABI y0f_nid_postfix(float);
+float APS5_VABI y1f_nid_postfix(float);
+float APS5_VABI ynf_nid_postfix(int, float);
+std::lldiv_t APS5_VABI ldiv_nid_postfix(std::int64_t, std::int64_t);
+float APS5_VABI nanf_nid_postfix(const char*);
+double APS5_VABI nan_nid_postfix(const char*);
+long double APS5_VABI atanl_nid_postfix(long double);
+long double APS5_VABI sinl_nid_postfix(long double);
+long double APS5_VABI cosl_nid_postfix(long double);
+long double APS5_VABI tanl_nid_postfix(long double);
+long double APS5_VABI sinhl_nid_postfix(long double);
+long double APS5_VABI coshl_nid_postfix(long double);
+long double APS5_VABI tanhl_nid_postfix(long double);
+long double APS5_VABI expl_nid_postfix(long double);
+long double APS5_VABI exp2l_nid_postfix(long double);
+long double APS5_VABI logl_nid_postfix(long double);
+long double APS5_VABI log10l_nid_postfix(long double);
+long double APS5_VABI powl_nid_postfix(long double, long double);
+long double APS5_VABI ldexpl_nid_postfix(long double, int);
+long double APS5_VABI truncl_nid_postfix(long double);
+long double APS5_VABI nearbyintl_nid_postfix(long double);
+double APS5_VABI logb_nid_postfix(double);
+double APS5_VABI remainder_nid_postfix(double, double);
 struct DinkumwareFloatCharacteristics {
     int digits;
     int mantissaDigits;
@@ -1037,6 +1131,50 @@ static void CheckExpm1ScalingRounding() {
         }
     }
     _mm_setcsr(savedCsr);
+}
+static void CheckTrigConsoleBits() {
+    constexpr struct {
+        std::uint64_t input;
+        std::uint64_t sine;
+        std::uint64_t cosine;
+        std::uint64_t tangent;
+        int error;
+    } cases[] = {
+        {0x0000000000000000ull, 0x0000000000000000ull, 0x3ff0000000000000ull, 0x0000000000000000ull, 0},
+        {0x8000000000000000ull, 0x8000000000000000ull, 0x3ff0000000000000ull, 0x8000000000000000ull, 0},
+        {0x3e3fffffffffffffull, 0x3e3fffffffffffffull, 0x3ff0000000000000ull, 0x3e3fffffffffffffull, 0},
+        {0x3fe921fb54442d18ull, 0x3fe6a09e667f3bccull, 0x3fe6a09e667f3bcdull, 0x3fefffffffffffffull, 0},
+        {0x3ff921fb54442d18ull, 0x3ff0000000000000ull, 0x3c91a62633145c07ull, 0x434d02967c31cdb5ull, 0},
+        {0x400921fb54442d18ull, 0x3ca1a62633145c07ull, 0xbff0000000000000ull, 0xbca1a62633145c07ull, 0},
+        {0xc00921fb54442d18ull, 0xbca1a62633145c07ull, 0xbff0000000000000ull, 0x3ca1a62633145c07ull, 0},
+        {0x401921fb54442d18ull, 0xbcb1a62633145c07ull, 0x3ff0000000000000ull, 0xbcb1a62633145c07ull, 0},
+        {0x4012d97c7f3321d2ull, 0xbff0000000000000ull, 0xbcaa79394c9e8a0aull, 0x4333570efd768923ull, 0},
+        {0x412e848000000000ull, 0xbfd6664b2568d867ull, 0x3fedf9df9906d32cull, 0xbfd7e9768ab734c0ull, 0},
+        {0x4139000000000000ull, 0x3fd065dff07cc910ull, 0xbfeeee8b0ce93021ull, 0xbfd0f6d7d15bc5b1ull, 0},
+        {0x7e37e43c8800759cull, 0xbfea2c16b010e385ull, 0xbfe2699022adc4c1ull, 0x3ff6be411f37ac77ull, 0},
+        {0x7fefffffffffffffull, 0x3f7452fc98b34e97ull, 0xbfefffe62ecfab75ull, 0xbf74530cfe729484ull, 0},
+        {0xffefffffffffffffull, 0xbf7452fc98b34e97ull, 0xbfefffe62ecfab75ull, 0x3f74530cfe729484ull, 0},
+        {0x7ff0000000000000ull, 0xfff8000000000000ull, 0xfff8000000000000ull, 0xfff8000000000000ull, EDOM},
+        {0xfff0000000000000ull, 0xfff8000000000000ull, 0xfff8000000000000ull, 0xfff8000000000000ull, EDOM},
+        {0x7ff0000054442d18ull, 0x7ff8000054442d18ull, 0x7ff8000054442d18ull, 0x7ff8000054442d18ull, EDOM},
+        {0x7ff8000000000001ull, 0x7ff8000000000001ull, 0x7ff8000000000001ull, 0x7ff8000000000001ull, 0},
+        {0x3fdada3603b109ebull, 0x3fda124ac129e754ull, 0x3fed397712faa550ull, 0x3fdc8c2adf939d0aull, 0},
+        {0xbfba382e79c9f161ull, 0xbfba2c73e99f121cull, 0x3fefd51240491c33ull, 0xbfba4fc011ff9a31ull, 0},
+        {0x4079ab389c31a606ull, 0x3fe7fbf5be09b71cull, 0xbfe52f138550db6full, 0xbff21d74a8b63e76ull, 0},
+        {0xbfd6066a236944ecull, 0xbfd597c69592a402ull, 0x3fee1faa6b709b8bull, 0xbfd6f0152b51d55cull, 0},
+        {0xbfcdf9356ad39d8full, 0xbfcdb34648619610ull, 0x3fef206c15f26ee6ull, 0xbfce889b662f705full, 0},
+        {0x40557a01c7c97d05ull, 0xbfec45eb63779e2eull, 0xbfddf9b1098520ebull, 0x3ffe2ecb59bfb87eull, 0},
+    };
+    for (const auto& item : cases) {
+        const double x = std::bit_cast<double>(item.input);
+        const int expected = item.error != 0 ? item.error : 1234;
+        errno = 1234;
+        Require(std::bit_cast<std::uint64_t>(sin_nid_postfix(x)) == item.sine && errno == expected);
+        errno = 1234;
+        Require(std::bit_cast<std::uint64_t>(cos_nid_postfix(x)) == item.cosine && errno == expected);
+        errno = 1234;
+        Require(std::bit_cast<std::uint64_t>(tan_nid_postfix(x)) == item.tangent && errno == expected);
+    }
 }
 
 static void CheckAsinl() {
@@ -2369,6 +2507,7 @@ int main() {
     CheckNextafterEnvironment(nextafterf_nid_postfix, 0x80000000u, 0x3f800000u, 0x00800000u, 0x7f7fffffu, 0x7f800000u);
     CheckNextafterEnvironment(nextafter_nid_postfix, std::uint64_t{0x8000000000000000ull}, std::uint64_t{0x3ff0000000000000ull}, std::uint64_t{0x0010000000000000ull}, std::uint64_t{0x7fefffffffffffffull}, std::uint64_t{0x7ff0000000000000ull});
     CheckExpm1ScalingRounding();
+    CheckTrigConsoleBits();
     CheckAsinl();
     Require(scalbn_nid_postfix(0.75, -2) == 0.1875);
     Require(scalbnf_nid_postfix(0.75f, 4) == 12.f);
