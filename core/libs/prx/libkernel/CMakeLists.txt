@@ -66,6 +66,7 @@ add_library(libkernel SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/SystemConfiguration.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/Login.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/SoftwareVersion.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/System/src/ProsperoCompiledSdkVersion.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/ThermalSensors.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/Signals.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/SignalSets.cpp
@@ -89,6 +90,16 @@ endif()
 configure_windows_unwind(libkernel)
 
 if(BUILD_TESTING)
+    add_test_executable(prospero_compiled_sdk_version_tests ${LIBS_INCLUDE_DIR}/tests/ProsperoCompiledSdkVersion.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/System/src/ProsperoCompiledSdkVersion.cpp)
+    target_include_directories(prospero_compiled_sdk_version_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(prospero_compiled_sdk_version_tests PRIVATE libc)
+    configure_windows_unwind(prospero_compiled_sdk_version_tests)
+    add_test(NAME prospero_compiled_sdk_version COMMAND prospero_compiled_sdk_version_tests)
+    if(WIN32)
+        set_tests_properties(prospero_compiled_sdk_version PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     if(NOT WIN32)
         add_library(guest_memory_lifetime_module MODULE ${LIBS_INCLUDE_DIR}/tests/GuestMemoryLifetimeModule.cpp)
         target_include_directories(guest_memory_lifetime_module PRIVATE ${LIBS_INCLUDE_DIR})
