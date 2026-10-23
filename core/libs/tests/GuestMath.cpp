@@ -506,9 +506,16 @@ static void CheckHypotSpecialValue() {
 }
 
 static void CheckAsinfErrno() {
-    errno = 0;
-    (void)asinf_nid_postfix(2.0f);
-    Require(errno == 0);
+    for (const float input : {2.0f, -2.0f, std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+        errno = 0;
+        (void)asinf_nid_postfix(input);
+        Require(errno == EDOM);
+    }
+    for (const float input : {1.0f, -1.0f, 0.5f, 0.0f}) {
+        errno = 1234;
+        (void)asinf_nid_postfix(input);
+        Require(errno == 1234);
+    }
 }
 
 static void CheckAsinfConsoleBits() {

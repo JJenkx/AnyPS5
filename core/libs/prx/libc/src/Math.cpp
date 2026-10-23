@@ -310,6 +310,7 @@ float APS5_VABI asinf_nid_postfix(float x) {
         if (ix == 0x3f800000) {
             return static_cast<float>(x * pio2);
         }
+        errno = EDOM;
         return (x - x) / (x - x);
     }
     if (ix < 0x3f000000) {
