@@ -655,7 +655,9 @@ double APS5_VABI atan2_nid_postfix(double y, double x) {
     const std::int32_t iy = hy & 0x7fffffff;
     if ((static_cast<std::uint32_t>(ix) | ((lx | (0u - lx)) >> 31)) > 0x7ff00000u ||
         (static_cast<std::uint32_t>(iy) | ((ly | (0u - ly)) >> 31)) > 0x7ff00000u) {
-        return x + y;
+        volatile double sum = x + y;
+        (void)sum;
+        return std::bit_cast<double>(((ybits & 0x7fffffffffffffffull) > 0x7ff0000000000000ull ? ybits : xbits) | 0x0008000000000000ull);
     }
     if (hx == 0x3ff00000 && lx == 0) {
         return atan_nid_postfix(y);
