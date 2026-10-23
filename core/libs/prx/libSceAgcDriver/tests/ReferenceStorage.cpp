@@ -1,6 +1,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/ReferenceStorage.hpp"
 #include "AllocationFailure.hpp"
 #include <algorithm>
+#include <chrono>
 #include <span>
 #include <cstddef>
 #include <cstdio>
@@ -156,6 +157,23 @@ void NoAllocationOnReturnOrTake() {
 
 }
 
+void IdleBuffersReleased() {
+    using namespace std::chrono_literals;
+    const auto start = ReferenceStorage::Clock::time_point{} + 1h;
+    ReferenceStorage storage(64 * KiB);
+    storage.Return(Storage(16 * KiB), start);
+    storage.Return(Storage(8 * KiB), start + 1s);
+    Expect(storage.ReleaseIdle(start + 1999ms) == 0 && storage.IdleCount() == 2, "a buffer idle for less than the limit was released");
+    Expect(storage.ReleaseIdle(start + 2s) == 16 * KiB, "a buffer idle for the limit was not released");
+    Expect(storage.IdleCount() == 1 && storage.IdleBytes() == 8 * KiB, "releasing one idle buffer did not keep the newer one");
+    Expect(storage.Take(4 * KiB, start + 3s).capacity() == 0, "a take handed out a buffer idle for the limit");
+    Expect(storage.IdleBytes() == 0 && storage.IdleCount() == 0, "a take did not release buffers idle for the limit");
+    storage.Return(Storage(16 * KiB), start + 4s);
+    storage.Return(Storage(8 * KiB), start + 6s);
+    Expect(storage.IdleCount() == 1 && storage.IdleBytes() == 8 * KiB, "a return did not release buffers idle for the limit");
+    Expect(storage.Take(4 * KiB, start + 7s).capacity() >= 8 * KiB, "a buffer idle for less than the limit was not reused");
+}
+
 int main() {
     TakeFromEmpty();
     ReuseSameStorage();
@@ -165,6 +183,7 @@ int main() {
     OversizeDropped();
     SlotsEvictOldest();
     NoAllocationOnReturnOrTake();
+    IdleBuffersReleased();
     if (failures != 0) return 1;
     std::printf("reference storage tests passed\n");
     return 0;
