@@ -5,6 +5,7 @@
 #include <functional>
 #include <iterator>
 #include <map>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <unordered_map>
@@ -605,9 +606,12 @@ std::vector<std::uint32_t> StencilReferenceValues(const IrProgram& program, std:
             if (info.kind != ExportTargetKind::MrtZ || (info.en & 2u) == 0u) continue;
             std::set<const IrValue*> visiting;
             const auto values = Values(program, instruction->Argument(0), visiting, 0u, 1u, instruction->Argument(1));
-            if (!values) return {};
+            if (!values) {
+                std::vector<std::uint32_t> all(256u);
+                std::iota(all.begin(), all.end(), 0u);
+                return all;
+            }
             for (const auto value : *values) result.insert((value >> shift) & 0xffu);
-            if (result.size() > 16u) return {};
         }
     }
     return {result.begin(), result.end()};
@@ -688,7 +692,7 @@ bool StencilReferenceDefinedForKeptInvocations(const IrProgram& program) {
 }
 
 bool StencilReplaySafe(const IrProgram& program) {
-    if (program.Info().sharedMemoryBytes != 0u || program.Info().bdaWrites || program.Info().usesDma || (program.Info().usesFaultBuffer && program.Resources().guardedSrtSlots.empty())) return false;
+    if (program.Info().sharedMemoryBytes != 0u || program.Info().bdaWrites || (program.Info().usesFaultBuffer && program.Resources().guardedSrtSlots.empty())) return false;
     if (program.Info().usesFaultBuffer && !FaultControlFlowAcyclic(program)) return false;
     for (const auto& input : program.Info().inputs) if (input.kind == StageInputKind::PrimitiveId) return false;
     bool masks = false;

@@ -58,6 +58,7 @@ private:
     IrU1 threadBit(const std::array<IrU32, 2>& mask);
     void writeRawU32(const RdnaOperand& operand, IrU32 value);
     IrF32 applyF32ResultModifiers(const RdnaOperand& operand, IrF32 value);
+    IrF32 scaleF32Result(std::uint32_t omod, IrF32 value);
     IrF32 applyF16ResultModifiers(const RdnaOperand& operand, IrF32 value);
     bool outputModifierApplies(std::uint32_t denormalShift) const;
     bool dx10Clamp() const { return !floatMode.has_value() || floatMode->dx10Clamp; }
@@ -92,6 +93,7 @@ private:
     IrU64 readU64(const RdnaOperand& operand);
     std::array<IrU32, 2> readF64Bits(const RdnaOperand& operand);
     std::array<IrU32, 2> flushF64Bits(const std::array<IrU32, 2>& bits, std::uint32_t keepBit);
+    IrValue& flushTinyF64Result(IrOpcode opcode, IrValue& lhs, IrValue& rhs, IrValue& result);
     IrU64 readF64(const RdnaOperand& operand);
     IrF32 readF16LaneAsF32(const RdnaOperand& operand, bool highLane, bool packed = false);
     IrF32 readF16AsF32(const RdnaOperand& operand);
@@ -110,6 +112,7 @@ private:
     std::array<IrU32, 2> writeMask(const RdnaOperand& operand, IrU1 value, bool write64 = false);
     void writeCompareResult(const RdnaOperand& operand, IrU1 value);
     MemoryFlags addMemoryInfo(const MemoryInfo& memory, std::uint32_t pc);
+    bool floatAtomicFlush(IrOpcode opcode) const;
     ExportFlags addExportInfo(const RdnaInstruction& inst);
     AddressOperands readAddressOperands(const RdnaInstruction& inst, std::uint32_t firstSource);
     IrU32 getResourceDword(std::uint32_t index, std::uint32_t dword);
@@ -155,7 +158,6 @@ private:
     bool dsWrite2(const RdnaInstruction& inst);
     bool dsSrc2(const RdnaInstruction& inst, IrOpcode opcode);
     bool dsAtomic2(const RdnaInstruction& inst, IrOpcode opcode, bool returnsValue);
-    bool sharedFloatFlush(IrOpcode opcode) const;
     bool dsAtomic64(const RdnaInstruction& inst, IrOpcode opcode, bool returnsValue);
     bool dsCondxchg32(const RdnaInstruction& inst);
     bool dsAppendConsume(const RdnaInstruction& inst, IrOpcode opcode);
