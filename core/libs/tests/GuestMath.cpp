@@ -142,6 +142,7 @@ float APS5_VABI asinhf_nid_postfix(float);
 double APS5_VABI acosh_nid_postfix(double);
 float APS5_VABI acoshf_nid_postfix(float);
 double APS5_VABI atanh_nid_postfix(double);
+double APS5_VABI log2_nid_postfix(double);
 double APS5_VABI log10_nid_postfix(double);
 float APS5_VABI atanhf_nid_postfix(float);
 std::int64_t APS5_VABI lroundf_nid_postfix(float);
@@ -707,6 +708,33 @@ static void CheckLog10ConsoleBits() {
     for (const auto& item : cases) {
         errno = 1234;
         Require(std::bit_cast<std::uint64_t>(log10_nid_postfix(std::bit_cast<double>(item.input))) == item.expected);
+        Require(errno == (item.error != 0 ? item.error : 1234));
+    }
+}
+
+static void CheckLog2ConsoleBits() {
+    constexpr struct {
+        std::uint64_t input;
+        std::uint64_t expected;
+        int error;
+    } cases[] = {
+        {0x0000000000000000ull, 0xfff0000000000000ull, 0}, {0x8000000000000000ull, 0xfff0000000000000ull, 0},
+        {0x0000000000000001ull, 0xc090c80000000000ull, 0}, {0x8000000000000001ull, 0xfff8000000000000ull, EDOM},
+        {0x000fffffffffffffull, 0xc08ff00000000000ull, 0}, {0x0010000000000000ull, 0xc08ff00000000000ull, 0},
+        {0x3ff0000000000000ull, 0x0000000000000000ull, 0}, {0x3fefffffffffffffull, 0xbca71547652b82feull, 0},
+        {0x3ff0000000000001ull, 0x3cb71547652b82fdull, 0}, {0x3ff00000fffffffeull, 0x3eb71546ac5324fbull, 0},
+        {0x3ff6a09e00000000ull, 0x3fdffffe5dc146d0ull, 0}, {0x4024000000000000ull, 0x400a934f0979a371ull, 0},
+        {0x4020000000000000ull, 0x4008000000000000ull, 0}, {0x3fd0000000000000ull, 0xc000000000000000ull, 0},
+        {0x7fefffffffffffffull, 0x4090000000000000ull, 0}, {0x7ff0000000000000ull, 0x7ff0000000000000ull, 0},
+        {0xbff0000000000000ull, 0xfff8000000000000ull, EDOM}, {0xfff0000000000000ull, 0xfff8000000000000ull, EDOM},
+        {0x7ff8000000000001ull, 0x7ff8000000000001ull, 0}, {0xfff8000000000002ull, 0xfff8000000000002ull, EDOM},
+        {0x3f3738a98e70dc5cull, 0xc026ecdca3e646fcull, 0}, {0x3ff6e68ed8bdd52full, 0x3fe08dd74b2b1990ull, 0},
+        {0x3f2b147b0942849aull, 0xc0287b4fe8effe10ull, 0}, {0x3fe318aee27b543aull, 0xbfe7d5278168f30eull, 0},
+        {0x3fbdbeed4cb253bcull, 0xc008d7d45ccba59eull, 0}, {0x3fece143fc9534f6ull, 0xbfc2f1cb5ae7bbf1ull, 0},
+    };
+    for (const auto& item : cases) {
+        errno = 1234;
+        Require(std::bit_cast<std::uint64_t>(log2_nid_postfix(std::bit_cast<double>(item.input))) == item.expected);
         Require(errno == (item.error != 0 ? item.error : 1234));
     }
 }
@@ -1668,6 +1696,7 @@ int main() {
     CheckLongDouble();
     CheckNearbyintl();
     CheckLog10ConsoleBits();
+    CheckLog2ConsoleBits();
     CheckAsinl();
     Require(scalbn_nid_postfix(0.75, -2) == 0.1875);
     Require(scalbnf_nid_postfix(0.75f, 4) == 12.f);
