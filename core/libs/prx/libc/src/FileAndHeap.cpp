@@ -708,12 +708,11 @@ int APS5_VABI mergesort_nid_postfix(void* base, size_t count, size_t size, Guest
 }
 
 void APS5_VABI qsort_nid_postfix(void* base, size_t count, size_t size, int (APS5_VABI *compare)(const void*, const void*)) {
+    if (count <= 1) return;
     if (!compare) throw std::invalid_argument("qsort: null comparator");
     if (size == 0) throw std::invalid_argument("qsort: zero element size");
-    if (count == 0) return;
     if (!base) throw std::invalid_argument("qsort: null base");
     if (count > std::numeric_limits<size_t>::max() / size) throw std::overflow_error("qsort: array size overflow");
-    if (count == 1) return;
 
     SortElements(static_cast<unsigned char*>(base), count, size, compare);
 }

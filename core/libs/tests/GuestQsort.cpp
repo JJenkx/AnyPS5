@@ -218,8 +218,23 @@ bool CheckMergesort() {
 }
 }
 
+bool ExpectShortArraysUntouched() {
+    int values[2] = {2, 1};
+    qsort_nid_postfix(values, 0, sizeof(int), nullptr);
+    qsort_nid_postfix(values, 1, sizeof(int), nullptr);
+    qsort_nid_postfix(values, 0, 0, CompareKeys);
+    qsort_nid_postfix(values, 1, 0, CompareKeys);
+    qsort_nid_postfix(nullptr, 0, 0, nullptr);
+    if (values[0] != 2 || values[1] != 1) {
+        std::fprintf(stderr, "qsort of zero or one element changed the array\n");
+        return false;
+    }
+    return true;
+}
+
 int main() {
     bool correct = true;
+    correct &= ExpectShortArraysUntouched();
     correct &= ExpectOrder("insertion sort", {1, 0, 1, 0}, {1, 3, 0, 2});
     correct &= ExpectOrder("median of three", {2, 1, 2, 0, 1, 2, 0, 1, 0, 2, 1, 0}, {11, 3, 6, 8, 10, 1, 7, 4, 9, 5, 0, 2});
     correct &= ExpectOrderS("insertion sort", {1, 0, 1, 0}, {1, 3, 0, 2});
