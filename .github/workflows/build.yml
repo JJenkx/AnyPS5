@@ -1,8 +1,6 @@
 name: Exact-head Windows math review
 on:
-  push:
-    branches: [validation/math-windows-20261024]
-    paths: [.github/workflows/math-review-windows.yml, .github/validation/windows_math.py]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -53,6 +51,6 @@ jobs:
           path: |
             evidence/
             harness/.github/validation/windows_math.py
-            harness/.github/workflows/math-review-windows.yml
+            harness/.github/workflows/build.yml
           if-no-files-found: error
           retention-days: 30
