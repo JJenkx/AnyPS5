@@ -11,6 +11,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 
 namespace ShaderRecompiler::Detail {
@@ -273,7 +274,28 @@ bool sameUserDataUse(const SrtUserDataUse& tape, const SrtUserDataUse& interpret
         std::sort(reads->begin(), reads->end());
         reads->erase(std::unique(reads->begin(), reads->end()), reads->end());
     }
-    return tapeReads == interpretedReads;
+    if (tapeReads != interpretedReads || tape.reads.size() != tape.readInstructions.size() || interpreted.reads.size() != interpreted.readInstructions.size()) return false;
+    const auto normalize = [](auto values) {
+        std::sort(values.begin(), values.end());
+        values.erase(std::unique(values.begin(), values.end()), values.end());
+        return values;
+    };
+    const auto instructionReads = [&](const SrtUserDataUse& use) {
+        std::vector<std::tuple<std::uint64_t, std::int32_t, std::uintptr_t>> reads;
+        for (std::size_t i = 0; i < use.reads.size(); ++i) reads.emplace_back(use.reads[i].first, use.reads[i].second, reinterpret_cast<std::uintptr_t>(use.readInstructions[i]));
+        return normalize(std::move(reads));
+    };
+    const auto operands = [&](const SrtUserDataUse& use) {
+        std::vector<std::uintptr_t> reads;
+        for (const auto* instruction : use.operandReads) reads.push_back(reinterpret_cast<std::uintptr_t>(instruction));
+        return normalize(std::move(reads));
+    };
+    const auto leads = [&](const SrtUserDataUse& use) {
+        std::vector<std::pair<std::uint32_t, std::uintptr_t>> sources;
+        for (const auto& [index, instruction] : use.sourceLeads) sources.emplace_back(index, reinterpret_cast<std::uintptr_t>(instruction));
+        return normalize(std::move(sources));
+    };
+    return instructionReads(tape) == instructionReads(interpreted) && operands(tape) == operands(interpreted) && leads(tape) == leads(interpreted);
 }
 
 void verifyTape(const IrResourcePlan& program, const SrtRuntime& runtime, std::vector<DescriptorValue>& results, std::vector<std::uint32_t>& flat, std::vector<std::uint8_t>& activeSources, std::vector<SrtReadPoison>* poison, std::uint32_t* nullRootReads, std::size_t leavesBefore, std::size_t readsBefore, const SrtUserDataUse* useBefore) {
