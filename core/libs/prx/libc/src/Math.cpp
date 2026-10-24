@@ -264,6 +264,7 @@ float ScaledHyperbolic(float x, float y, bool sine) {
 }
 
 extern "C" {
+void APS5_VABI _Feraise_nid_postfix(int exceptions);
 
 std::lldiv_t APS5_VABI lldiv_nid_postfix(long long numerator, long long denominator) {
     return std::lldiv(numerator, denominator);
