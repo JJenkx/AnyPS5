@@ -686,7 +686,6 @@ static long double MakeExtended(std::uint64_t mantissa, std::uint16_t signExpone
     return value;
 }
 
-
 static void CheckAtanhConsoleBits() {
     constexpr struct {
         std::uint64_t input;
@@ -770,6 +769,7 @@ static void CheckLog1pConsoleBits() {
         Require(errno == (item.error != 0 ? item.error : 1234));
     }
 }
+
 static void CheckAsinl() {
     const struct { std::uint64_t inputMantissa; std::uint16_t inputSignExponent; std::uint64_t outputMantissa; std::uint16_t outputSignExponent; } cases[] = {
         {0, 0x0000, 0, 0x0000}, {0, 0x8000, 0, 0x8000},
