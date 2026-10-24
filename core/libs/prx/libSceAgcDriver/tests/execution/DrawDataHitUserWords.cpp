@@ -181,6 +181,7 @@ void UnreadUserWordsKeepTheStage(bool verify) {
     if (!verify) Require(counters.dataStagesReused - moved.dataStagesReused == 1, "a draw that changed only the pixel stage's descriptor pointer did not reuse the vertex stage: " + Counts(counters));
 
     const bool refresh = std::getenv("APS5_DRAW_PIPELINE") != nullptr;
+    const bool relocate = std::getenv("APS5_NO_DRAW_RELOCATION") == nullptr;
     for (const std::uint32_t unread : {0x33u, 0x44u}) {
         commands.clear();
         PixelUserData(commands, second, unread);
@@ -190,9 +191,10 @@ void UnreadUserWordsKeepTheStage(bool verify) {
         Require(counters.dataHits == last.dataHits + 1 && counters.inserts == last.inserts, "a draw at the moved pointer with a new unread word: " + Counts(counters));
         if (verify) continue;
         const auto compiled = counters.dataStagesCompiled - last.dataStagesCompiled;
-        const bool expectReuse = refresh && unread == 0x44u;
+        const bool expectReuse = relocate || (refresh && unread == 0x44u);
         Require(compiled == (expectReuse ? 0u : 1u), std::string(expectReuse ? "after a refresh, the draw at the moved pointer compiled its pixel stage again: " : "the draw at the moved pointer did not compile its pixel stage: ") + Counts(counters));
-        Require(counters.shapeUpdates - last.shapeUpdates == (refresh && unread == 0x33u ? 1u : 0u), "shape refreshes: " + std::to_string(counters.shapeUpdates - last.shapeUpdates) + " (" + Counts(counters) + ")");
+        Require(counters.dataStagesReused - last.dataStagesReused == (expectReuse ? 2u : 1u), "the draw at the moved pointer reused the wrong number of stages: " + Counts(counters));
+        Require(counters.shapeUpdates - last.shapeUpdates == (!relocate && refresh && unread == 0x33u ? 1u : 0u), "shape refreshes: " + std::to_string(counters.shapeUpdates - last.shapeUpdates) + " (" + Counts(counters) + ")");
     }
 }
 
