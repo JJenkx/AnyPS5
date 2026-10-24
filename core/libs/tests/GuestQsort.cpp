@@ -190,6 +190,20 @@ bool ExpectConsoleEdges() {
     return correct;
 }
 
+bool ExpectShortArraysUntouched() {
+    int values[2] = {2, 1};
+    qsort_nid_postfix(values, 0, sizeof(int), nullptr);
+    qsort_nid_postfix(values, 1, sizeof(int), nullptr);
+    qsort_nid_postfix(values, 0, 0, CompareKeys);
+    qsort_nid_postfix(values, 1, 0, CompareKeys);
+    qsort_nid_postfix(nullptr, 0, 0, nullptr);
+    if (values[0] != 2 || values[1] != 1) {
+        std::fprintf(stderr, "qsort of zero or one element changed the array\n");
+        return false;
+    }
+    return true;
+}
+
 bool ExpectSorted(std::size_t size, std::size_t count) {
     std::vector<unsigned char> bytes(size * count);
     unsigned int state = static_cast<unsigned int>(size * 31 + count);
@@ -284,6 +298,7 @@ int main() {
     for (int index = 0; index < 1000; ++index) manyKeys.push_back((index * 37 + 11) % 7);
     correct &= ExpectOrderHash("nested partitions", manyKeys, 0xefee58d9u);
     correct &= ExpectConsoleEdges();
+    correct &= ExpectShortArraysUntouched();
     for (const std::size_t size : {1, 3, 8, 24})
         for (const std::size_t count : {0, 1, 2, 6, 7, 8, 40, 41, 1000})
             correct &= ExpectSorted(size, count);
