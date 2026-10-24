@@ -734,6 +734,39 @@ static void CheckTanhConsoleBits() {
     }
 }
 
+
+static void CheckTanhSaturationEnvironment() {
+    const RestoreFloatingPointState saved;
+    const unsigned savedCsr = _mm_getcsr();
+    const std::uint64_t inputs[] = {0x4036000000000000ull, 0x4036000000000001ull, 0x403c000000000000ull, 0x7fefffffffffffffull, 0x7ff0000000000000ull};
+    const int rounding[] = {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO};
+    double (APS5_VABI * volatile call)(double) = tanh_nid_postfix;
+    for (unsigned mode = 0; mode != 4; ++mode) {
+        for (unsigned denorm = 0; denorm != 4; ++denorm) {
+            const unsigned control = 0x1f80u | (mode << 13u) | ((denorm & 1u) ? 0x40u : 0u) | ((denorm & 2u) ? 0x8000u : 0u);
+            for (unsigned sticky : {0u, 5u, 32u}) {
+                for (std::uint64_t sign : {0ull, 0x8000000000000000ull}) {
+                    for (std::uint64_t magnitude : inputs) {
+                        Require(std::fesetenv(FE_DFL_ENV) == 0 && std::fesetround(rounding[mode]) == 0);
+                        errno = 1234;
+                        _mm_setcsr(control | sticky);
+                        const auto result = std::bit_cast<std::uint64_t>(call(std::bit_cast<double>(magnitude | sign)));
+                        const unsigned csr = _mm_getcsr();
+                        const int flags = std::fetestexcept(FE_ALL_EXCEPT);
+                        const int error = errno;
+                        const int expectedFlags = ((sticky & 1u) ? FE_INVALID : 0) | ((sticky & 4u) ? FE_DIVBYZERO : 0) | ((sticky & 32u) ? FE_INEXACT : 0);
+                        if (result != (0x3ff0000000000000ull | sign) || csr != (control | sticky) || flags != expectedFlags || error != 1234) {
+                            std::fprintf(stderr, "tanh saturation: input=%016llx mode=%u denorm=%u sticky=%u bits=%016llx csr=%x flags=%x errno=%d\n", static_cast<unsigned long long>(magnitude | sign), mode, denorm, sticky, static_cast<unsigned long long>(result), csr, flags, error);
+                            Require(false);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    _mm_setcsr(savedCsr);
+}
+
 static void CheckAsinl() {
     const struct { std::uint64_t inputMantissa; std::uint16_t inputSignExponent; std::uint64_t outputMantissa; std::uint16_t outputSignExponent; } cases[] = {
         {0, 0x0000, 0, 0x0000}, {0, 0x8000, 0, 0x8000},
@@ -1692,6 +1725,7 @@ int main() {
     CheckNearbyintl();
     CheckExpm1ConsoleBits();
     CheckTanhConsoleBits();
+    CheckTanhSaturationEnvironment();
     CheckAsinl();
     Require(scalbn_nid_postfix(0.75, -2) == 0.1875);
     Require(scalbnf_nid_postfix(0.75f, 4) == 12.f);
