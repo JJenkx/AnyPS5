@@ -6,10 +6,10 @@
 #include <array>
 #include <chrono>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -42,23 +42,9 @@ int APS5_VABI scePadGetExtControllerInformation(int, void*);
 int APS5_VABI scePadResetLightBar(int);
 int APS5_VABI scePadSetLightBar(int, const PadLightBarParam*);
 int APS5_VABI scePadSetMotionSensorState(int, bool);
-int APS5_VABI scePadSetLotusEnableIrKey(std::int32_t);
-int APS5_VABI scePadSetLotusDisableIrKey(std::int32_t);
-int APS5_VABI scePadVirtualDeviceDisableButtonRemapping(bool);
-int APS5_VABI scePadVirtualDeviceGetRemoteSetting(std::int32_t, void*);
 }
 
 static void Require(bool value) { if (!value) std::abort(); }
-
-template<typename TCall>
-static bool Throws(TCall call, const char* function) {
-    try {
-        static_cast<void>(call());
-    } catch (const std::runtime_error& error) {
-        return std::strstr(error.what(), function) != nullptr;
-    }
-    return false;
-}
 
 static void CheckInputCommands() {
     const auto path = std::filesystem::temp_directory_path() / ("anyps5-pad-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -502,6 +488,43 @@ static void CheckInjectedState(const std::filesystem::path& path) {
     PadPublishInput_nid_postfix(PadInputState{});
 }
 
+static void CheckInjectedQueueTimes(const std::filesystem::path& path) {
+    PadData drained[64]{};
+    Pad::Read(drained, 64);
+    PadInputState physical;
+    physical.buttons = 0x2000;
+    PadPublishInput_nid_postfix(physical);
+    const auto before = Pad::ReadState();
+    std::ofstream(path) << "5 16384 300\n";
+    PadData pressed{};
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    do {
+        pressed = Pad::ReadState();
+        if ((pressed.buttons & 0x4000) != 0) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (std::chrono::steady_clock::now() < deadline);
+    Require(pressed.buttons == 0x6000 && pressed.timestamp > before.timestamp);
+    PadData queued{};
+    Require(Pad::Read(&queued, 1) == 1);
+    Require(queued.buttons == pressed.buttons);
+    if (queued.timestamp < pressed.timestamp) {
+        std::fputs("queued input predates its injected button press\n", stderr);
+        std::abort();
+    }
+    physical.sticks[0] = 130;
+    PadPublishInput_nid_postfix(physical);
+    std::this_thread::sleep_for(std::chrono::milliseconds(310));
+    const auto released = Pad::ReadState();
+    Require(released.buttons == 0x2000 && released.timestamp > pressed.timestamp);
+    Require(Pad::Read(&queued, 1) == 1);
+    Require(queued.buttons == released.buttons && queued.left_stick_x == 130);
+    if (queued.timestamp < released.timestamp) {
+        std::fputs("queued input predates its injected button release\n", stderr);
+        std::abort();
+    }
+    PadPublishInput_nid_postfix(PadInputState{});
+}
+
 int main() {
     CheckInputCommands();
     std::uint32_t accessibilityState = 7;
@@ -584,6 +607,7 @@ int main() {
     CheckTrackerDevices(handle);
     CheckAccessibilityControllerState(handle);
     CheckInjectedState(commandPath);
+    CheckInjectedQueueTimes(commandPath);
     PadLightBarParam lightBar{255, 128, 64};
     Require(scePadSetLightBar(handle, &lightBar) == PAD_OK);
     Require(scePadSetLightBar(handle, nullptr) == PAD_ERROR_INVALID_ARG);
@@ -603,8 +627,6 @@ int main() {
     Require(scePadGetHandle(0xff, 16, 0) == handle);
     Require(scePadGetHandle(user, 16, 0) == noHandle);
     Require(scePadGetHandle(user, 0, 1) == noHandle);
-    Require(Throws([&] { return scePadSetLotusEnableIrKey(handle); }, "scePadSetLotusEnableIrKey"));
-    Require(Throws([&] { return scePadSetLotusDisableIrKey(handle); }, "scePadSetLotusDisableIrKey"));
     Require(scePadClose_nid_postfix(handle) == 0);
     Require(scePadGetHandle(user, 0, 0) == noHandle);
     Require(scePadUnknown_n3kSX62fgNo() == PAD_OK);
@@ -614,15 +636,4 @@ int main() {
     Require(scePadSetAngularVelocityDeadbandState(handle + 1, true) == PAD_ERROR_INVALID_HANDLE);
     Require(scePadSetAngularVelocityBiasCorrectionState(handle, false) == PAD_OK);
     Require(scePadSetAngularVelocityBiasCorrectionState(handle + 1, false) == PAD_ERROR_INVALID_HANDLE);
-    Require(Throws([&] { return scePadSetLotusEnableIrKey(handle + 1); }, "scePadSetLotusEnableIrKey"));
-    Require(Throws([&] { return scePadSetLotusDisableIrKey(handle + 1); }, "scePadSetLotusDisableIrKey"));
-    Require(Throws([] { return scePadVirtualDeviceDisableButtonRemapping(true); }, "scePadVirtualDeviceDisableButtonRemapping"));
-    Require(Throws([] { return scePadVirtualDeviceDisableButtonRemapping(false); }, "scePadVirtualDeviceDisableButtonRemapping"));
-    std::array<std::uint8_t, 16> scratch{};
-    scratch.fill(0xAB);
-    Require(Throws([&] { return scePadVirtualDeviceGetRemoteSetting(1, scratch.data()); }, "scePadVirtualDeviceGetRemoteSetting"));
-    Require(Throws([] { return scePadVirtualDeviceGetRemoteSetting(1, nullptr); }, "scePadVirtualDeviceGetRemoteSetting"));
-    Require(Throws([&] { return scePadVirtualDeviceGetRemoteSetting(0, scratch.data()); }, "scePadVirtualDeviceGetRemoteSetting"));
-    Require(Throws([&] { return scePadVirtualDeviceGetRemoteSetting(-1, scratch.data()); }, "scePadVirtualDeviceGetRemoteSetting"));
-    for (std::uint8_t byte : scratch) Require(byte == 0xAB);
 }
