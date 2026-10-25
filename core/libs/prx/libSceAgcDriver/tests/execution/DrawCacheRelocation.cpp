@@ -49,6 +49,9 @@ struct Header {
 alignas(8) Header VertexHeader{};
 alignas(8) Header PixelHeader{};
 alignas(8) Header SecondVertexHeader{};
+alignas(256) constexpr std::array<std::uint32_t, 12> ValuePixelCode{0xf4000100u, 0xfa000000u, 0xbf8cc07fu, 0x7e000204u, 0x7e020202u, 0x7e040280u, 0xf800180fu, 0x02020100u, 0xbf810000u, 0xbf810000u, 0xbf810000u, 0xbf810000u};
+
+alignas(8) Header ValuePixelHeader{};
 alignas(8) Header TriangleVertexHeader{};
 alignas(8) Header ForwardedPixelHeader{};
 
@@ -247,6 +250,79 @@ void UnrelocatedAliasesStayOut(bool libraries) {
     Require(counters.hits - start.hits == twice.size(), mode + ": the exact key of a repeated draw lost its hits next to draws whose alias never relocates (" + std::to_string(counters.hits - start.hits) + " hits in " + std::to_string(twice.size()) + " draws)");
 }
 
+std::vector<std::uint32_t> DrawWords(const std::vector<std::array<std::uint32_t, 3>>& draws, const std::uint32_t* vertexCode, const std::uint32_t* pixelCode, std::uint32_t pixelUserSgprs) {
+    const auto color = reinterpret_cast<std::uintptr_t>(ColorMemory.data());
+    const auto vertex = reinterpret_cast<std::uintptr_t>(vertexCode);
+    const auto pixel = reinterpret_cast<std::uintptr_t>(pixelCode);
+    const std::vector<std::pair<std::uint32_t, std::uint32_t>> context{
+        {0x2d5, 0x2000},
+        {0x1b6, 0}, {0x207, 0}, {0x200, 0}, {0x203, 0x800},
+        {0x2dc, 0xaa00}, {0x2f8, 0}, {0x292, 2}, {0x293, 0},
+        {0x80, 0}, {0x8d, 0}, {0x83, 0xffff}, {0x8c, 0xa},
+        {0x2f9, 0x2d}, {0x313, 0x6000}, {0x30e, 0xffffffff}, {0x30f, 0xffffffff},
+        {0x206, 0x43f}, {0x204, 0x80000}, {0x205, 0x240},
+        {0x8e, 0xf}, {0x8f, 0xf}, {0x202, 0xcc0010},
+        {0x1c4, 0}, {0x1c5, 9}, {0x1c3, 4}, {0x31c, 0x28028},
+        {0x31b, 0}, {0x31d, 0}, {0x3b0, (63u << 14u) | 3u},
+        {0x3b8, 0x9000000}, {0x1e0, 0},
+        {0xc, 0}, {0xd, 0x40040},
+        {0x81, 0x80000000}, {0x82, 0x40040},
+        {0x90, 0x80000000}, {0x91, 0x40040},
+        {0x94, 0x80000000}, {0x95, 0x40040},
+        {0x318, static_cast<std::uint32_t>(color >> 8u)}, {0x390, static_cast<std::uint32_t>(color >> 40u)},
+        {0x10f, std::bit_cast<std::uint32_t>(32.0f)}, {0x110, std::bit_cast<std::uint32_t>(32.0f)},
+        {0x111, std::bit_cast<std::uint32_t>(-2.0f)}, {0x112, std::bit_cast<std::uint32_t>(2.0f)},
+        {0x113, std::bit_cast<std::uint32_t>(1.0f)}, {0x114, 0},
+        {0xb4, 0}, {0xb5, std::bit_cast<std::uint32_t>(1.0f)},
+        {0x2fe, 0}, {0x302, 0}, {0x306, 0}, {0x30a, 0},
+    };
+    const std::vector<std::pair<std::uint32_t, std::uint32_t>> shader{
+        {0xc8, static_cast<std::uint32_t>(vertex >> 8u)}, {0xc9, static_cast<std::uint32_t>(vertex >> 40u)}, {0x8b, 1u << 1u}, {0x8c, 0},
+        {0x008, static_cast<std::uint32_t>(pixel >> 8u)}, {0x009, static_cast<std::uint32_t>(pixel >> 40u)}, {0x00b, pixelUserSgprs << 1u},
+    };
+    std::vector<std::uint32_t> commands;
+    Append(commands, 0x79, {0x242, 4});
+    for (const auto& [offset, value] : context) Append(commands, 0x69, {offset, value});
+    for (const auto& [offset, value] : shader) Append(commands, 0x76, {offset, value});
+    for (const auto& words : draws) {
+        for (std::uint32_t k = 0; k < pixelUserSgprs; ++k) Append(commands, 0x76, {0x00c + k, words[k]});
+        Append(commands, 0x2d, {3, 2});
+    }
+    return commands;
+}
+
+unsigned BrightestColorByte() {
+    AgcDriver::GuestMemory::FlushGpuWrites(reinterpret_cast<std::uintptr_t>(ColorMemory.data()), ColorMemory.size());
+    unsigned brightest = 0;
+    for (const auto value : ColorMemory) brightest = std::max(brightest, static_cast<unsigned>(value));
+    return brightest;
+}
+
+void ForwardedValuesHitTheCache(bool libraries) {
+    Registered(TriangleVertexHeader, TriangleVertexCode.data(), sizeof(TriangleVertexCode), 2);
+    Registered(ValuePixelHeader, ValuePixelCode.data(), sizeof(ValuePixelCode), 1);
+    const auto mode = std::string(libraries ? "with" : "without") + " graphics pipeline libraries";
+    const auto draw = [&](const float* source, float value) {
+        const auto address = reinterpret_cast<std::uintptr_t>(source);
+        auto commands = DrawWords({{static_cast<std::uint32_t>(address), static_cast<std::uint32_t>(address >> 32u), std::bit_cast<std::uint32_t>(value)}}, TriangleVertexCode.data(), ValuePixelCode.data(), 3);
+        Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
+        Require(sceAgcDriverSubmitDcb(&packet) == 0, "the draw submission failed");
+        AgcDriverWaitIdle_nid_postfix();
+        return AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
+    };
+    alignas(16) static std::array<std::array<float, 4>, 9> dim{};
+    for (auto& entry : dim) entry = {0.25f, 0.0f, 0.0f, 0.0f};
+    const auto start = AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
+    AgcDriver::DriverDetail::DrawEntryCounters counters = start;
+    for (std::size_t i = 0; i < 8; ++i) counters = draw(dim[i].data(), static_cast<float>(i + 1) / 16.0f);
+    const auto hits = counters.hits - start.hits;
+    Require(hits == 4, mode + ": draws whose pointer moved and whose forwarded user word changed made " + std::to_string(hits) + " hits in 8 draws, expected the cached draw from the fifth on");
+    ColorMemory.fill(std::byte{0});
+    const auto last = draw(dim[8].data(), 1.0f);
+    Require(last.hits - counters.hits == 1, mode + ": the draw of forwarded value 1.0 did not reuse the cached draw");
+    Require(BrightestColorByte() == 255, mode + ": a cached draw given forwarded value 1.0 wrote " + std::to_string(BrightestColorByte()) + ", expected 255: the value was not patched into the cached stage");
+}
+
 void MovedForwardedWordReachesStageDataHit(bool libraries) {
     Registered(TriangleVertexHeader, TriangleVertexCode.data(), sizeof(TriangleVertexCode), 2);
     Registered(ForwardedPixelHeader, ForwardedPixelCode.data(), sizeof(ForwardedPixelCode), 1);
@@ -318,6 +394,7 @@ int main(int argc, char** argv) {
         MovedDataHitsTheCache(libraries);
         UnrelocatedAliasesStayOut(libraries);
         MovedForwardedWordReachesStageDataHit(libraries);
+        ForwardedValuesHitTheCache(libraries);
         AgcDriverShutdown_nid_postfix();
         std::cout << "A draw whose data moved reused the cached draw " << (libraries ? "with" : "without") << " graphics pipeline libraries\n";
         return 0;
