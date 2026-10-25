@@ -177,7 +177,7 @@ private:
     void maybeReportDrawCache(bool profile);
     void reportDrawCache(DrawEntryCounters& counters, bool profile);
     std::string profileDrawCacheLines(const DrawEntryCounters& counters);
-    static std::uint64_t drawRegisterKey(const QueueState& queue, const ShaderRegistry& registry, std::uint64_t deviceSerial, std::uint64_t* shape = nullptr, std::array<std::uint64_t, 5>* components = nullptr, const DrawRelocation* relocation = nullptr, DrawAliasKeys* aliases = nullptr);
+    std::uint64_t drawRegisterKey(const QueueState& queue, const ShaderRegistry& registry, std::uint64_t deviceSerial, std::uint64_t* shape = nullptr, std::array<std::uint64_t, 5>* components = nullptr, const DrawRelocation* relocation = nullptr, DrawAliasKeys* aliases = nullptr);
     void traceDrawKeyLookup(const std::array<std::uint64_t, 5>& components, bool cacheMiss);
     static std::uint64_t drawIdentityKey(const QueueState& queue, const ShaderRegistry& registry);
     static bool drawRelocationEnabled();
