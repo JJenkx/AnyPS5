@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/GuestBufferMemory.hpp"
+#include "AllocationFailure.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #ifndef _WIN32
@@ -16,6 +17,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <new>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -207,6 +209,7 @@ struct Backing {
 std::vector<Backing*> backings;
 // The descriptor the resolver last handed out: the import owns it, so after the import it is closed.
 int lastBackingFile = -1;
+bool failAfterRunsResolved = false;
 
 void ExpectBackingClosed(const char* what) {
     Expect(lastBackingFile >= 0 && fcntl(lastBackingFile, F_GETFD) == -1 && errno == EBADF, what);
@@ -378,6 +381,10 @@ bool ResolveRuns(std::uintptr_t address, std::size_t bytes, int* file, GuestAren
         }
         *file = dup(range->file);
         lastBackingFile = *file;
+        if (failAfterRunsResolved && *file >= 0) {
+            failAfterRunsResolved = false;
+            AgcDriver::Tests::SetAllocationFailureCountdown(0);
+        }
         return *file >= 0;
     }
     std::uint64_t offset = 0;
@@ -413,6 +420,27 @@ void ScatteredRunsAboveTheLimitBindTheirChunks() {
         Expect(mapped, "a bind does not map the chunk of its run's file offset to its place in the range");
         Expect(resource == total, "the binds do not cover the scattered range exactly");
     }
+    std::erase(scattered, &range);
+}
+
+void RunListAllocationFailureClosesTheBacking() {
+    ScatteredRange range({{0, Alignment}, {2 * Alignment, Alignment}});
+    scattered.push_back(&range);
+    auto context = mockContext();
+    context.sparseBinding = false;
+    failAfterRunsResolved = true;
+    bool threw = false;
+    try {
+        std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
+        HostImportFor(context, reinterpret_cast<std::uint64_t>(range.base), 2 * Alignment);
+    } catch (const std::bad_alloc&) {
+        threw = true;
+    }
+    AgcDriver::Tests::SetAllocationFailureCountdown(-1);
+    Expect(threw && !failAfterRunsResolved, "the run-list allocation failure was not injected");
+    failAfterRunsResolved = false;
+    ExpectBackingClosed("the run-list allocation failure retained the backing descriptor");
+    if (lastBackingFile >= 0 && fcntl(lastBackingFile, F_GETFD) >= 0) close(lastBackingFile);
     std::erase(scattered, &range);
 }
 
@@ -539,6 +567,7 @@ int main() {
         UnalignedOffsetStartsAtTheBlockBelow();
         LargerSparseBlockIsDecidedBeforeImporting();
         ScatteredRunsAboveTheLimitBindTheirChunks();
+        RunListAllocationFailureClosesTheBacking();
         UnalignedInteriorRunKeepsTheFallback();
         FailureAfterTheDecisionThrows(false, VK_SUCCESS, "UDMABUF_CREATE");
         FailureAfterTheDecisionThrows(true, VK_ERROR_DEVICE_LOST, "vkQueueBindSparse");
