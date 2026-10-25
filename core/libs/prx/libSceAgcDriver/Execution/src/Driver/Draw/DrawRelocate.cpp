@@ -394,11 +394,19 @@ std::shared_ptr<DispatchVariant> Driver::cloneVariant(const DispatchVariant& var
 }
 
 void Driver::tagBufferWords(DispatchVariant& variant, std::span<const ShaderRecompiler::BufferBaseWord> bufferBaseWords) {
-    if (!drawRelocationEnabled() || bufferBaseWords.empty() || variant.compiled == nullptr || !variant.dataPositions.empty()) return;
+    if (!drawRelocationEnabled() || bufferBaseWords.empty() || variant.compiled == nullptr) return;
+    const bool trace = traceDrawCache();
+    auto& counters = drawRelocationCounters;
+    if (trace) ++counters.bufferStages;
+    if (!variant.dataPositions.empty()) {
+        if (trace) ++counters.bufferMixed;
+        return;
+    }
     const auto& compiled = *variant.compiled;
     using Patches = std::vector<std::pair<std::uint32_t, std::uint32_t>>;
     std::vector<std::pair<std::uint32_t, Patches>> tagged;
     for (const auto& base : bufferBaseWords) {
+        if (trace) ++counters.bufferBases;
         std::uint32_t position = 0;
         bool located = false;
         for (const auto& [begin, end] : variant.runs) {
@@ -409,7 +417,10 @@ void Driver::tagBufferWords(DispatchVariant& variant, std::span<const ShaderReco
             }
             position += static_cast<std::uint32_t>((end - begin) / sizeof(std::uint32_t));
         }
-        if (!located || position >= variant.words.size() || variant.words[position] == 0) continue;
+        if (!located || position >= variant.words.size() || variant.words[position] == 0) {
+            if (trace) ++counters.bufferMissing;
+            continue;
+        }
         const auto value = variant.words[position];
         Patches patches;
         std::size_t slots = 0, others = 0;
@@ -433,12 +444,19 @@ void Driver::tagBufferWords(DispatchVariant& variant, std::span<const ShaderReco
             if (constant.value == value) ++others;
         }
         const auto expected = static_cast<std::size_t>(std::count_if(compiled.bufferBaseSlots.begin(), compiled.bufferBaseSlots.end(), [&](const std::array<std::uint32_t, 3>& entry) { return entry[0] == base.buffer; }));
-        if (slots == 0 || slots != expected || others != 0) continue;
+        if (slots == 0 || slots != expected || others != 0) {
+            if (trace) {
+                if (slots == 0 || slots != expected) ++counters.bufferSlots;
+                if (others != 0) ++counters.bufferAliases;
+            }
+            continue;
+        }
         if (std::any_of(tagged.begin(), tagged.end(), [&](const auto& entry) { return entry.first == position; })) continue;
         tagged.emplace_back(position, std::move(patches));
     }
     std::sort(tagged.begin(), tagged.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
     for (auto& [position, patches] : tagged) {
+        if (trace) ++counters.bufferTagged;
         variant.dataPositions.push_back(position);
         variant.bufferWordBuffers.push_back(std::move(patches));
     }
@@ -493,6 +511,7 @@ void Driver::applyShaderDataPatches(DispatchVariant& variant) {
 void Driver::reportDrawRelocation() {
     auto& counters = drawRelocationCounters;
     AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate] %llu alias lookups: %llu donors with moved user words, %llu refusals, %llu hits through a relocated entry; %zu shader sets learned, %zu stage donors held (%llu dropped at the limit)\n", static_cast<unsigned long long>(counters.lookups), static_cast<unsigned long long>(counters.donors), static_cast<unsigned long long>(counters.refused), static_cast<unsigned long long>(counters.hits), drawRelocations.size(), drawStageDonors.size(), static_cast<unsigned long long>(counters.evicted));
+    AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate-buffer] %llu stages with buffer bases: %llu refused with flat data; %llu bases examined, %llu missing or zero, %llu incomplete slots, %llu aliased values, %llu tagged words\n", static_cast<unsigned long long>(counters.bufferStages), static_cast<unsigned long long>(counters.bufferMixed), static_cast<unsigned long long>(counters.bufferBases), static_cast<unsigned long long>(counters.bufferMissing), static_cast<unsigned long long>(counters.bufferSlots), static_cast<unsigned long long>(counters.bufferAliases), static_cast<unsigned long long>(counters.bufferTagged));
     counters = {};
 }
 
