@@ -2590,6 +2590,13 @@ if(BUILD_TESTING)
         set_tests_properties(agc_driver_vertex_resource_refresh PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
+    add_test(NAME agc_driver_vertex_resource_refresh_pipeline COMMAND agc_driver_draw_cache_relocation_tests --vertex-refresh)
+    set_tests_properties(agc_driver_vertex_resource_refresh_pipeline PROPERTIES
+        ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1;APS5_VERTEX_RESOURCE_REFRESH=1;APS5_VERIFY_DRAW_RECIPE=1;APS5_DRAW_CACHE_ENTRIES=1;APS5_DRAW_CACHE_PIPELINES=0;APS5_PIPELINED_DRAWS=8" SKIP_RETURN_CODE 77 TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    if(WIN32)
+        set_tests_properties(agc_driver_vertex_resource_refresh_pipeline PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_test(NAME agc_driver_draw_cache_relocation_evicted COMMAND agc_driver_draw_cache_relocation_tests --evicted)
     add_test(NAME agc_driver_draw_cache_relocation_kept COMMAND agc_driver_draw_cache_relocation_tests --kept)
     set_tests_properties(agc_driver_draw_cache_relocation_evicted agc_driver_draw_cache_relocation_kept PROPERTIES

@@ -535,6 +535,7 @@ void Driver::tagVertexWords(DispatchVariant& variant, const StageCapture& captur
     std::sort(variant.dataPositions.begin(), variant.dataPositions.end());
     variant.dataPositions.erase(std::unique(variant.dataPositions.begin(), variant.dataPositions.end()), variant.dataPositions.end());
     variant.vertexData = !variant.dataPositions.empty();
+    if (variant.vertexData && traceDrawCache()) ++drawRelocationCounters.vertexTagged;
 }
 
 std::shared_ptr<DispatchVariant> Driver::patchVertexWords(const DispatchVariant& variant, std::span<const std::pair<std::uint32_t, std::uint32_t>> live, const DrawProgram& program) {
@@ -581,6 +582,7 @@ std::shared_ptr<DispatchVariant> Driver::patchVertexWords(const DispatchVariant&
     copy->compiled = std::move(compiled);
     copy->vertexInfo = std::make_shared<const ShaderRecompiler::ShaderVertexStageInfo>(std::move(info));
     copy->dataPatched = true;
+    if (traceDrawCache()) ++drawRelocationCounters.vertexPatched;
     return copy;
 }
 
@@ -614,6 +616,7 @@ void Driver::reportDrawRelocation() {
     auto& counters = drawRelocationCounters;
     AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate] %llu alias lookups: %llu donors with moved user words, %llu refusals, %llu hits through a relocated entry; %zu shader sets learned, %zu stage donors held (%llu dropped at the limit)\n", static_cast<unsigned long long>(counters.lookups), static_cast<unsigned long long>(counters.donors), static_cast<unsigned long long>(counters.refused), static_cast<unsigned long long>(counters.hits), drawRelocations.size(), drawStageDonors.size(), static_cast<unsigned long long>(counters.evicted));
     AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate-refuse] %llu unknown structures, %llu expired or evicted decodes, %llu missing stage donors, %llu user words outside the relocation rules\n", static_cast<unsigned long long>(counters.missingStructure), static_cast<unsigned long long>(counters.staleDecode), static_cast<unsigned long long>(counters.missingStage), static_cast<unsigned long long>(counters.blockedWords));
+    AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate-vertex] %llu tagged stages, %llu resource refreshes, %llu refused refreshes\n", static_cast<unsigned long long>(counters.vertexTagged), static_cast<unsigned long long>(counters.vertexPatched), static_cast<unsigned long long>(counters.vertexRefused));
     AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate-buffer] %llu stages with buffer bases: %llu refused with flat data; %llu bases examined, %llu missing or zero, %llu incomplete slots, %llu aliased values, %llu tagged words\n", static_cast<unsigned long long>(counters.bufferStages), static_cast<unsigned long long>(counters.bufferMixed), static_cast<unsigned long long>(counters.bufferBases), static_cast<unsigned long long>(counters.bufferMissing), static_cast<unsigned long long>(counters.bufferSlots), static_cast<unsigned long long>(counters.bufferAliases), static_cast<unsigned long long>(counters.bufferTagged));
     std::string changes;
     for (std::size_t reg = 0; reg < counters.fixedWordChanges.size(); ++reg) {
