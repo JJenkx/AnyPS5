@@ -485,7 +485,7 @@ void VertexResourcesRefresh(bool libraries) {
         AgcDriver::GuestMemory::FlushGpuWrites(destination, sizeof(output));
         for (std::size_t vertex = 0; vertex < 3; ++vertex) {
             for (std::size_t component = 0; component < 4; ++component) {
-                const auto expected = vertex * stride + 16u > records ? 0u : std::bit_cast<std::uint32_t>(elements[element][vertex * stride / 16u][component]);
+                const auto expected = (stride == 0 ? records < 16u : vertex >= records) ? 0u : std::bit_cast<std::uint32_t>(elements[element][vertex * stride / 16u][component]);
                 Require(output[vertex * 4 + component] == expected, "vertex resource refresh produced stale or out-of-bounds vertex data at component " + std::to_string(vertex * 4 + component) + " element " + std::to_string(element) + " records " + std::to_string(records) + " got " + std::to_string(output[vertex * 4 + component]) + " expected " + std::to_string(expected));
             }
         }
@@ -495,7 +495,7 @@ void VertexResourcesRefresh(bool libraries) {
         const auto first = draw(0, 128, stride);
         const auto warm = draw(0, 128, stride);
         const auto moved = draw(1, 128, stride);
-        const auto smaller = draw(1, 16, stride);
+        const auto smaller = draw(1, stride == 0 ? 16u : 1u, stride);
         const auto empty = draw(0, 0, stride);
         Require(moved.hits == warm.hits + 1 && smaller.hits == moved.hits + 1 && empty.hits == smaller.hits + 1, "changed vertex resources did not reuse the draw cache at stride " + std::to_string(stride));
         Require(empty.verifyDecodeMismatches == first.verifyDecodeMismatches, "vertex resource refresh failed full decode verification");
