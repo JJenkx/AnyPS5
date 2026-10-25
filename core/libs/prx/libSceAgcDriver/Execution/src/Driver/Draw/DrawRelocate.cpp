@@ -292,11 +292,24 @@ bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
     auto& counters = drawRelocationCounters;
     ++counters.lookups;
     const auto known = drawDecodes.find(aliases.structure);
-    if (known == drawDecodes.end() || known->second.owner.expired()) return false;
+    if (known == drawDecodes.end()) {
+        ++counters.missingStructure;
+        return false;
+    }
+    if (known->second.owner.expired()) {
+        ++counters.staleDecode;
+        return false;
+    }
     const auto cached = drawCache.find(known->second.key);
-    if (cached == drawCache.end() || cached->second != known->second.owner.lock()) return false;
+    if (cached == drawCache.end() || cached->second != known->second.owner.lock()) {
+        ++counters.staleDecode;
+        return false;
+    }
     const auto shared = known->second.decode.lock();
-    if (shared == nullptr) return false;
+    if (shared == nullptr) {
+        ++counters.staleDecode;
+        return false;
+    }
     const auto& stageKeys = known->second.stageKeys;
     const auto& programs = shared->programs;
     auto relocated = entryPool().Take();
@@ -321,13 +334,17 @@ bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
         const auto* donor = found != drawStageDonors.end() && owner != drawCache.end() && owner->second == found->second.owner.lock() && heldVariant != nullptr && heldVariant->compiled != nullptr && found->second.userData.size() == program.userData.size() ? &found->second : nullptr;
         moves.clear();
         bool allowed = donor != nullptr;
+        if (donor == nullptr) ++counters.missingStage;
         for (std::uint32_t index = program.hiddenUserWords; index < program.userData.size(); ++index) {
             const auto now = readUserData(queue.shader, program.userDataBase + index - program.hiddenUserWords);
             if (now != program.userData[index]) current.push_back({i, index, now});
             if (donor == nullptr || now == donor->userData[index]) continue;
             const auto from = donor->userData[index];
             const bool forwarded = index < 64 && (heldVariant->forwardedWords >> index & 1u) != 0;
-            if (!forwarded && (index >= 64 || (heldVariant->relocatableWords >> index & 1u) == 0 || from == 0 || now == 0 || ((from ^ now) & 3u) != 0)) allowed = false;
+            if (!forwarded && (index >= 64 || (heldVariant->relocatableWords >> index & 1u) == 0 || from == 0 || now == 0 || ((from ^ now) & 3u) != 0)) {
+                ++counters.blockedWords;
+                allowed = false;
+            }
             moves.push_back({index, from, now});
         }
         if (!allowed) {
@@ -511,6 +528,7 @@ void Driver::applyShaderDataPatches(DispatchVariant& variant) {
 void Driver::reportDrawRelocation() {
     auto& counters = drawRelocationCounters;
     AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate] %llu alias lookups: %llu donors with moved user words, %llu refusals, %llu hits through a relocated entry; %zu shader sets learned, %zu stage donors held (%llu dropped at the limit)\n", static_cast<unsigned long long>(counters.lookups), static_cast<unsigned long long>(counters.donors), static_cast<unsigned long long>(counters.refused), static_cast<unsigned long long>(counters.hits), drawRelocations.size(), drawStageDonors.size(), static_cast<unsigned long long>(counters.evicted));
+    AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate-refuse] %llu unknown structures, %llu expired or evicted decodes, %llu missing stage donors, %llu user words outside the relocation rules\n", static_cast<unsigned long long>(counters.missingStructure), static_cast<unsigned long long>(counters.staleDecode), static_cast<unsigned long long>(counters.missingStage), static_cast<unsigned long long>(counters.blockedWords));
     AgcDriver::ProfilePrint_nid_no_patch("[draw-relocate-buffer] %llu stages with buffer bases: %llu refused with flat data; %llu bases examined, %llu missing or zero, %llu incomplete slots, %llu aliased values, %llu tagged words\n", static_cast<unsigned long long>(counters.bufferStages), static_cast<unsigned long long>(counters.bufferMixed), static_cast<unsigned long long>(counters.bufferBases), static_cast<unsigned long long>(counters.bufferMissing), static_cast<unsigned long long>(counters.bufferSlots), static_cast<unsigned long long>(counters.bufferAliases), static_cast<unsigned long long>(counters.bufferTagged));
     counters = {};
 }

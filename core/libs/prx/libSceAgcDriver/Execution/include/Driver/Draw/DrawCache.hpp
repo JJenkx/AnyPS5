@@ -188,6 +188,7 @@ struct DrawRelocationTrial {
 
 struct DrawRelocationCounters {
     std::uint64_t lookups = 0, donors = 0, refused = 0, hits = 0, evicted = 0;
+    std::uint64_t missingStructure = 0, staleDecode = 0, missingStage = 0, blockedWords = 0;
     std::uint64_t bufferStages = 0, bufferMixed = 0, bufferBases = 0, bufferMissing = 0, bufferSlots = 0, bufferAliases = 0, bufferTagged = 0;
 };
 
