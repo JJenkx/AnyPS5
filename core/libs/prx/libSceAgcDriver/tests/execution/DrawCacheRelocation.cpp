@@ -483,7 +483,7 @@ void VertexResourcesRefresh(bool libraries) {
         for (std::size_t vertex = 0; vertex < 3; ++vertex) {
             for (std::size_t component = 0; component < 4; ++component) {
                 const auto expected = records == 0 ? 0u : std::bit_cast<std::uint32_t>(elements[element][component]);
-                Require(output[vertex * 4 + component] == expected, "vertex resource refresh produced stale or out-of-bounds vertex data at component " + std::to_string(vertex * 4 + component));
+                Require(output[vertex * 4 + component] == expected, "vertex resource refresh produced stale or out-of-bounds vertex data at component " + std::to_string(vertex * 4 + component) + " element " + std::to_string(element) + " records " + std::to_string(records) + " got " + std::to_string(output[vertex * 4 + component]) + " expected " + std::to_string(expected));
             }
         }
         return AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
