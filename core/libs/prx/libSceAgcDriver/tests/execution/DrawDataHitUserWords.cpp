@@ -162,7 +162,7 @@ void UnreadUserWordsKeepTheStage(bool verify) {
     Append(commands, 0x2d, {3, 2});
     counters = Submit(std::move(commands));
     Require(counters.inserts != 0, "the repeated register key was not admitted: " + Counts(counters));
-    Require(BrightestColorByte() == 255, "the first descriptor did not draw its 1.0 payload");
+    Require(BrightestColorByte() == 255, "the first descriptor did not draw its 1.0 payload: " + std::to_string(BrightestColorByte()));
 
     commands.clear();
     PixelUserData(commands, first, 0x22);
