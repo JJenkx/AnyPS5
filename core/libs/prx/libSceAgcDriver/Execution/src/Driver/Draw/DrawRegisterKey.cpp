@@ -145,12 +145,15 @@ std::uint64_t Driver::drawRegisterKey(const QueueState& queue, const ShaderRegis
     RegisterStateKeyParts parts;
     auto key = RegisterStateKey(queue, allUserWords, true, &shapeKey, components != nullptr ? &parts : nullptr);
     if (verify && key != RegisterStateKey(queue, allUserWords, false)) throw std::runtime_error("incremental register fingerprint disagrees with full state");
+    const auto stableShape = shapeKey;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> fixedWords;
     if (aliased) {
         mixOther(shapeKey);
         forEachKeyedUserWord(queue, allUserWords, [&](std::uint32_t offset, std::uint32_t value) {
             mixOther(offset);
             const auto word = std::find_if(relocation->words.begin(), relocation->words.end(), [&](const RelocatableUserWord& candidate) { return candidate.reg == offset; });
             if (word == relocation->words.end()) {
+                if (traceDrawCache()) fixedWords.emplace_back(offset, value);
                 mixOther(value);
                 return;
             }
@@ -196,6 +199,33 @@ std::uint64_t Driver::drawRegisterKey(const QueueState& queue, const ShaderRegis
         }
     }
     if (shape != nullptr) *shape = shapeKey;
+    if (aliased && readable && traceDrawCache()) {
+        struct PreviousAlias { std::vector<std::pair<std::uint32_t, std::uint32_t>> words; };
+        struct PreviousAliasStorage {};
+        auto& previous = HostThreadLocal<std::unordered_map<std::uint64_t, PreviousAlias>, PreviousAliasStorage>();
+        const auto diagnosticKey = ((stableShape ^ DrawShaderSetKey(queue, registry)) * 0x100000001b3ull ^ deviceSerial) * 0x100000001b3ull;
+        if (previous.size() >= 2048 && !previous.contains(diagnosticKey)) previous.clear();
+        const auto [held, inserted] = previous.try_emplace(diagnosticKey);
+        std::lock_guard cacheLock(drawCacheMutex);
+        auto& counters = drawRelocationCounters;
+        ++counters.fixedSamples;
+        if (!inserted) {
+            const auto& before = held->second.words;
+            const bool sameLayout = before.size() == fixedWords.size() && std::equal(before.begin(), before.end(), fixedWords.begin(), [](const auto& a, const auto& b) { return a.first == b.first; });
+            if (!sameLayout) ++counters.fixedLayoutChanges;
+            else {
+                bool changed = false;
+                for (std::size_t i = 0; i < fixedWords.size(); ++i) {
+                    if (before[i].second == fixedWords[i].second) continue;
+                    const auto offset = fixedWords[i].first;
+                    if (offset < counters.fixedWordChanges.size()) ++counters.fixedWordChanges[offset];
+                    changed = true;
+                }
+                if (changed) ++counters.fixedChanges;
+            }
+        }
+        held->second.words = std::move(fixedWords);
+    }
     if (aliased && readable) {
         aliases->structure = other == 0 ? 1 : other;
         aliases->content = content;
