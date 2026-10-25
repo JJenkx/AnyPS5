@@ -455,7 +455,7 @@ void VertexResourcesRefresh(bool libraries) {
     Registered(PixelHeader, PixelCode.data(), sizeof(PixelCode), 1);
     const auto draw = [&](std::uint32_t element, std::uint32_t records) {
         const auto address = reinterpret_cast<std::uintptr_t>(elements[element].data());
-        table = {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), records, 0x3104dfacu};
+        table = {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), records, 0x2104dfacu};
         output.fill(0xdeadbeefu);
         auto commands = DrawFrom({Other.data()}, code.data());
         commands.resize(commands.size() - 3);
