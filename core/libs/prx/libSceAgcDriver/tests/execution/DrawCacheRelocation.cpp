@@ -495,8 +495,8 @@ void VertexResourcesRefresh(bool libraries) {
         const auto first = draw(0, 128, stride);
         const auto warm = draw(0, 128, stride);
         const auto moved = draw(1, 128, stride);
-        const auto smaller = draw(1, stride == 0 ? 16u : 1u, stride);
-        const auto empty = draw(0, 0, stride);
+        const auto smaller = draw(1, stride == 0 ? 16u : 3u, stride);
+        const auto empty = draw(0, stride == 0 ? 0u : 4u, stride);
         Require(moved.hits == warm.hits + 1 && smaller.hits == moved.hits + 1 && empty.hits == smaller.hits + 1, "changed vertex resources did not reuse the draw cache at stride " + std::to_string(stride));
         Require(empty.verifyDecodeMismatches == first.verifyDecodeMismatches, "vertex resource refresh failed full decode verification");
     }
