@@ -160,13 +160,15 @@ struct DrawAliasKeys {
 };
 
 struct DrawStageDonor {
-    std::shared_ptr<DispatchVariant> variant;
+    std::weak_ptr<DispatchVariant> variant;
     std::vector<std::uint32_t> userData;
+    std::weak_ptr<DrawEntry> owner;
 };
 
 struct DrawDecodeDonor {
-    std::shared_ptr<const DrawDecode> decode;
+    std::weak_ptr<const DrawDecode> decode;
     std::vector<std::uint64_t> stageKeys;
+    std::weak_ptr<DrawEntry> owner;
 };
 
 struct DrawRelocationPending {

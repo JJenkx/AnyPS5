@@ -669,11 +669,11 @@ DrawVerdict Driver::draw(QueueState& queue, std::span<const std::uint32_t> packe
         if (drawHit || verifyHit) {
             ++drawRelocationCounters.hits;
             ++drawRelocationTrials[drawIdentity].hits;
-            if (const auto alias = drawAliases.find(drawAlias); alias != drawAliases.end()) {
-                const auto donor = drawCache.find(alias->second);
-                if (donor != drawCache.end() && drawCacheHits - donor->second->touched > drawCacheEntries() / 8) {
-                    drawOrder.splice(drawOrder.begin(), drawOrder, donor->second->order);
-                    donor->second->touched = drawCacheHits;
+            if (const auto alias = drawDecodes.find(drawAliases.structure); alias != drawDecodes.end()) {
+                const auto donor = alias->second.owner.lock();
+                if (donor != nullptr && drawCacheHits - donor->touched > drawCacheEntries() / 8) {
+                    drawOrder.splice(drawOrder.begin(), drawOrder, donor->order);
+                    donor->touched = drawCacheHits;
                     ++drawEntryCounters.touches;
                 }
             }
@@ -685,7 +685,10 @@ DrawVerdict Driver::draw(QueueState& queue, std::span<const std::uint32_t> packe
         for (std::size_t i = 0; i < matched.size() && i < drawStageDonorKeys.size() && i < programs.size(); ++i) {
             if (matched[i] == nullptr || !matched[i]->dataPatched || drawStageDonorKeys[i] == 0) continue;
             matched[i]->dataPatched = false;
-            drawStageDonors[drawStageDonorKeys[i]] = {matched[i], programs[i].userData};
+            if (const auto found = drawStageDonors.find(drawStageDonorKeys[i]); found != drawStageDonors.end()) {
+                found->second.variant = matched[i];
+                found->second.userData = programs[i].userData;
+            }
         }
     }
     if (!userPatches.empty() && !drawHit) {

@@ -21,36 +21,39 @@ constexpr std::size_t MaxPooled = 1024;
 
 template <typename T>
 class RelocationPool {
+    struct State {
+        std::mutex mutex;
+        std::vector<T*> spare;
+        ~State() {
+            for (auto* object : spare) delete object;
+        }
+    };
 public:
     std::shared_ptr<T> Take() {
         T* object = nullptr;
         {
-            std::lock_guard lock(mutex);
-            if (!spare.empty()) {
-                object = spare.back();
-                spare.pop_back();
+            std::lock_guard lock(state->mutex);
+            if (!state->spare.empty()) {
+                object = state->spare.back();
+                state->spare.pop_back();
             }
         }
         if (object == nullptr) object = new T();
-        return std::shared_ptr<T>(object, [this](T* released) { Return(released); });
-    }
-    ~RelocationPool() {
-        for (auto* object : spare) delete object;
+        return std::shared_ptr<T>(object, [held = state](T* released) { Return(*held, released); });
     }
 
 private:
-    void Return(T* object) {
+    static void Return(State& state, T* object) {
         {
-            std::lock_guard lock(mutex);
-            if (spare.size() < MaxPooled) {
-                spare.push_back(object);
+            std::lock_guard lock(state.mutex);
+            if (state.spare.size() < MaxPooled) {
+                state.spare.push_back(object);
                 return;
             }
         }
         delete object;
     }
-    std::mutex mutex;
-    std::vector<T*> spare;
+    std::shared_ptr<State> state = std::make_shared<State>();
 };
 
 RelocationPool<DispatchVariant>& variantPool() {
@@ -256,7 +259,7 @@ void Driver::learnPendingRelocation() {
     if (pending.aliases.structure == 0) return;
     if (drawStageDonors.size() >= MaxAliases) drawRelocationCounters.evicted += dropEveryOther(drawStageDonors);
     if (drawDecodes.size() >= MaxAliases) drawRelocationCounters.evicted += dropEveryOther(drawDecodes);
-    DrawDecodeDonor donor{entry.decode, std::vector<std::uint64_t>(programs.size(), 0)};
+    DrawDecodeDonor donor{entry.decode, std::vector<std::uint64_t>(programs.size(), 0), inserted->second};
     for (std::size_t i = 0; i < programs.size(); ++i) {
         if (entry.stages[i].empty() || entry.stages[i].front() == nullptr || entry.stages[i].front()->prepared == nullptr) continue;
         const auto& variant = entry.stages[i].front();
@@ -274,7 +277,7 @@ void Driver::learnPendingRelocation() {
             if (!relocatable && index >= program.hiddenUserWords) mix(program.userData[index]);
         }
         donor.stageKeys[i] = key == 0 ? 1 : key;
-        drawStageDonors[pending.aliases.Key(donor.stageKeys[i], program.userDataBase)] = {variant, program.userData};
+        drawStageDonors[pending.aliases.Key(donor.stageKeys[i], program.userDataBase)] = {variant, program.userData, inserted->second};
     }
     const auto held = drawDecodes.find(pending.aliases.structure);
     if (held != drawDecodes.end() && held->second.stageKeys.size() == donor.stageKeys.size()) {
@@ -289,8 +292,9 @@ bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
     auto& counters = drawRelocationCounters;
     ++counters.lookups;
     const auto known = drawDecodes.find(aliases.structure);
-    if (known == drawDecodes.end() || known->second.decode == nullptr) return false;
-    const auto shared = known->second.decode;
+    if (known == drawDecodes.end() || known->second.owner.expired()) return false;
+    const auto shared = known->second.decode.lock();
+    if (shared == nullptr) return false;
     const auto& stageKeys = known->second.stageKeys;
     const auto& programs = shared->programs;
     auto relocated = entryPool().Take();
@@ -310,7 +314,8 @@ bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
         if (i < shared->roles.size() && shared->roles[i] == ShaderRecompiler::ProgramRole::GeometryBack) continue;
         const auto found = i < stageKeys.size() && stageKeys[i] != 0 ? drawStageDonors.find(aliases.Key(stageKeys[i], program.userDataBase)) : drawStageDonors.end();
         if (found != drawStageDonors.end()) drawStageDonorKeys[i] = found->first;
-        const auto* donor = found != drawStageDonors.end() && found->second.variant != nullptr && found->second.variant->compiled != nullptr && found->second.userData.size() == program.userData.size() ? &found->second : nullptr;
+        const auto heldVariant = found != drawStageDonors.end() ? found->second.variant.lock() : nullptr;
+        const auto* donor = found != drawStageDonors.end() && !found->second.owner.expired() && heldVariant != nullptr && heldVariant->compiled != nullptr && found->second.userData.size() == program.userData.size() ? &found->second : nullptr;
         moves.clear();
         bool allowed = donor != nullptr;
         for (std::uint32_t index = program.hiddenUserWords; index < program.userData.size(); ++index) {
@@ -318,8 +323,8 @@ bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
             if (now != program.userData[index]) current.push_back({i, index, now});
             if (donor == nullptr || now == donor->userData[index]) continue;
             const auto from = donor->userData[index];
-            const bool forwarded = index < 64 && (donor->variant->forwardedWords >> index & 1u) != 0;
-            if (!forwarded && (index >= 64 || (donor->variant->relocatableWords >> index & 1u) == 0 || from == 0 || now == 0 || ((from ^ now) & 3u) != 0)) allowed = false;
+            const bool forwarded = index < 64 && (heldVariant->forwardedWords >> index & 1u) != 0;
+            if (!forwarded && (index >= 64 || (heldVariant->relocatableWords >> index & 1u) == 0 || from == 0 || now == 0 || ((from ^ now) & 3u) != 0)) allowed = false;
             moves.push_back({index, from, now});
         }
         if (!allowed) {
@@ -328,10 +333,10 @@ bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
             continue;
         }
         if (moves.empty()) {
-            relocated->stages[i].push_back(donor->variant);
+            relocated->stages[i].push_back(heldVariant);
             continue;
         }
-        const auto& variant = donor->variant;
+        const auto& variant = heldVariant;
         auto copy = cloneVariant(*variant);
         for (const auto& move : moves) {
             const auto delta = AlignedWord(move.to) - AlignedWord(move.from);
