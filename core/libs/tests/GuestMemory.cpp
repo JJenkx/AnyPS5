@@ -2715,7 +2715,7 @@ static void CheckDirectMemorySharedBackingRuns() {
     Require(!oneRun || count == 1);
     Require(!GuestArena::GuestArenaSharedBackingRuns_nid_postfix(address, page * 5, &file, runs, 4, &count));
     Require(!GuestArena::GuestArenaSharedBackingRuns_nid_postfix(address, 0, &file, runs, 4, &count));
-    Require(sceKernelMunmap(reserved, page * 4) == 0);
+    Require(sceKernelMunmap(reinterpret_cast<std::uint64_t>(reserved), page * 4) == 0);
     Require(sceKernelReleaseDirectMemory(first, page * 2) == 0);
     Require(sceKernelReleaseDirectMemory(second, page) == 0);
     Require(sceKernelReleaseDirectMemory(third, page) == 0);
