@@ -186,6 +186,8 @@ private:
     static std::shared_ptr<DispatchVariant> cloneVariant(const DispatchVariant& variant);
     void tagBufferWords(DispatchVariant& variant, std::span<const ShaderRecompiler::BufferBaseWord> bufferBaseWords);
     static std::shared_ptr<DispatchVariant> patchBufferWords(const DispatchVariant& variant, std::span<const std::pair<std::uint32_t, std::uint32_t>> live);
+    static void tagVertexWords(DispatchVariant& variant, const StageCapture& capture, std::span<const Graphics::DecodeRead> reads, const DrawProgram& program);
+    static std::shared_ptr<DispatchVariant> patchVertexWords(const DispatchVariant& variant, std::span<const std::pair<std::uint32_t, std::uint32_t>> live, const DrawProgram& program);
     void learnPendingRelocation();
     bool relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& aliases, std::shared_ptr<DrawEntry>& entry, std::shared_ptr<const DrawDecode>& decode, std::vector<DrawUserPatch>& patches);
     void reportDrawRelocation();
