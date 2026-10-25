@@ -548,9 +548,21 @@ int udmabufDevice() {
     return device;
 }
 
+struct OwnedDescriptor {
+    explicit OwnedDescriptor(int descriptor) : file(descriptor) {}
+    OwnedDescriptor(const OwnedDescriptor&) = delete;
+    OwnedDescriptor& operator=(const OwnedDescriptor&) = delete;
+    ~OwnedDescriptor() {
+        if (file >= 0) close(file);
+    }
+    int Release() { return std::exchange(file, -1); }
+    int file;
+};
+
 constexpr std::size_t DmaBufRunLimit = 1024;
 
 const char* createDmaBufImport(const Context& context, HostImport& entry, int file, std::span<const GuestArena::SharedBackingRun> runs, VkResult& failure) {
+    OwnedDescriptor owned(file);
     const int device = udmabufDevice();
     int buffer = -1;
     if (device >= 0 && runs.size() == 1) {
@@ -568,7 +580,7 @@ const char* createDmaBufImport(const Context& context, HostImport& entry, int fi
         for (std::size_t index = 0; index < runs.size(); ++index) request->list[index] = udmabuf_create_item{static_cast<std::uint32_t>(file), 0, runs[index].offset, runs[index].bytes};
         buffer = ioctl(device, UDMABUF_CREATE_LIST, request);
     }
-    close(file);
+    close(owned.Release());
     if (buffer < 0) {
         failure = VK_ERROR_INVALID_EXTERNAL_HANDLE;
         return device < 0 ? "open /dev/udmabuf" : runs.size() == 1 ? "UDMABUF_CREATE" : "UDMABUF_CREATE_LIST";
@@ -852,17 +864,6 @@ bool createSparseDmaBufImport(const Context& context, HostImport& entry, int fil
 // The shared-backing resolver hands out a duplicated descriptor, so this function owns it on every
 // exit. Neither import path below consumes it: a udmabuf holds its own reference to the memfd, so
 // without closing the duplicate here every imported buffer leaks one descriptor.
-struct OwnedDescriptor {
-    explicit OwnedDescriptor(int descriptor) : file(descriptor) {}
-    OwnedDescriptor(const OwnedDescriptor&) = delete;
-    OwnedDescriptor& operator=(const OwnedDescriptor&) = delete;
-    ~OwnedDescriptor() {
-        if (file >= 0) close(file);
-    }
-    int Release() { return std::exchange(file, -1); }
-    int file;
-};
-
 const char* createBackingImport(const Context& context, HostImport& entry, int file, const GuestArena::SharedBackingRun* runs, std::size_t count, VkResult& failure) {
     bool fits = false;
     VkResult chunkFailure = VK_SUCCESS;
@@ -1930,8 +1931,9 @@ const HostImport* importRunAt(const Context& context, HostImports& state, Import
         std::array<GuestArena::SharedBackingRun, DmaBufRunLimit> runs{};
         std::size_t count = 0;
         if (GuestArena::GuestArenaSharedBackingRuns_nid_postfix(static_cast<std::uintptr_t>(entry.base), static_cast<std::size_t>(entry.bytes), &runsFile, runs.data(), runs.size(), &count)) {
+            OwnedDescriptor owned(runsFile);
             GuestMemory::ImportWatched(base, bytes, [&] {
-                step = createBackingImport(context, entry, runsFile, runs.data(), count, result);
+                step = createBackingImport(context, entry, owned.Release(), runs.data(), count, result);
                 return step == nullptr;
             }, watchedDmaBuf);
         }

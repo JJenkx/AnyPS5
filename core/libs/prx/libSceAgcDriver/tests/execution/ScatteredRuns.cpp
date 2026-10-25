@@ -9,6 +9,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "VulkanTestDevice.hpp"
+#include "../AllocationFailure.hpp"
 #ifndef _WIN32
 #include "prx/libc/include/GuestArena.hpp"
 #include <fcntl.h>
@@ -17,6 +18,8 @@
 #endif
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <new>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -49,6 +52,8 @@ constexpr std::uint64_t ChunkBytes = std::uint64_t{64} << 20u;
 std::uint8_t* mapping = nullptr;
 std::uint64_t mappingBytes = 0;
 int backing = -1;
+int lastBackingFile = -1;
+bool failAfterRunsResolved = false;
 
 // Guest segment 0 -> file [0, ChunkBytes); guest segment 1 -> file [2*ChunkBytes, 3*ChunkBytes).
 // Non-contiguous file offsets, so this is a genuine scattered run list, not one long range.
@@ -70,6 +75,11 @@ bool ResolveRuns(std::uintptr_t address, std::size_t bytes, int* file, GuestAren
     *file = dup(backing);
     if (*file < 0) return false;
     *count = used;
+    lastBackingFile = *file;
+    if (failAfterRunsResolved) {
+        failAfterRunsResolved = false;
+        AgcDriver::Tests::SetAllocationFailureCountdown(0);
+    }
     return true;
 }
 
@@ -151,6 +161,21 @@ int main() {
         Require(ranges.size() == 1, "scattered import: the allocation is not registered");
 
         const auto address = reinterpret_cast<std::uint64_t>(mapping);
+        bool injected = false;
+        failAfterRunsResolved = true;
+        try {
+            std::lock_guard lock(AgcDriver::GuestMemory::GpuMutex());
+            AgcDriver::Graphics::HostImportFor(AgcDriver::VulkanDeviceTestAccess::ContextOf(*device), address, static_cast<std::size_t>(mappingBytes));
+        } catch (const std::bad_alloc&) {
+            injected = true;
+        }
+        AgcDriver::Tests::SetAllocationFailureCountdown(-1);
+        failAfterRunsResolved = false;
+        if (injected) {
+            Require(lastBackingFile >= 0 && fcntl(lastBackingFile, F_GETFD) == -1 && errno == EBADF,
+                    "scattered import: pre-callback allocation failure retained the backing descriptor");
+            std::printf("scattered import: allocation failure closed the backing descriptor\n");
+        }
         bool imported = false;
         {
             std::lock_guard lock(AgcDriver::GuestMemory::GpuMutex());
