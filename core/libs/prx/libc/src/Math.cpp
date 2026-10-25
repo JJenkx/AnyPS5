@@ -693,7 +693,6 @@ double APS5_VABI expm1_nid_postfix(double x) {
     }
     return result;
 }
-float APS5_VABI expm1f_nid_postfix(float x) { return std::expm1(x); }
 float APS5_VABI erff_nid_postfix(float x) { return std::erf(x); }
 double APS5_VABI erf_nid_postfix(double x) { return std::erf(x); }
 double APS5_VABI erfc_nid_postfix(double x) { return std::erfc(x); }
@@ -1267,7 +1266,7 @@ double APS5_VABI nan_nid_postfix(const char* tagp) {
 double APS5_VABI modf_nid_postfix(double x, double* integral) { return std::modf(x, integral); }
 float APS5_VABI modff_nid_postfix(float x, float* integral) { return std::modf(x, integral); }
 double APS5_VABI tanh_nid_postfix(double x) { return std::tanh(x); }
-static float TanhfExpm1(float x) {
+static float Expm1f(float x) {
     const float one = 1.0f, tiny = 1.0e-30f, o_threshold = static_cast<float>(8.8721679688e+01);
     const float ln2_hi = static_cast<float>(6.9313812256e-01), ln2_lo = static_cast<float>(9.0580006145e-06), invln2 = static_cast<float>(1.4426950216e+00);
     const float Q1 = static_cast<float>(-3.3333212137e-2), Q2 = static_cast<float>(1.5807170421e-3);
@@ -1338,6 +1337,14 @@ static float TanhfExpm1(float x) {
     return y;
 }
 
+float APS5_VABI expm1f_nid_postfix(float x) {
+    const float result = Expm1f(x);
+    if (std::isinf(result) && std::isfinite(x)) {
+        errno = ERANGE;
+    }
+    return result;
+}
+
 float APS5_VABI tanhf_nid_postfix(float x) {
     const float one = 1.0f, two = 2.0f;
     static volatile float tiny = 1.0e-30f;
@@ -1351,10 +1358,10 @@ float APS5_VABI tanhf_nid_postfix(float x) {
     if (ix < 0x41100000) {
         if (ix < 0x39800000) return x;
         if (ix >= 0x3f800000) {
-            t = TanhfExpm1(two * std::fabs(x));
+            t = Expm1f(two * std::fabs(x));
             z = one - two / (t + two);
         } else {
-            t = TanhfExpm1(-two * std::fabs(x));
+            t = Expm1f(-two * std::fabs(x));
             z = -t / (t + two);
         }
     } else {
