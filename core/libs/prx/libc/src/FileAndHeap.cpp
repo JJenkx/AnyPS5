@@ -160,6 +160,7 @@ static bool IsPipeStream(std::FILE* native) {
 #endif
 
 static void SwapElements(unsigned char* left, unsigned char* right, size_t size) {
+    if (left == right) return;
     std::swap_ranges(left, left + size, right);
 }
 

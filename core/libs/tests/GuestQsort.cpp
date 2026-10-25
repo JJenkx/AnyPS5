@@ -69,6 +69,46 @@ int APS5_VABI CompareKeysWithDirection(const void* left, const void* right, void
     return *static_cast<const int*>(context) * CompareKeys(left, right);
 }
 
+std::uint32_t comparisonHash = 2166136261u;
+std::size_t comparisonCount = 0;
+
+int APS5_VABI CompareSelfSwap(const void* left, const void* right) {
+    comparisonHash = (comparisonHash ^ static_cast<std::uint32_t>(static_cast<const Element*>(left)->tag)) * 16777619u;
+    comparisonHash = (comparisonHash ^ static_cast<std::uint32_t>(static_cast<const Element*>(right)->tag)) * 16777619u;
+    ++comparisonCount;
+    return CompareKeys(left, right);
+}
+
+int APS5_VABI CompareSelfSwapS(const void* left, const void* right, void* context) {
+    return *static_cast<const int*>(context) * CompareSelfSwap(left, right);
+}
+
+bool ExpectSelfSwap() {
+    constexpr std::array<int, 33> keys{3, 1, 0, 1, 0, 1, 1, 0, 1, 3, 3, 2, 0, 2, 2, 3, 2, 1, 2, 3, 0, 0, 0, 3, 0, 2, 0, 3, 0, 2, 3, 1, 3};
+    constexpr std::array<int, 33> tags{2, 4, 7, 12, 20, 21, 22, 24, 26, 28, 1, 3, 5, 6, 8, 17, 31, 16, 13, 14, 11, 18, 25, 29, 10, 19, 15, 27, 0, 9, 30, 23, 32};
+    for (const bool withContext : {false, true}) {
+        std::array<Element, keys.size()> elements{};
+        for (std::size_t i = 0; i < keys.size(); ++i) elements[i] = {keys[i], static_cast<int>(i)};
+        comparisonHash = 2166136261u;
+        comparisonCount = 0;
+        int direction = 1;
+        if (withContext) {
+            if (qsort_s_nid_postfix(elements.data(), elements.size(), sizeof(Element), CompareSelfSwapS, &direction) != 0) return false;
+        } else qsort_nid_postfix(elements.data(), elements.size(), sizeof(Element), CompareSelfSwap);
+        if (comparisonCount != 181 || comparisonHash != 0x78b091e1u) {
+            std::fprintf(stderr, "partition self-swap: comparator order differs (%zu calls, hash %08x)\n", comparisonCount, comparisonHash);
+            return false;
+        }
+        for (std::size_t i = 0; i < tags.size(); ++i) {
+            if (elements[i].tag != tags[i]) {
+                std::fprintf(stderr, "partition self-swap: element %zu has tag %d, expected %d\n", i, elements[i].tag, tags[i]);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool ExpectOrderS(const char* name, const std::vector<int>& keys, const std::vector<int>& tags) {
     std::vector<Element> elements;
     for (std::size_t index = 0; index < keys.size(); ++index) elements.push_back({keys[index], static_cast<int>(index)});
@@ -286,6 +326,7 @@ int main() {
     correct &= ExpectOrder("insertion sort below 33 elements", {2, 1, 2, 0, 1, 2, 0, 1, 0, 2, 1, 0}, {3, 6, 8, 11, 1, 4, 7, 10, 0, 2, 5, 9});
     correct &= ExpectOrderS("insertion sort", {1, 0, 1, 0}, {1, 3, 0, 2});
     correct &= ExpectOrderS("insertion sort below 33 elements", {2, 1, 2, 0, 1, 2, 0, 1, 0, 2, 1, 0}, {3, 6, 8, 11, 1, 4, 7, 10, 0, 2, 5, 9});
+    correct &= ExpectSelfSwap();
     correct &= ExpectQsortS();
     correct &= ExpectQsortSConstraints();
     std::vector<int> keys;
