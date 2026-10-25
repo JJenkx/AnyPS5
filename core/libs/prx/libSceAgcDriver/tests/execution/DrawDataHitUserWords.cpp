@@ -133,8 +133,10 @@ std::string Counts(const AgcDriver::DriverDetail::DrawEntryCounters& counters) {
     return std::to_string(counters.lookups) + " lookups, " + std::to_string(counters.dataHits) + " data-only hits, stages " + std::to_string(counters.dataStagesReused) + " reused / " + std::to_string(counters.dataStagesCompiled) + " compiled / " + std::to_string(counters.dataVerified) + " verified";
 }
 
+unsigned BrightestColorByte();
+
 void UnreadUserWordsKeepTheStage(bool verify) {
-    Registered(VertexHeader, VertexCode.data(), sizeof(VertexCode), 2);
+    Registered(VertexHeader, TriangleVertexCode.data(), sizeof(TriangleVertexCode), 2);
     Registered(PixelHeader, PixelCode.data(), sizeof(PixelCode), 1);
     auto* first = GuestBlock();
     auto* second = GuestBlock();
@@ -149,7 +151,8 @@ void UnreadUserWordsKeepTheStage(bool verify) {
     describe(first, first + 1024, 1.0f);
     describe(second, second + 1024, 0.5f);
 
-    auto commands = Setup();
+    ColorMemory.fill(std::byte{0});
+    auto commands = Setup(true, PixelCode.data());
     PixelUserData(commands, first, 0x11);
     Append(commands, 0x2d, {3, 2});
     auto counters = Submit(std::move(commands));
@@ -159,6 +162,7 @@ void UnreadUserWordsKeepTheStage(bool verify) {
     Append(commands, 0x2d, {3, 2});
     counters = Submit(std::move(commands));
     Require(counters.inserts != 0, "the repeated register key was not admitted: " + Counts(counters));
+    Require(BrightestColorByte() == 255, "the first descriptor did not draw its 1.0 payload");
 
     commands.clear();
     PixelUserData(commands, first, 0x22);
@@ -179,6 +183,7 @@ void UnreadUserWordsKeepTheStage(bool verify) {
     Require(counters.dataHits == moved.dataHits + 1, "a draw that pointed the pixel stage at another buffer descriptor was not a data-only hit: " + Counts(counters));
     Require(counters.dataStagesCompiled - moved.dataStagesCompiled >= 1, "a draw that pointed the pixel stage at another buffer descriptor reused the pixel stage: " + Counts(counters));
     if (!verify) Require(counters.dataStagesReused - moved.dataStagesReused == 1, "a draw that changed only the pixel stage's descriptor pointer did not reuse the vertex stage: " + Counts(counters));
+    Require(BrightestColorByte() >= 127 && BrightestColorByte() <= 128, "the moved descriptor did not draw its 0.5 payload");
 
     const bool refresh = std::getenv("APS5_DRAW_PIPELINE") != nullptr;
     for (const std::uint32_t unread : {0x33u, 0x44u}) {
@@ -190,9 +195,11 @@ void UnreadUserWordsKeepTheStage(bool verify) {
         Require(counters.dataHits == last.dataHits + 1 && counters.inserts == last.inserts, "a draw at the moved pointer with a new unread word: " + Counts(counters));
         if (verify) continue;
         const auto compiled = counters.dataStagesCompiled - last.dataStagesCompiled;
-        const bool expectReuse = refresh && unread == 0x44u;
+        const bool relocation = std::getenv("APS5_NO_DRAW_RELOCATION") == nullptr;
+        const bool expectReuse = relocation || (refresh && unread == 0x44u);
         Require(compiled == (expectReuse ? 0u : 1u), std::string(expectReuse ? "after a refresh, the draw at the moved pointer compiled its pixel stage again: " : "the draw at the moved pointer did not compile its pixel stage: ") + Counts(counters));
-        Require(counters.shapeUpdates - last.shapeUpdates == (refresh && unread == 0x33u ? 1u : 0u), "shape refreshes: " + std::to_string(counters.shapeUpdates - last.shapeUpdates) + " (" + Counts(counters) + ")");
+        Require(counters.shapeUpdates - last.shapeUpdates == (!relocation && refresh && unread == 0x33u ? 1u : 0u), "shape refreshes: " + std::to_string(counters.shapeUpdates - last.shapeUpdates) + " (" + Counts(counters) + ")");
+        Require(BrightestColorByte() >= 127 && BrightestColorByte() <= 128, "a reused moved descriptor drew the old payload");
     }
 }
 
