@@ -240,6 +240,21 @@ void DecodedTableOriginsAreConservative() {
     observed.reads.emplace_back(buffer, 5);
     Require(tag(reads, observed).first == (enabled ? 4u : 0u), "two different pointer origins for one read were relocatable");
     Require(tag(reads, {}, 1) == std::pair<std::uint64_t, std::uint64_t>{0u, 0u}, "a decoder read attributed to a hidden word was relocatable");
+    alignas(64) static std::array<std::array<std::uint32_t, 4>, 2> copies{};
+    copies[0] = buffers;
+    copies[1] = buffers;
+    const auto firstAddress = reinterpret_cast<std::uintptr_t>(copies[0].data());
+    const auto movedAddress = reinterpret_cast<std::uintptr_t>(copies[1].data());
+    RelocatableUserWord word{};
+    word.reads.emplace_back(static_cast<std::int64_t>(firstAddress - static_cast<std::uint32_t>(firstAddress)), 4u);
+    bool firstReadable = true, movedReadable = true, changedReadable = true;
+    const auto firstKey = Driver::relocatedContentKey(word, static_cast<std::uint32_t>(firstAddress), firstReadable);
+    const auto movedKey = Driver::relocatedContentKey(word, static_cast<std::uint32_t>(movedAddress), movedReadable);
+    Require(firstReadable && movedReadable && firstKey == movedKey, "identical vertex table contents changed their relocation content key after moving");
+    copies[1][2] ^= 1u;
+    const auto changedKey = Driver::relocatedContentKey(word, static_cast<std::uint32_t>(movedAddress), changedReadable);
+    Require(changedReadable && changedKey != firstKey, "a changed vertex descriptor record count retained the old relocation content key");
+
 }
 
 void SplitRunsNameTheirSharedWords() {
