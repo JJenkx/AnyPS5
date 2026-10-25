@@ -2024,7 +2024,7 @@ const HostImport* importRunAt(const Context& context, HostImports& state, Import
             GuestMemory::ImportWatched(base, bytes, [&] {
                 step = createBackingImport(context, entry, owned.Release(), runs.data(), count, result);
                 return step == nullptr;
-            }, watchedDmaBuf);
+            }, watchedDmaBuf, false);
         }
     }
     if (step == nullptr && entry.dmaBuf && bytes >= settleFloorBytes && context.settleQueue != VK_NULL_HANDLE && context.settleQueueMutex != nullptr) {
