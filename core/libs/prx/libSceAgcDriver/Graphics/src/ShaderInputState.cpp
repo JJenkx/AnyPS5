@@ -223,24 +223,25 @@ ShaderRecompiler::ShaderVertexStageInfo DecodeVertexStageInfo(std::span<const st
     if (vertexAttribReg < 0) return info;
     if (vertexBufferReg < 0) throw std::runtime_error("AGC graphics: vertex attribute table requires a vertex buffer table");
     const auto bufferWord = static_cast<std::uint32_t>(vertexBufferReg) + hiddenUserWords;
-    const auto attribWord = static_cast<std::uint32_t>(vertexAttribReg) + hiddenUserWords;
+    const auto attribPointerWord = static_cast<std::uint32_t>(vertexAttribReg) + hiddenUserWords;
     if (bufferWord + 1u >= userData.size()) throw std::runtime_error("AGC graphics: vertex buffer table pointer exceeds the user-SGPR domain");
-    if (attribWord + 1u >= userData.size()) throw std::runtime_error("AGC graphics: vertex attribute table pointer exceeds the user-SGPR domain");
+    if (attribPointerWord + 1u >= userData.size()) throw std::runtime_error("AGC graphics: vertex attribute table pointer exceeds the user-SGPR domain");
     if (shader.num_input_semantics == 0 || shader.num_input_semantics > ShaderRecompiler::ShaderVertexStageInfo::MaxResources) throw std::runtime_error("AGC graphics: vertex semantic count is outside the supported domain");
     if (shader.input_semantics == nullptr) throw std::runtime_error("AGC graphics: missing vertex input semantics");
     std::array<ShaderSemantic, ShaderRecompiler::ShaderVertexStageInfo::MaxResources> semantics{};
     _readHeaderArray(header, headerAddress, shader.input_semantics, shader.num_input_semantics, semantics.data());
-    const auto attribTableAddr = static_cast<std::uint64_t>(userData[attribWord]) | (static_cast<std::uint64_t>(userData[attribWord + 1u]) << 32u);
+    const auto attribTableAddr = static_cast<std::uint64_t>(userData[attribPointerWord]) | (static_cast<std::uint64_t>(userData[attribPointerWord + 1u]) << 32u);
     const auto bufferTableAddr = static_cast<std::uint64_t>(userData[bufferWord]) | (static_cast<std::uint64_t>(userData[bufferWord + 1u]) << 32u);
     if (!staticAbi && attribTableAddr == 0) throw std::runtime_error("AGC graphics: null vertex attribute table address");
     if (!staticAbi && bufferTableAddr == 0) throw std::runtime_error("AGC graphics: null vertex buffer table address");
     info.fetchEmbedded = true;
     info.fetchAttribReg = static_cast<std::uint32_t>(vertexAttribReg);
     info.fetchBufferReg = static_cast<std::uint32_t>(vertexBufferReg);
-    const auto record = [&](std::uint64_t address, std::span<const std::byte> bytes) {
+    const auto record = [&](std::uint64_t address, std::span<const std::byte> bytes, std::uint32_t origin) {
         if (reads == nullptr) return;
         auto& read = reads->emplace_back();
         read.address = address;
+        read.userDataWord = static_cast<std::int32_t>(origin);
         std::copy(bytes.begin(), bytes.end(), read.data.begin());
         read.size = static_cast<std::uint32_t>(bytes.size());
     };
@@ -300,7 +301,7 @@ ShaderRecompiler::ShaderVertexStageInfo DecodeVertexStageInfo(std::span<const st
         std::array<std::byte, 4> attribWordBytes{};
         const auto attribWordAddress = attribTableAddr + static_cast<std::uint64_t>(semantic.semantic) * 4u;
         std::memcpy(attribWordBytes.data(), &attribWords[i], 4);
-        record(attribWordAddress, attribWordBytes);
+        record(attribWordAddress, attribWordBytes, attribPointerWord);
         const std::uint32_t attribWord = attribWords[i];
         const auto index = attribWord & 0x1fu;
         const auto format = (attribWord >> 5u) & 0x1ffu;
@@ -310,7 +311,7 @@ ShaderRecompiler::ShaderVertexStageInfo DecodeVertexStageInfo(std::span<const st
         std::array<std::byte, 16> sharpBytes{};
         const auto sharpAddress = bufferTableAddr + static_cast<std::uint64_t>(index) * 16u;
         std::memcpy(sharpBytes.data(), sharpWords[i].data(), 16);
-        record(sharpAddress, sharpBytes);
+        record(sharpAddress, sharpBytes, bufferWord);
         std::array<std::uint32_t, 4> sharp{};
         std::memcpy(sharp.data(), sharpBytes.data(), 16);
         if (info.resourcesNum >= ShaderRecompiler::ShaderVertexStageInfo::MaxResources) throw std::runtime_error("AGC graphics: vertex resource count exceeds the supported domain");

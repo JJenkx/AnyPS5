@@ -109,8 +109,17 @@ std::uint64_t Driver::relocatedContentKey(const RelocatableUserWord& word, std::
     return hash;
 }
 
-void Driver::tagVariantRuns(DispatchVariant& variant, std::span<const ShaderRecompiler::MemoryRegion> regions, const ShaderRecompiler::SrtUserDataUse& use, bool eligible, std::uint32_t hiddenWords, std::span<const std::shared_ptr<const ShaderRecompiler::SrtGuestWords>> supplied) {
-    std::uint64_t relocatable = eligible && drawRelocationEnabled() ? use.asBase & ~use.asValue : 0;
+void Driver::tagVariantRuns(DispatchVariant& variant, std::span<const ShaderRecompiler::MemoryRegion> regions, const ShaderRecompiler::SrtUserDataUse& use, bool eligible, std::uint32_t hiddenWords, std::span<const std::shared_ptr<const ShaderRecompiler::SrtGuestWords>> supplied, std::span<const Graphics::DecodeRead> decoded) {
+    static const bool vertexOff = std::getenv("APS5_NO_VERTEX_TABLE_RELOCATION") != nullptr;
+    const bool decodedOrigins = !vertexOff && !decoded.empty() && std::all_of(decoded.begin(), decoded.end(), [&](const Graphics::DecodeRead& read) { return read.userDataWord >= 0 && read.userDataWord < 63 && read.userDataWord >= static_cast<std::int32_t>(hiddenWords) && read.size != 0 && read.size <= read.data.size() && read.size % sizeof(std::uint32_t) == 0 && read.address % sizeof(std::uint32_t) == 0 && read.address <= std::numeric_limits<std::uint64_t>::max() - read.size; });
+    std::uint64_t decodedBases = 0, decodedWords = 0;
+    if (decodedOrigins) {
+        for (const auto& read : decoded) {
+            decodedBases |= std::uint64_t{1} << read.userDataWord;
+            decodedWords |= std::uint64_t{3} << read.userDataWord;
+        }
+    }
+    std::uint64_t relocatable = drawRelocationEnabled() ? ((eligible ? use.asBase : 0) | decodedBases) & ~use.asValue : 0;
     if (hiddenWords != 0) relocatable &= hiddenWords >= 64 ? 0 : ~((std::uint64_t {1} << hiddenWords) - 1);
     std::vector<std::pair<std::uint64_t, std::int32_t>> reads;
     const auto covered = [&](std::uint64_t address) {
@@ -118,6 +127,11 @@ void Driver::tagVariantRuns(DispatchVariant& variant, std::span<const ShaderReco
     };
     if (relocatable != 0) {
         reads = use.reads;
+        if (decodedOrigins) {
+            for (const auto& read : decoded) {
+                for (std::uint32_t offset = 0; offset < read.size; offset += sizeof(std::uint32_t)) reads.emplace_back(read.address + offset, read.userDataWord);
+            }
+        }
         std::sort(reads.begin(), reads.end());
         reads.erase(std::unique(reads.begin(), reads.end()), reads.end());
         const auto drop = [&](std::int32_t origin) {
@@ -139,9 +153,9 @@ void Driver::tagVariantRuns(DispatchVariant& variant, std::span<const ShaderReco
     variant.relocatableWords = relocatable;
     variant.forwardedWords = 0;
     static const bool forwardedOff = std::getenv("APS5_NO_FORWARDED_RELOCATION") != nullptr;
-    if (eligible && drawRelocationEnabled() && !forwardedOff && variant.compiled != nullptr) {
+    if ((eligible || decodedOrigins) && drawRelocationEnabled() && !forwardedOff && variant.compiled != nullptr) {
         for (const auto index : variant.compiled->shaderDataUserWords) {
-            if (index < hiddenWords || index >= 64 || ((use.asBase | use.asValue) >> index & 1u) != 0) continue;
+            if (index < hiddenWords || index >= 64 || ((use.asBase | use.asValue | decodedWords) >> index & 1u) != 0) continue;
             variant.forwardedWords |= std::uint64_t {1} << index;
         }
         variant.forwardedWords &= ~relocatable;

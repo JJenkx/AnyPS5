@@ -1623,10 +1623,14 @@ void HiddenUserWordVertexTablesTests() {
     const std::array<std::uint32_t, 8> registers{0x31016facu, 0x7efff390u, 0x100002u, 0x49u, low(bufferTable.data()), high(bufferTable.data()), low(attribTable.data()), high(attribTable.data())};
     std::vector<std::uint32_t> merged(8, 0u);
     merged.insert(merged.end(), registers.begin(), registers.end());
-    const auto info = AgcDriver::Graphics::DecodeVertexStageInfo(header, headerAddress, merged, nullptr, false, 8);
+    std::vector<AgcDriver::Graphics::DecodeRead> reads;
+    const auto info = AgcDriver::Graphics::DecodeVertexStageInfo(header, headerAddress, merged, &reads, false, 8);
+    Require(reads.size() == 2 && reads[0].userDataWord == 14 && reads[1].userDataWord == 12, "merged vertex table reads lost their user-data pointer origins");
     Require(info.fetchEmbedded && info.fetchBufferReg == 4u && info.fetchAttribReg == 6u && info.resourcesNum == 1 && info.resources[0].fields[0] == 0x1000u && info.resources[0].fields[2] == 64u, "a merged program's vertex tables were not read past its eight hidden user words");
     expectFailure([&] { static_cast<void>(AgcDriver::Graphics::DecodeVertexStageInfo(header, headerAddress, merged, nullptr, false, 0)); }, "null vertex attribute table");
-    const auto plain = AgcDriver::Graphics::DecodeVertexStageInfo(header, headerAddress, registers, nullptr, false, 0);
+    reads.clear();
+    const auto plain = AgcDriver::Graphics::DecodeVertexStageInfo(header, headerAddress, registers, &reads, false, 0);
+    Require(reads.size() == 2 && reads[0].userDataWord == 6 && reads[1].userDataWord == 4, "plain vertex table reads have merged user-data origins");
     Require(plain.fetchEmbedded && plain.fetchBufferReg == 4u && plain.resourcesNum == 1 && plain.resources[0].fields[0] == 0x1000u, "a vertex program's tables moved");
 }
 

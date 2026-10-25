@@ -201,6 +201,47 @@ void RelocatingDrawsKeepTheirDonor(bool libraries) {
     Require(relocated.evictions - start.evictions >= 2, mode + ": draws of another vertex shader evicted " + std::to_string(relocated.evictions - start.evictions) + " entries, expected at least 2 (run with APS5_DRAW_CACHE_ENTRIES=2)");
 }
 
+void DecodedTableOriginsAreConservative() {
+    using namespace AgcDriver::DriverDetail;
+    alignas(16) static std::array<std::uint32_t, 4> buffers{1u, 2u, 3u, 4u};
+    alignas(16) static std::array<std::uint32_t, 1> attributes{5u};
+    const auto buffer = reinterpret_cast<std::uintptr_t>(buffers.data());
+    const auto attribute = reinterpret_cast<std::uintptr_t>(attributes.data());
+    const std::array<ShaderRecompiler::MemoryRegion, 2> regions{{{buffer, std::as_bytes(std::span(buffers))}, {attribute, std::as_bytes(std::span(attributes))}}};
+    std::array<AgcDriver::Graphics::DecodeRead, 2> reads{};
+    reads[0].address = buffer;
+    reads[0].size = sizeof(buffers);
+    reads[0].userDataWord = 0;
+    reads[1].address = attribute;
+    reads[1].size = sizeof(attributes);
+    reads[1].userDataWord = 2;
+    const auto compiled = std::make_shared<ShaderRecompiler::RecompileResult>();
+    compiled->shaderDataUserWords = {0u, 1u, 2u, 3u, 4u};
+    const auto tag = [&](const auto& decoded, const ShaderRecompiler::SrtUserDataUse& use, std::uint32_t hidden = 0) {
+        DispatchVariant variant;
+        variant.compiled = compiled;
+        Driver::tagVariantRuns(variant, regions, use, false, hidden, {}, decoded);
+        return std::pair{variant.relocatableWords, variant.forwardedWords};
+    };
+    const bool enabled = std::getenv("APS5_NO_VERTEX_TABLE_RELOCATION") == nullptr && std::getenv("APS5_NO_DRAW_RELOCATION") == nullptr;
+    const bool forwarded = enabled && std::getenv("APS5_NO_FORWARDED_RELOCATION") == nullptr;
+    const auto tagged = tag(reads, {});
+    Require(tagged.first == (enabled ? 5u : 0u) && tagged.second == (forwarded ? 16u : 0u), "vertex table pointers and shader-only words did not get distinct relocation roles");
+    auto incomplete = reads;
+    incomplete[1].userDataWord = -1;
+    Require(tag(incomplete, {}) == std::pair<std::uint64_t, std::uint64_t>{0u, 0u}, "an unproven decoder read allowed table relocation or forwarding");
+    auto oversized = reads;
+    oversized[0].size = 20;
+    Require(tag(oversized, {}) == std::pair<std::uint64_t, std::uint64_t>{0u, 0u}, "an oversized decoder read allowed relocation");
+    ShaderRecompiler::SrtUserDataUse observed;
+    observed.asValue = 1u;
+    Require(tag(reads, observed).first == (enabled ? 4u : 0u), "a table pointer also consumed as a value was relocatable");
+    observed = {};
+    observed.reads.emplace_back(buffer, 5);
+    Require(tag(reads, observed).first == (enabled ? 4u : 0u), "two different pointer origins for one read were relocatable");
+    Require(tag(reads, {}, 1) == std::pair<std::uint64_t, std::uint64_t>{0u, 0u}, "a decoder read attributed to a hidden word was relocatable");
+}
+
 void SplitRunsNameTheirSharedWords() {
     alignas(16) static std::array<std::uint32_t, 4> data{1u, 2u, 3u, 4u};
     auto table = std::make_shared<ShaderRecompiler::SrtGuestWords>();
@@ -371,7 +412,10 @@ int main(int argc, char** argv) {
     try {
         const bool evicted = argc == 2 && std::string(argv[1]) == "--evicted";
         const bool kept = argc == 2 && std::string(argv[1]) == "--kept";
-        if (!evicted && !kept) SplitRunsNameTheirSharedWords();
+        if (!evicted && !kept) {
+            SplitRunsNameTheirSharedWords();
+            DecodedTableOriginsAreConservative();
+        }
         bool libraries = false;
         {
             const auto device = OpenVulkanTestDevice();
