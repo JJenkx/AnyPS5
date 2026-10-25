@@ -28,7 +28,7 @@ namespace {
 using AgcDriver::Graphics::Require;
 
 alignas(256) constexpr std::array<std::uint32_t, 8> VertexCode{0x7e000208u, 0x7e020280u, 0x7e040280u, 0x7e0602f2u, 0xf80008cfu, 0x03020100u, 0xbf810000u, 0xbf810000u};
-alignas(256) constexpr std::array<std::uint32_t, 11> PixelCode{0xf4080100u, 0xfa000000u, 0xbf8cc07fu, 0xe0300000u, 0x80010000u, 0xbf8c3f70u, 0x7e020280u, 0xf800180fu, 0x00010100u, 0xbf810000u, 0xbf810000u};
+alignas(256) constexpr std::array<std::uint32_t, 12> PixelCode{0xf4080100u, 0xfa000000u, 0xf4200202u, 0xfa000000u, 0x7e000208u, 0x7e020280u, 0xf800180fu, 0x00010100u, 0xbf810000u, 0xbf810000u, 0xbf810000u, 0xbf810000u};
 alignas(256) constexpr std::array<std::uint32_t, 16> TriangleVertexCode{
     0x7e000d05u, 0x080200f4u, 0x10020300u, 0x100202f4u, 0x060202f3u, 0x060400f3u, 0x10040500u, 0x060404f3u,
     0x7e060280u, 0x7e0802f2u, 0xf80008cfu, 0x04030201u, 0xbf810000u,
@@ -146,7 +146,7 @@ void UnreadUserWordsKeepTheStage(bool verify) {
         table[0] = static_cast<std::uint32_t>(address);
         table[1] = static_cast<std::uint32_t>(address >> 32u) & 0xffffu;
         table[2] = 16;
-        table[3] = 0x4bfacu;
+        table[3] = 0x31016facu;
     };
     describe(first, first + 1024, 1.0f);
     describe(second, second + 1024, 0.5f);
