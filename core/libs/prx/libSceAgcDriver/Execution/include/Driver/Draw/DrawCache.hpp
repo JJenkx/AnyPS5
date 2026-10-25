@@ -163,12 +163,15 @@ struct DrawStageDonor {
     std::weak_ptr<DispatchVariant> variant;
     std::vector<std::uint32_t> userData;
     std::weak_ptr<DrawEntry> owner;
+    std::uint64_t key = 0;
+    std::size_t stage = 0;
 };
 
 struct DrawDecodeDonor {
     std::weak_ptr<const DrawDecode> decode;
     std::vector<std::uint64_t> stageKeys;
     std::weak_ptr<DrawEntry> owner;
+    std::uint64_t key = 0;
 };
 
 struct DrawRelocationPending {

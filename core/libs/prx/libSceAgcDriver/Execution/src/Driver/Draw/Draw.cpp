@@ -671,7 +671,8 @@ DrawVerdict Driver::draw(QueueState& queue, std::span<const std::uint32_t> packe
             ++drawRelocationTrials[drawIdentity].hits;
             if (const auto alias = drawDecodes.find(drawAliases.structure); alias != drawDecodes.end()) {
                 const auto donor = alias->second.owner.lock();
-                if (donor != nullptr && drawCacheHits - donor->touched > drawCacheEntries() / 8) {
+                const auto cached = drawCache.find(alias->second.key);
+                if (donor != nullptr && cached != drawCache.end() && cached->second == donor && drawCacheHits - donor->touched > drawCacheEntries() / 8) {
                     drawOrder.splice(drawOrder.begin(), drawOrder, donor->order);
                     donor->touched = drawCacheHits;
                     ++drawEntryCounters.touches;
@@ -686,8 +687,17 @@ DrawVerdict Driver::draw(QueueState& queue, std::span<const std::uint32_t> packe
             if (matched[i] == nullptr || !matched[i]->dataPatched || drawStageDonorKeys[i] == 0) continue;
             matched[i]->dataPatched = false;
             if (const auto found = drawStageDonors.find(drawStageDonorKeys[i]); found != drawStageDonors.end()) {
-                found->second.variant = matched[i];
-                found->second.userData = programs[i].userData;
+                const auto owner = found->second.owner.lock();
+                const auto cached = drawCache.find(found->second.key);
+                if (owner == nullptr || cached == drawCache.end() || cached->second != owner || found->second.stage >= owner->stages.size()) continue;
+                const auto previous = found->second.variant.lock();
+                for (auto& stored : owner->stages[found->second.stage]) {
+                    if (stored != previous) continue;
+                    stored = matched[i];
+                    found->second.variant = matched[i];
+                    found->second.userData = programs[i].userData;
+                    break;
+                }
             }
         }
     }

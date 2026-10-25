@@ -259,7 +259,7 @@ void Driver::learnPendingRelocation() {
     if (pending.aliases.structure == 0) return;
     if (drawStageDonors.size() >= MaxAliases) drawRelocationCounters.evicted += dropEveryOther(drawStageDonors);
     if (drawDecodes.size() >= MaxAliases) drawRelocationCounters.evicted += dropEveryOther(drawDecodes);
-    DrawDecodeDonor donor{entry.decode, std::vector<std::uint64_t>(programs.size(), 0), inserted->second};
+    DrawDecodeDonor donor{entry.decode, std::vector<std::uint64_t>(programs.size(), 0), inserted->second, pending.key};
     for (std::size_t i = 0; i < programs.size(); ++i) {
         if (entry.stages[i].empty() || entry.stages[i].front() == nullptr || entry.stages[i].front()->prepared == nullptr) continue;
         const auto& variant = entry.stages[i].front();
@@ -277,7 +277,7 @@ void Driver::learnPendingRelocation() {
             if (!relocatable && index >= program.hiddenUserWords) mix(program.userData[index]);
         }
         donor.stageKeys[i] = key == 0 ? 1 : key;
-        drawStageDonors[pending.aliases.Key(donor.stageKeys[i], program.userDataBase)] = {variant, program.userData, inserted->second};
+        drawStageDonors[pending.aliases.Key(donor.stageKeys[i], program.userDataBase)] = {variant, program.userData, inserted->second, pending.key, i};
     }
     const auto held = drawDecodes.find(pending.aliases.structure);
     if (held != drawDecodes.end() && held->second.stageKeys.size() == donor.stageKeys.size()) {
@@ -293,6 +293,8 @@ bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
     ++counters.lookups;
     const auto known = drawDecodes.find(aliases.structure);
     if (known == drawDecodes.end() || known->second.owner.expired()) return false;
+    const auto cached = drawCache.find(known->second.key);
+    if (cached == drawCache.end() || cached->second != known->second.owner.lock()) return false;
     const auto shared = known->second.decode.lock();
     if (shared == nullptr) return false;
     const auto& stageKeys = known->second.stageKeys;
@@ -315,7 +317,8 @@ bool Driver::relocateDrawEntry(const QueueState& queue, const DrawAliasKeys& ali
         const auto found = i < stageKeys.size() && stageKeys[i] != 0 ? drawStageDonors.find(aliases.Key(stageKeys[i], program.userDataBase)) : drawStageDonors.end();
         if (found != drawStageDonors.end()) drawStageDonorKeys[i] = found->first;
         const auto heldVariant = found != drawStageDonors.end() ? found->second.variant.lock() : nullptr;
-        const auto* donor = found != drawStageDonors.end() && !found->second.owner.expired() && heldVariant != nullptr && heldVariant->compiled != nullptr && found->second.userData.size() == program.userData.size() ? &found->second : nullptr;
+        const auto owner = found != drawStageDonors.end() ? drawCache.find(found->second.key) : drawCache.end();
+        const auto* donor = found != drawStageDonors.end() && owner != drawCache.end() && owner->second == found->second.owner.lock() && heldVariant != nullptr && heldVariant->compiled != nullptr && found->second.userData.size() == program.userData.size() ? &found->second : nullptr;
         moves.clear();
         bool allowed = donor != nullptr;
         for (std::uint32_t index = program.hiddenUserWords; index < program.userData.size(); ++index) {
