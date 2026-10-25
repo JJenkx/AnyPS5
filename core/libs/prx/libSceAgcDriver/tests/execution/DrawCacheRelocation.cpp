@@ -430,7 +430,7 @@ void VertexResourcesRefresh(bool libraries) {
         ShaderSemantic semantic{};
     };
     alignas(8) static EmbeddedHeader header;
-    alignas(256) static constexpr std::array<std::uint32_t, 7> code{0xbe822100u, 0x34020a84u, 0xe0781000u, 0x80010801u, 0xf80008cfu, 0x0b0a0908u, 0xbf810000u};
+    alignas(256) static constexpr std::array<std::uint32_t, 7> code{0xbe822108u, 0x34020a84u, 0xe0781000u, 0x80030801u, 0xf80008cfu, 0x0b0a0908u, 0xbf810000u};
     alignas(256) static std::array<std::uint32_t, 12> output{};
     alignas(64) static std::array<std::uint32_t, 4> table{};
     alignas(64) static std::array<std::uint32_t, 1> attribute{};
@@ -461,6 +461,8 @@ void VertexResourcesRefresh(bool libraries) {
         commands.resize(commands.size() - 3);
         Append(commands, 0x76, {0x8b, 12u << 1u});
         std::array<std::uint32_t, 12> users{};
+        users[0] = 0x10000000u;
+        users[1] = 1u;
         const auto destination = reinterpret_cast<std::uintptr_t>(output.data());
         users[4] = static_cast<std::uint32_t>(destination);
         users[5] = static_cast<std::uint32_t>((destination >> 32u) & 0xffffu);
