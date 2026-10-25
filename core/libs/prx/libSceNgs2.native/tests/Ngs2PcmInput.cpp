@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <deque>
+#include <string_view>
 
 static uintptr_t Sampler(uintptr_t system, std::uint32_t rate = 48000, std::uint32_t channels = 1) {
     const auto voice = Voice(CreateRack(system, SCE_NGS2_RACK_ID_SAMPLER));
@@ -139,11 +140,13 @@ static void TestStreamPieceLifetime() {
     Require(sceNgs2SystemDestroy(system, nullptr) == SCE_NGS2_OK);
 }
 
-int main() {
-    TestLateFillAndReleasedInput();
+int main(int argc, char** argv) {
+    const bool reportedRegions = argc == 2 && std::string_view(argv[1]) == "--reported-regions";
+    if (argc != 1 && !reportedRegions) return 2;
+    if (!reportedRegions) TestLateFillAndReleasedInput();
     TestReleasedRegionRing(48000);
     TestReleasedRegionRing(44100);
     TestReleasedRegionRing<2>(48000);
     TestReleasedRegionRing<2>(44100);
-    TestStreamPieceLifetime();
+    if (!reportedRegions) TestStreamPieceLifetime();
 }
