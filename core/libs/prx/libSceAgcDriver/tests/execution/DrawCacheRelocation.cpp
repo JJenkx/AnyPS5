@@ -434,7 +434,10 @@ void VertexResourcesRefresh(bool libraries) {
     alignas(256) static std::array<std::uint32_t, 12> output{};
     alignas(64) static std::array<std::uint32_t, 4> table{};
     alignas(64) static std::array<std::uint32_t, 1> attribute{};
-    alignas(64) static constexpr std::array<std::array<float, 4>, 2> elements{{{0.25f, -2.0f, 7.5f, 1.0f}, {0.5f, -1.0f, 3.0f, 1.0f}}};
+    alignas(64) static std::array<std::array<std::array<float, 4>, 5>, 2> elements{};
+    for (std::size_t bank = 0; bank < elements.size(); ++bank) {
+        for (std::size_t i = 0; i < elements[bank].size(); ++i) elements[bank][i] = {0.125f * static_cast<float>(bank + i + 1), -1.0f, 0.0f, 1.0f};
+    }
     header.direct.fill(ShaderRegs::AGC_ILLEGAL_DIRECT_OFFSET);
     header.direct[static_cast<std::size_t>(ShaderRegs::AgcDirectResourceType::PtrVertexBufferTable)] = 10;
     header.direct[static_cast<std::size_t>(ShaderRegs::AgcDirectResourceType::PtrVertexAttribDescTable)] = 8;
@@ -453,9 +456,9 @@ void VertexResourcesRefresh(bool libraries) {
     header.shader.num_input_semantics = 1;
     AgcDriverRegisterShader_nid_postfix(&header.shader);
     Registered(PixelHeader, PixelCode.data(), sizeof(PixelCode), 1);
-    const auto draw = [&](std::uint32_t element, std::uint32_t records) {
+    const auto draw = [&](std::uint32_t element, std::uint32_t records, std::uint32_t stride) {
         const auto address = reinterpret_cast<std::uintptr_t>(elements[element].data());
-        table = {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), records, 0x2104dfacu};
+        table = {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>(((address >> 32u) & 0xffffu) | (stride << 16u)), records, 0x3104dfacu};
         output.fill(0xdeadbeefu);
         auto commands = DrawFrom({Other.data()}, code.data());
         commands.resize(commands.size() - 3);
@@ -482,19 +485,21 @@ void VertexResourcesRefresh(bool libraries) {
         AgcDriver::GuestMemory::FlushGpuWrites(destination, sizeof(output));
         for (std::size_t vertex = 0; vertex < 3; ++vertex) {
             for (std::size_t component = 0; component < 4; ++component) {
-                const auto expected = records == 0 ? 0u : std::bit_cast<std::uint32_t>(elements[element][component]);
+                const auto expected = vertex * stride + 16u > records ? 0u : std::bit_cast<std::uint32_t>(elements[element][vertex * stride / 16u][component]);
                 Require(output[vertex * 4 + component] == expected, "vertex resource refresh produced stale or out-of-bounds vertex data at component " + std::to_string(vertex * 4 + component) + " element " + std::to_string(element) + " records " + std::to_string(records) + " got " + std::to_string(output[vertex * 4 + component]) + " expected " + std::to_string(expected));
             }
         }
         return AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
     };
-    const auto first = draw(0, 4);
-    const auto warm = draw(0, 4);
-    const auto moved = draw(1, 4);
-    const auto smaller = draw(1, 1);
-    const auto empty = draw(0, 0);
-    Require(moved.hits == warm.hits + 1 && smaller.hits == moved.hits + 1 && empty.hits == smaller.hits + 1, "changed vertex resources did not reuse the draw cache");
-    Require(empty.verifyDecodeMismatches == first.verifyDecodeMismatches, "vertex resource refresh failed full decode verification");
+    for (const auto stride : {0u, 16u, 32u}) {
+        const auto first = draw(0, 128, stride);
+        const auto warm = draw(0, 128, stride);
+        const auto moved = draw(1, 128, stride);
+        const auto smaller = draw(1, 16, stride);
+        const auto empty = draw(0, 0, stride);
+        Require(moved.hits == warm.hits + 1 && smaller.hits == moved.hits + 1 && empty.hits == smaller.hits + 1, "changed vertex resources did not reuse the draw cache at stride " + std::to_string(stride));
+        Require(empty.verifyDecodeMismatches == first.verifyDecodeMismatches, "vertex resource refresh failed full decode verification");
+    }
     std::cout << "Vertex buffer address/count changes refreshed GPU readback " << (libraries ? "with" : "without") << " graphics pipeline libraries\n";
 }
 
