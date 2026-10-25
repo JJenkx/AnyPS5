@@ -246,7 +246,7 @@ void Driver::learnPendingRelocation() {
                 const auto count = static_cast<std::uint32_t>((variant.runs[run].second - variant.runs[run].first) / sizeof(std::uint32_t));
                 if (run < variant.runBases.size() && variant.runBases[run] == static_cast<std::int8_t>(index)) {
                     word.reads.emplace_back(static_cast<std::int64_t>(variant.runs[run].first - base), count);
-                    if (!variant.bufferWordBuffers.empty()) {
+                    if (!variant.bufferWordBuffers.empty() || variant.vertexData) {
                         for (const auto data : variant.dataPositions) {
                             if (data >= position && data < position + count) word.dataOffsets.push_back(static_cast<std::int64_t>(variant.runs[run].first - base) + static_cast<std::int64_t>(data - position) * 4);
                         }
@@ -417,6 +417,7 @@ std::shared_ptr<DispatchVariant> Driver::cloneVariant(const DispatchVariant& var
     copy->vertexInfo = variant.vertexInfo;
     copy->recipe = nullptr;
     copy->dataPatched = false;
+    copy->vertexData = variant.vertexData;
     copy->memory.reset();
     copy->captured.clear();
     copy->spans.clear();
@@ -509,6 +510,76 @@ std::shared_ptr<DispatchVariant> Driver::patchBufferWords(const DispatchVariant&
         copy->words[position] = fresh;
     }
     copy->compiled = std::move(rebased);
+    copy->dataPatched = true;
+    return copy;
+}
+
+void Driver::tagVertexWords(DispatchVariant& variant, const StageCapture& capture, std::span<const Graphics::DecodeRead> reads, const DrawProgram& program) {
+    static const bool enabled = std::getenv("APS5_VERTEX_RESOURCE_REFRESH") != nullptr;
+    if (!enabled || !drawRelocationEnabled() || !variant.dataPositions.empty() || variant.vertexInfo == nullptr || !variant.vertexInfo->fetchEmbedded || variant.compiled == nullptr || variant.compiled->vertexAttributes.empty()) return;
+    const auto origin = variant.vertexInfo->fetchBufferReg + program.hiddenUserWords;
+    for (const auto& read : reads) {
+        if (read.userDataWord < 0 || static_cast<std::uint32_t>(read.userDataWord) != origin || read.size != 16 || read.address % 4 != 0 || read.address > std::numeric_limits<std::uint64_t>::max() - read.size) continue;
+        const auto overlaps = [&](std::uint64_t address, std::size_t size) { return address < read.address + read.size && read.address < address + size; };
+        if (std::any_of(capture.regions.begin(), capture.regions.end(), [&](const ShaderRecompiler::MemoryRegion& region) { return overlaps(region.guestAddress, region.bytes.size()); })) continue;
+        if (std::any_of(reads.begin(), reads.end(), [&](const Graphics::DecodeRead& other) { return overlaps(other.address, other.size) && (other.address != read.address || other.size != read.size || other.userDataWord != read.userDataWord); })) continue;
+        std::uint32_t position = 0;
+        for (const auto& [begin, end] : variant.runs) {
+            for (const auto field : {0u, 2u}) {
+                const auto address = read.address + field * 4u;
+                if (address >= begin && address < end && (address - begin) % 4u == 0) variant.dataPositions.push_back(position + static_cast<std::uint32_t>((address - begin) / 4u));
+            }
+            position += static_cast<std::uint32_t>((end - begin) / 4u);
+        }
+    }
+    std::sort(variant.dataPositions.begin(), variant.dataPositions.end());
+    variant.dataPositions.erase(std::unique(variant.dataPositions.begin(), variant.dataPositions.end()), variant.dataPositions.end());
+    variant.vertexData = !variant.dataPositions.empty();
+}
+
+std::shared_ptr<DispatchVariant> Driver::patchVertexWords(const DispatchVariant& variant, std::span<const std::pair<std::uint32_t, std::uint32_t>> live, const DrawProgram& program) {
+    if (!variant.vertexData || live.empty() || variant.vertexInfo == nullptr || variant.compiled == nullptr) return nullptr;
+    auto copy = cloneVariant(variant);
+    for (const auto& [position, value] : live) {
+        if (position >= copy->words.size() || !std::binary_search(variant.dataPositions.begin(), variant.dataPositions.end(), position)) return nullptr;
+        copy->words[position] = value;
+    }
+    std::vector<Graphics::DecodeRead> reads;
+    auto info = DecodeOrderedVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData, reads, program.hiddenUserWords);
+    for (const auto& read : reads) {
+        std::size_t position = 0;
+        bool found = false;
+        for (const auto& [begin, end] : copy->runs) {
+            if (read.address >= begin && read.address <= end && read.size <= end - read.address && (read.address - begin) % 4u == 0) {
+                const auto at = position + static_cast<std::size_t>((read.address - begin) / 4u);
+                if (at + read.size / 4u > copy->words.size() || std::memcmp(copy->words.data() + at, read.data.data(), read.size) != 0) return nullptr;
+                found = true;
+            }
+            position += static_cast<std::size_t>((end - begin) / 4u);
+        }
+        if (!found) return nullptr;
+    }
+    const auto& previous = *variant.vertexInfo;
+    info.paClVsOutCntl = previous.paClVsOutCntl;
+    info.depthRemapMode = previous.depthRemapMode;
+    info.pointList = previous.pointList;
+    info.pointSize = previous.pointSize;
+    info.pointSizeMin = previous.pointSizeMin;
+    info.pointSizeMax = previous.pointSizeMax;
+    auto normalized = info;
+    if (info.resourcesNum != previous.resourcesNum || info.resourcesNum > info.resources.size()) return nullptr;
+    for (std::uint32_t i = 0; i < info.resourcesNum; ++i) {
+        normalized.resources[i].fields[0] = previous.resources[i].fields[0];
+        normalized.resources[i].fields[2] = previous.resources[i].fields[2];
+    }
+    if (!sameVertexInfo(normalized, previous)) return nullptr;
+    auto compiled = std::make_shared<ShaderRecompiler::RecompileResult>(*variant.compiled);
+    for (auto& attribute : compiled->vertexAttributes) {
+        if (attribute.location >= info.resourcesNum || attribute.resource.fields != previous.resources[attribute.location].fields) return nullptr;
+        attribute.resource = info.resources[attribute.location];
+    }
+    copy->compiled = std::move(compiled);
+    copy->vertexInfo = std::make_shared<const ShaderRecompiler::ShaderVertexStageInfo>(std::move(info));
     copy->dataPatched = true;
     return copy;
 }

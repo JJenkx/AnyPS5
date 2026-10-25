@@ -2,6 +2,7 @@
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/ShaderMemory.hpp"
 #include "Optimization/SrtWalker.hpp"
+#include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "VulkanTestDevice.hpp"
 #include <array>
@@ -421,10 +422,85 @@ void MovedForwardedWordReachesStageDataHit(bool libraries) {
     Require(moved.empty(), mode + ": a relocated stage data hit did not draw with the moved user word: " + moved);
 }
 
+void VertexResourcesRefresh(bool libraries) {
+    struct EmbeddedHeader {
+        Shader shader{};
+        ShaderUserData users{};
+        std::array<std::uint16_t, ShaderRegs::AGC_DIRECT_RESOURCE_TYPE_COUNT> direct{};
+        ShaderSemantic semantic{};
+    };
+    alignas(8) static EmbeddedHeader header;
+    alignas(256) static constexpr std::array<std::uint32_t, 7> code{0xbe822100u, 0x34020a84u, 0xe0781000u, 0x80010801u, 0xf80008cfu, 0x0b0a0908u, 0xbf810000u};
+    alignas(256) static std::array<std::uint32_t, 12> output{};
+    alignas(64) static std::array<std::uint32_t, 4> table{};
+    alignas(64) static std::array<std::uint32_t, 1> attribute{};
+    alignas(64) static constexpr std::array<std::array<float, 4>, 2> elements{{{0.25f, -2.0f, 7.5f, 1.0f}, {0.5f, -1.0f, 3.0f, 1.0f}}};
+    header.direct.fill(ShaderRegs::AGC_ILLEGAL_DIRECT_OFFSET);
+    header.direct[static_cast<std::size_t>(ShaderRegs::AgcDirectResourceType::PtrVertexBufferTable)] = 10;
+    header.direct[static_cast<std::size_t>(ShaderRegs::AgcDirectResourceType::PtrVertexAttribDescTable)] = 8;
+    header.users.direct_resource_offset = header.direct.data();
+    header.users.direct_resource_count = static_cast<std::uint16_t>(header.direct.size());
+    header.semantic.hardware_mapping = 8;
+    header.semantic.size_in_elements = 4;
+    header.shader.file_header = 0x34333231u;
+    header.shader.version = 0x18u;
+    header.shader.header_size = sizeof(header);
+    header.shader.shader_size = sizeof(code);
+    header.shader.code = code.data();
+    header.shader.type = 2;
+    header.shader.user_data = &header.users;
+    header.shader.input_semantics = &header.semantic;
+    header.shader.num_input_semantics = 1;
+    AgcDriverRegisterShader_nid_postfix(&header.shader);
+    Registered(PixelHeader, PixelCode.data(), sizeof(PixelCode), 1);
+    const auto draw = [&](std::uint32_t element, std::uint32_t records) {
+        const auto address = reinterpret_cast<std::uintptr_t>(elements[element].data());
+        table = {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), records, 0x3104dfacu};
+        output.fill(0xdeadbeefu);
+        auto commands = DrawFrom({Other.data()}, code.data());
+        commands.resize(commands.size() - 3);
+        Append(commands, 0x76, {0x8b, 12u << 1u});
+        std::array<std::uint32_t, 12> users{};
+        const auto destination = reinterpret_cast<std::uintptr_t>(output.data());
+        users[4] = static_cast<std::uint32_t>(destination);
+        users[5] = static_cast<std::uint32_t>((destination >> 32u) & 0xffffu);
+        users[6] = sizeof(output);
+        users[7] = 0x31016facu;
+        const auto attrib = reinterpret_cast<std::uintptr_t>(attribute.data());
+        users[8] = static_cast<std::uint32_t>(attrib);
+        users[9] = static_cast<std::uint32_t>(attrib >> 32u);
+        const auto buffer = reinterpret_cast<std::uintptr_t>(table.data());
+        users[10] = static_cast<std::uint32_t>(buffer);
+        users[11] = static_cast<std::uint32_t>(buffer >> 32u);
+        for (std::uint32_t i = 0; i < users.size(); ++i) Append(commands, 0x76, {0x8cu + i, users[i]});
+        Append(commands, 0x2d, {3, 2});
+        Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
+        Require(sceAgcDriverSubmitDcb(&packet) == 0, "vertex resource draw submission failed");
+        AgcDriverWaitIdle_nid_postfix();
+        AgcDriver::GuestMemory::FlushGpuWrites(destination, sizeof(output));
+        for (std::size_t vertex = 0; vertex < 3; ++vertex) {
+            for (std::size_t component = 0; component < 4; ++component) {
+                const auto expected = records == 0 ? 0u : std::bit_cast<std::uint32_t>(elements[element][component]);
+                Require(output[vertex * 4 + component] == expected, "vertex resource refresh produced stale or out-of-bounds vertex data at component " + std::to_string(vertex * 4 + component));
+            }
+        }
+        return AgcDriver::DriverDetail::Driver::Get().DrawCacheCounters();
+    };
+    const auto first = draw(0, 4);
+    const auto warm = draw(0, 4);
+    const auto moved = draw(1, 4);
+    const auto smaller = draw(1, 1);
+    const auto empty = draw(0, 0);
+    Require(moved.hits == warm.hits + 1 && smaller.hits == moved.hits + 1 && empty.hits == smaller.hits + 1, "changed vertex resources did not reuse the draw cache");
+    Require(empty.verifyDecodeMismatches == first.verifyDecodeMismatches, "vertex resource refresh failed full decode verification");
+    std::cout << "Vertex buffer address/count changes refreshed GPU readback " << (libraries ? "with" : "without") << " graphics pipeline libraries\n";
+}
+
 }
 
 int main(int argc, char** argv) {
     try {
+        const bool vertexRefresh = argc == 2 && std::string(argv[1]) == "--vertex-refresh";
         const bool evicted = argc == 2 && std::string(argv[1]) == "--evicted";
         const bool kept = argc == 2 && std::string(argv[1]) == "--kept";
         if (!evicted && !kept) {
@@ -438,6 +514,11 @@ int main(int argc, char** argv) {
             libraries = device->GraphicsPipelineLibraries();
         }
         if (!libraries && std::getenv("APS5_NO_GPL") == nullptr) return VulkanTestSkipped;
+        if (vertexRefresh) {
+            VertexResourcesRefresh(libraries);
+            AgcDriverShutdown_nid_postfix();
+            return 0;
+        }
         if (evicted) {
             EvictedEntriesServeNoRelocation(libraries);
             AgcDriverShutdown_nid_postfix();

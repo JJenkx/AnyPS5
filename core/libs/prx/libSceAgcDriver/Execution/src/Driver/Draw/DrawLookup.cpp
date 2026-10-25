@@ -134,12 +134,12 @@ void Driver::lookupDraw(const Submission& submission, const std::shared_ptr<Vulk
                         regions.clear();
                         appendEntryRegions(*variant, regions);
                         ++compared;
-                        const bool data = drawRelocationEnabled() && !variant->bufferWordBuffers.empty();
+                        const bool data = drawRelocationEnabled() && (!variant->bufferWordBuffers.empty() || variant->vertexData);
                         auto* validateLive = data ? &liveData : live;
                         auto result = validateVariant(programs[i].binary.codeAddress, submission.queue, *variant, regions, imagesFlushed, runsSynced, sampling, validateLive);
                         if (gateRetry() && (result == EntryOutcome::PublishMoved || result == EntryOutcome::PendingMoved)) result = validateVariant(programs[i].binary.codeAddress, submission.queue, *variant, regions, imagesFlushed, runsSynced, sampling, validateLive);
                         if (data && result == EntryOutcome::EqualData) {
-                            auto patched = patchBufferWords(*variant, liveData);
+                            auto patched = variant->vertexData ? patchVertexWords(*variant, liveData, programs[i]) : patchBufferWords(*variant, liveData);
                             result = patched != nullptr ? EntryOutcome::Equal : EntryOutcome::Differing;
                             if (patched != nullptr) {
                                 variant = std::move(patched);

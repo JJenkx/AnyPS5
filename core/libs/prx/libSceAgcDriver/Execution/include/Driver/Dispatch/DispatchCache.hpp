@@ -51,6 +51,7 @@ struct DispatchVariant {
     std::uint64_t userDataMask = ~std::uint64_t{0};
     std::vector<std::byte> patchedPushConstants;
     bool dataPatched = false;
+    bool vertexData = false;
     std::shared_ptr<const ShaderRecompiler::ShaderVertexStageInfo> vertexInfo;
 
     std::shared_ptr<ShaderMemory> memory;
