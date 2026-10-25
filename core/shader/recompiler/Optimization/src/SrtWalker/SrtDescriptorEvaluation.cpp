@@ -273,7 +273,20 @@ bool sameUserDataUse(const SrtUserDataUse& tape, const SrtUserDataUse& interpret
         std::sort(reads->begin(), reads->end());
         reads->erase(std::unique(reads->begin(), reads->end()), reads->end());
     }
-    return tapeReads == interpretedReads;
+    const auto normalized = [](auto values) {
+        std::sort(values.begin(), values.end());
+        values.erase(std::unique(values.begin(), values.end()), values.end());
+        return values;
+    };
+    if (tapeReads != interpretedReads || normalized(tape.operandReads) != normalized(interpreted.operandReads) || normalized(tape.sourceLeads) != normalized(interpreted.sourceLeads)) return false;
+    if (tape.readInstructions.size() != tape.reads.size() || interpreted.readInstructions.size() != interpreted.reads.size()) return false;
+    const auto tagged = [&](const SrtUserDataUse& use) {
+        std::vector<std::pair<std::pair<std::uint64_t, std::int32_t>, const void*>> reads;
+        reads.reserve(use.reads.size());
+        for (std::size_t i = 0; i < use.reads.size(); ++i) reads.emplace_back(use.reads[i], use.readInstructions[i]);
+        return normalized(std::move(reads));
+    };
+    return tagged(tape) == tagged(interpreted);
 }
 
 void verifyTape(const IrResourcePlan& program, const SrtRuntime& runtime, std::vector<DescriptorValue>& results, std::vector<std::uint32_t>& flat, std::vector<std::uint8_t>& activeSources, std::vector<SrtReadPoison>* poison, std::uint32_t* nullRootReads, std::size_t leavesBefore, std::size_t readsBefore, const SrtUserDataUse* useBefore) {

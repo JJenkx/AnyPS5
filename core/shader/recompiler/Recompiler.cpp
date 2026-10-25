@@ -1765,8 +1765,6 @@ void ReleaseUndrawnResourcePlan(const SourceHandle& handle) {
 
 namespace {
 
-// The capture's materialization; with pure flat slots in the plan the walk's read addresses are
-// traced into the capture (ResourceCapture::readTrace).
 void noteBufferBaseWords(ResourceCapture& capture) {
     const auto& plan = *capture.plan;
     const auto& use = capture.userDataUse;
