@@ -17,7 +17,7 @@ install(FILES ${CMAKE_SOURCE_DIR}/3rdparty/nghttp2/COPYING DESTINATION licenses/
 
 add_library(anyps5_http2_transport STATIC EXCLUDE_FROM_ALL Transport.cpp)
 target_include_directories(anyps5_http2_transport PRIVATE ${LIBS_INCLUDE_DIR})
-target_link_libraries(anyps5_http2_transport PRIVATE libSceNet libSceSsl libkernel libc nghttp2_static)
+target_link_libraries(anyps5_http2_transport PRIVATE libSceHttp libSceNet libSceSsl libkernel libc nghttp2_static)
 set_target_properties(anyps5_http2_transport PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden)
 if(MINGW OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(anyps5_http2_transport INTERFACE LINKER:--exclude-libs,libanyps5_http2_transport.a)
