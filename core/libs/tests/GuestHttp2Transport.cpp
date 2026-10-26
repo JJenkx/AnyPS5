@@ -53,8 +53,9 @@ bool Throws(TCall call) {
     return false;
 }
 
-enum class Mode { Normal, Large, NoLength, Head, NotFound, Redirect, Auth, Reset, Truncate, StallHandshake, StallHeaders, StallBody, NoAlpn, Informational, StallUpload, RedirectOnce, EarlyFinal, EarlyReset, EarlyEmpty, EarlyLarge, EarlyResetIncomplete };
+enum class Mode { Normal, Large, NoLength, Head, NotFound, Redirect, Auth, Reset, Truncate, StallHandshake, StallHeaders, StallBody, NoAlpn, Informational, StallUpload, RedirectOnce, Http10, Http11, Http11Chunked, Http11Close, Http1Plain, EarlyFinal, EarlyReset, EarlyEmpty, EarlyLarge, EarlyResetIncomplete };
 const char* Protocols[] = {"h2", nullptr};
+const char* Http1Protocols[] = {"http/1.1", nullptr};
 
 class Server {
 public:
@@ -75,7 +76,7 @@ public:
         Require(mbedtls_ssl_conf_own_cert(&config, &certificate, &key) == 0, "server identity");
         mbedtls_ssl_conf_authmode(&config, MBEDTLS_SSL_VERIFY_NONE);
         mbedtls_ssl_conf_read_timeout(&config, 2000);
-        if (mode != Mode::NoAlpn) Require(mbedtls_ssl_conf_alpn_protocols(&config, Protocols) == 0, "server ALPN");
+        if (mode != Mode::NoAlpn) Require(mbedtls_ssl_conf_alpn_protocols(&config, IsHttp1() ? Http1Protocols : Protocols) == 0, "server ALPN");
         Require(mbedtls_net_bind(&listener, "127.0.0.1", "0", MBEDTLS_NET_PROTO_TCP) == 0, "server bind");
         sockaddr_in address{};
 #ifdef _WIN32
@@ -100,7 +101,7 @@ public:
     }
 
     std::string Url(const char* host = "127.0.0.1") const {
-        return std::string("https://") + host + ":" + std::to_string(port) + "/path?query=yes#fragment";
+        return std::string(mode == Mode::Http1Plain ? "http://" : "https://") + host + ":" + std::to_string(port) + "/path?query=yes#fragment";
     }
 
     void WaitStage(int desired) {
@@ -118,6 +119,7 @@ public:
     const std::string& Upload() const { return upload; }
     bool Negotiated() const { return negotiated; }
     bool IsEarly() const { return mode >= Mode::EarlyFinal; }
+    bool IsHttp1() const { return mode >= Mode::Http10 && mode <= Mode::Http1Plain; }
 private:
     const Mode mode;
     const std::string location;
@@ -242,18 +244,69 @@ private:
         mbedtls_ssl_init(&ssl);
         Require(mbedtls_net_accept(&listener, &client, nullptr, 0, nullptr) == 0, "server accept");
         Stage(1);
-        if (mode == Mode::StallHandshake) Stall();
+        if (mode == Mode::Http1Plain) ExchangeHttp1(client, nullptr);
+        else if (mode == Mode::StallHandshake) Stall();
         else {
             Require(mbedtls_ssl_setup(&ssl, &config) == 0, "server TLS setup");
             mbedtls_ssl_set_bio(&ssl, &client, mbedtls_net_send, mbedtls_net_recv, mbedtls_net_recv_timeout);
             if (mbedtls_ssl_handshake(&ssl) == 0) {
                 const char* selected = mbedtls_ssl_get_alpn_protocol(&ssl);
-                negotiated = selected && std::string(selected) == "h2";
-                Exchange(ssl);
+                negotiated = selected && std::string(selected) == (IsHttp1() ? "http/1.1" : "h2");
+                if (IsHttp1()) {
+                    ExchangeHttp1(client, &ssl);
+                    mbedtls_ssl_close_notify(&ssl);
+                } else Exchange(ssl);
             }
         }
         mbedtls_ssl_free(&ssl);
         mbedtls_net_free(&client);
+    }
+
+    void ExchangeHttp1(mbedtls_net_context& client, mbedtls_ssl_context* ssl) {
+        std::string input;
+        std::array<unsigned char, 1024> buffer;
+        std::size_t end;
+        while ((end = input.find("\r\n\r\n")) == std::string::npos) {
+            const int count = ssl ? mbedtls_ssl_read(ssl, buffer.data(), buffer.size()) : mbedtls_net_recv(&client, buffer.data(), buffer.size());
+            Require(count > 0 && input.size() + static_cast<std::size_t>(count) < 65536, "HTTP1 request header read");
+            input.append(reinterpret_cast<const char*>(buffer.data()), static_cast<std::size_t>(count));
+        }
+        const auto firstSpace = input.find(' '), secondSpace = input.find(' ', firstSpace + 1), lineEnd = input.find("\r\n");
+        Require(firstSpace < secondSpace && secondSpace < lineEnd, "HTTP1 request line");
+        headers.emplace(":method", input.substr(0, firstSpace));
+        headers.emplace(":path", input.substr(firstSpace + 1, secondSpace - firstSpace - 1));
+        headers.emplace(":version", input.substr(secondSpace + 1, lineEnd - secondSpace - 1));
+        auto position = lineEnd + 2;
+        while (position < end) {
+            const auto next = input.find("\r\n", position), colon = input.find(':', position);
+            Require(colon < next, "HTTP1 request header colon");
+            std::string name = input.substr(position, colon - position);
+            for (auto& c : name) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+            auto value = colon + 1;
+            while (value < next && (input[value] == ' ' || input[value] == '\t')) ++value;
+            headers.emplace(std::move(name), input.substr(value, next - value));
+            position = next + 2;
+        }
+        const auto lengthHeader = headers.find("content-length");
+        const std::size_t expected = lengthHeader == headers.end() ? 0 : std::stoull(lengthHeader->second);
+        end += 4;
+        while (input.size() - end < expected) {
+            const int count = ssl ? mbedtls_ssl_read(ssl, buffer.data(), buffer.size()) : mbedtls_net_recv(&client, buffer.data(), buffer.size());
+            Require(count > 0, "HTTP1 upload read");
+            input.append(reinterpret_cast<const char*>(buffer.data()), static_cast<std::size_t>(count));
+        }
+        upload = input.substr(end, expected);
+        std::string response = mode == Mode::Http10 ? "HTTP/1.0 200 OK\r\n" : "HTTP/1.1 200 OK\r\n";
+        if (mode == Mode::Http11Chunked) response += "Transfer-Encoding: chunked\r\n";
+        else if (mode != Mode::Http11Close) response += "Content-Length: 13\r\n";
+        response += "X-Loopback: yes\r\nConnection: close\r\n\r\n";
+        response += mode == Mode::Http11Chunked ? "8;test=yes\r\nresponse\r\n5\r\n body\r\n0\r\nX-Trailer: done\r\n\r\n" : "response body";
+        for (std::size_t sent = 0; sent < response.size();) {
+            const auto* data = reinterpret_cast<const unsigned char*>(response.data() + sent);
+            const int count = ssl ? mbedtls_ssl_write(ssl, data, response.size() - sent) : mbedtls_net_send(&client, data, response.size() - sent);
+            Require(count > 0, "HTTP1 response write");
+            sent += static_cast<std::size_t>(count);
+        }
     }
 
     void Exchange(mbedtls_ssl_context& ssl) {
@@ -316,9 +369,9 @@ private:
 
 struct Client {
     int context, tmpl, request = 0;
-    explicit Client(int ssl, int maximum = 4, int autoProxy = 0) {
+    explicit Client(int ssl, int maximum = 4, int autoProxy = 0, int version = 3) {
         context = sceHttp2Init(1, ssl, 1024 * 1024, maximum);
-        tmpl = sceHttp2CreateTemplate(context, "loopback-agent", 3, autoProxy);
+        tmpl = sceHttp2CreateTemplate(context, "loopback-agent", version, autoProxy);
         Require(context > 0 && tmpl > 0, "client handles");
         Require(sceHttp2SslDisableOption(tmpl, 0x4) == 0, "numeric loopback name policy");
     }
@@ -566,6 +619,38 @@ void SslCallbacks(int trusted) {
         Require(observed.calls == 2 && observed.errors == 0, "each TLS hop reports its chain");
     }
     Require(sceSslTerm_nid_postfix(untrusted) == 0, "untrusted SSL context cleanup");
+}
+
+void Http1Transport(int ssl) {
+    for (const auto mode : {Mode::Http10, Mode::Http11, Mode::Http11Chunked, Mode::Http11Close, Mode::Http1Plain}) {
+        Server server(mode);
+        const int version = mode == Mode::Http10 ? 1 : 2;
+        Client client(ssl, 1, 0, version);
+        const std::string upload = "upload bytes";
+        Require(sceHttp2AddRequestHeader(client.tmpl, "X-Inherited", "retained", 0) == 0, "HTTP1 inherited header");
+        client.Create(server.Url(), "POST", upload.size());
+        SslObservation observed;
+        observed.context = ssl;
+        observed.request = client.request;
+        Require(sceHttp2SetSslCallback(client.request, SslCallback, &observed) == 0, "HTTP1 SSL callback");
+        Require(sceHttp2SendRequest(client.request, upload.data(), upload.size()) == 0, "HTTP1 send over actual connection");
+        int kind = -1;
+        std::uint64_t length = 123;
+        Require(sceHttp2GetResponseContentLength(client.request, &kind, &length) == 0, "HTTP1 content length getter");
+        const int expectedKind = mode == Mode::Http11Chunked ? 2 : mode == Mode::Http11Close ? 1 : 0;
+        Require(kind == expectedKind && length == (expectedKind == 0 ? 13u : 0u), "HTTP1 body framing reported");
+        char* raw = nullptr;
+        std::size_t size = 0;
+        Require(sceHttp2GetAllResponseHeaders(client.request, &raw, &size) == 0 && raw && size > 0, "HTTP1 received headers");
+        Require(std::string_view(raw, size).starts_with(version == 1 ? "HTTP/1.0 200" : "HTTP/1.1 200"), "HTTP1 status line retained");
+        Response(client, 200);
+        server.Join();
+        Require(server.Upload() == upload, "HTTP1 complete upload");
+        Require(server.Headers().find(":method")->second == "POST" && server.Headers().find(":path")->second == "/path?query=yes", "HTTP1 method and target");
+        Require(server.Headers().find(":version")->second == (version == 1 ? "HTTP/1.0" : "HTTP/1.1"), "HTTP1 requested version");
+        Require(server.Headers().find("x-inherited")->second == "retained", "HTTP1 template header inherited");
+        Require(observed.calls == (mode == Mode::Http1Plain ? 0 : 1), "HTTP1 TLS callback only for secure connections");
+    }
 }
 
 void RedirectFailures(int ssl) {
@@ -836,6 +921,8 @@ int main(int argc, char** argv) {
     } else if (argc == 2 && std::string_view(argv[1]) == "--dns-first") {
         FirstNetworkRequest(ssl);
 #endif
+    } else if (argc == 2 && std::string_view(argv[1]) == "--http1") {
+        Http1Transport(ssl);
     } else if (argc == 2 && std::string_view(argv[1]) == "--ssl-callbacks") {
         SslCallbacks(ssl);
     } else if (argc == 2 && std::string_view(argv[1]) == "--redirects") {
