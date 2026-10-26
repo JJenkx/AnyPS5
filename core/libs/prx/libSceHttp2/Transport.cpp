@@ -366,7 +366,7 @@ struct Request::State {
         }
     }
 
-    static int APS5_VABI Verify(int context, unsigned int errors, void** certificates, int count, void* argument) {
+    static int APS5_VABI Verify_nid_no_patch(int context, unsigned int errors, void** certificates, int count, void* argument) {
         auto& state = *static_cast<State*>(argument);
         Require(state.callbackLock && state.settings.sslCallback, "sceHttp2: unexpected SSL callback phase");
         const int decision = state.InvokeCallback(*state.callbackLock, [&] {
@@ -442,7 +442,7 @@ struct Request::State {
         Require(sceSslDisableVerifyOption(ssl, 0x3d) == 0 && sceSslEnableVerifyOption(ssl, settings.verifyFlags) == 0,
             "sceHttp2: SSL verification options rejected");
         Require(sceSslSetAlpn(ssl, "h2") == 0, "sceHttp2: ALPN setup failed");
-        if (settings.sslCallback) Require(sceSslSetVerifyCallback(ssl, Verify, this) == 0, "sceHttp2: SSL callback setup failed");
+        if (settings.sslCallback) Require(sceSslSetVerifyCallback(ssl, Verify_nid_no_patch, this) == 0, "sceHttp2: SSL callback setup failed");
         for (;;) {
             Check(connectDeadline);
             result = sceSslConnect(ssl);
