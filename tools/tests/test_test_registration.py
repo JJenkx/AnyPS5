@@ -15,6 +15,30 @@ import check_test_registration
 
 
 class RegistrationTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("cmake"), "CMake is required for the argument oracle")
+    def test_quoted_continuations_follow_cmake(self):
+        for ending, backslashes in (("\n", 1), ("\r\n", 1), ("\n", 2), ("\n", 3), ("\n", 4)):
+            with self.subTest(ending=repr(ending), backslashes=backslashes), tempfile.TemporaryDirectory() as directory:
+                content = 'add_test("real" "tools/tests/test_' + '\\' * backslashes + ending + 'bounds.py")\n'
+                script = Path(directory) / "oracle.cmake"
+                script.write_bytes(('function(add_test)\n'
+                                    'file(WRITE "${CMAKE_CURRENT_LIST_DIR}/argument.txt" "${ARGV1}")\n'
+                                    'endfunction()\n' + content).encode())
+                subprocess.run(["cmake", "-P", str(script)], capture_output=True, text=True, check=True)
+                actual = (Path(directory) / "argument.txt").read_text()
+                expected = "tools/tests/test_" + '\\' * (backslashes // 2) + ("\n" if backslashes % 2 == 0 else "") + "bounds.py"
+                self.assertEqual(actual, expected)
+                self.assertEqual(list(check_test_registration.commands(content)), [("add_test", ["real", actual])])
+                if backslashes == 1:
+                    (Path(directory) / "CMakeLists.txt").write_bytes(content.encode())
+                    self.assertEqual(check_test_registration.run_scripts(Path(directory), ["CMakeLists.txt"]), {actual})
+
+    def test_literal_escaped_newline_and_bracket_continuation_are_preserved(self):
+        quoted = r'add_test("real" "a\nb")' + '\n'
+        bracket = 'add_test("real" [=[a' + '\\' + '\n' + 'b]=])\n'
+        self.assertEqual(list(check_test_registration.commands(quoted)), [("add_test", ["real", "a\nb"])])
+        self.assertEqual(list(check_test_registration.commands(bracket)), [("add_test", ["real", "a\\\nb"])])
+
     def test_bracket_arguments_ignore_only_one_initial_newline(self):
         values = (("path", "path"), ("\npath", "path"), ("\n\npath", "\npath"),
                   ("\n path", " path"), (" \npath", " \npath"), ("\\npath", "\\npath"),
@@ -363,6 +387,22 @@ class ScriptRegistrationTests(unittest.TestCase):
             ".github/workflows/web.yml": "on:\n  pull_request:\n    paths:\n      - tools/test_paths.py\n",
             "tools/test_web.py": "", "tools/test_paths.py": ""}), ["tools/test_paths.py"])
 
+    def test_workflow_script_inside_a_longer_name_does_not_run(self):
+        self.assertEqual(self.unrun({
+            ".github/workflows/build.yml": "jobs:\n  t:\n    steps:\n      - run: python3 tools/check_test_registration.py build\n"
+                                           "      - run: python3 tools/run_test_a.py\n",
+            "tools/check_test_registration.py": "", "tools/run_test_a.py": "",
+            "tools/tests/test_registration.py": "", "tools/tests/test_a.py": ""}),
+            ["tools/tests/test_a.py", "tools/tests/test_registration.py"])
+
+    def test_workflow_script_with_a_longer_suffix_does_not_run(self):
+        self.assertEqual(self.unrun({
+            ".github/workflows/ci.yml": "jobs:\n  t:\n    steps:\n      - run: python3 tools/tests/test_a.pyc\n"
+                                        "      - run: python3 tools/tests/test_b.py.bak\n"
+                                        "      - run: python3 \"./tools/tests/test_c.py\" --quick\n",
+            "tools/tests/test_a.py": "", "tools/tests/test_b.py": "", "tools/tests/test_c.py": ""}),
+            ["tools/tests/test_a.py", "tools/tests/test_b.py"])
+
     def test_commented_workflow_line_does_not_run_a_script(self):
         self.assertEqual(self.unrun({
             ".github/workflows/ci.yml": "# python3 tools/tests/test_f.py\njobs:\n  t:\n    steps:\n      # python3 tools/tests/test_a.py\n"
@@ -393,6 +433,33 @@ class CheckRegistrationCliTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 code = check_test_registration.main(["--scripts"])
             self.assertEqual(code, 0)
+
+    def test_main_reconfigures_streams(self):
+        class Stream:
+            def __init__(self):
+                self.encoding = None
+                self.errors = None
+
+            def reconfigure(self, encoding=None, errors=None):
+                self.encoding = encoding
+                self.errors = errors
+
+            def write(self, text):
+                pass
+
+            def flush(self):
+                pass
+
+        out, err = Stream(), Stream()
+        with patch.object(check_test_registration.sys, "stdout", out), patch.object(check_test_registration.sys, "stderr", err):
+            try:
+                check_test_registration.main(["--invalid-argument"])
+            except SystemExit:
+                pass
+        self.assertEqual(out.encoding, "utf-8")
+        self.assertEqual(out.errors, "backslashreplace")
+        self.assertEqual(err.encoding, "utf-8")
+        self.assertEqual(err.errors, "backslashreplace")
 
 
 if __name__ == "__main__":
