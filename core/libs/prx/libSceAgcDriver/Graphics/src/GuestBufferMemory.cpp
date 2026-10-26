@@ -875,19 +875,22 @@ const char* createBackingImport(const Context& context, HostImport& entry, int f
     return createDmaBufImport(context, entry, owned.Release(), std::span<const GuestArena::SharedBackingRun>(runs, count), failure);
 }
 
+bool resolveBackingRuns(const HostImport& entry, int& file, std::array<GuestArena::SharedBackingRun, DmaBufRunLimit>& runs, std::size_t& count) {
+    const auto base = static_cast<std::uintptr_t>(entry.base);
+    const auto bytes = static_cast<std::size_t>(entry.bytes);
+    if (GuestArena::GuestArenaSharedBackingRuns_nid_postfix(base, bytes, &file, runs.data(), runs.size(), &count)) return true;
+    std::uint64_t offset = 0;
+    if (!GuestArena::GuestArenaSharedBacking_nid_postfix(base, bytes, &file, &offset)) return false;
+    runs[0] = GuestArena::SharedBackingRun{offset, bytes};
+    count = 1;
+    return true;
+}
+
 const char* createSharedBackingImport(const Context& context, HostImport& entry, VkResult& failure) {
     int file = -1;
     std::array<GuestArena::SharedBackingRun, DmaBufRunLimit> runs{};
     std::size_t count = 0;
-    if (GuestArena::GuestArenaSharedBackingRuns_nid_postfix(static_cast<std::uintptr_t>(entry.base), static_cast<std::size_t>(entry.bytes), &file, runs.data(), runs.size(), &count)) {
-        return createBackingImport(context, entry, file, runs.data(), count, failure);
-    }
-    // No runs resolver is registered: fall back to the single shared backing as one run.
-    std::uint64_t offset = 0;
-    if (GuestArena::GuestArenaSharedBacking_nid_postfix(static_cast<std::uintptr_t>(entry.base), static_cast<std::size_t>(entry.bytes), &file, &offset)) {
-        const GuestArena::SharedBackingRun run{offset, static_cast<std::size_t>(entry.bytes)};
-        return createBackingImport(context, entry, file, &run, 1, failure);
-    }
+    if (resolveBackingRuns(entry, file, runs, count)) return createBackingImport(context, entry, file, runs.data(), count, failure);
     failure = VK_ERROR_INVALID_EXTERNAL_HANDLE;
     return "shared backing runs";
 }
@@ -2046,7 +2049,7 @@ const HostImport* importRunAt(const Context& context, HostImports& state, Import
         int runsFile = -1;
         std::array<GuestArena::SharedBackingRun, DmaBufRunLimit> runs{};
         std::size_t count = 0;
-        if (GuestArena::GuestArenaSharedBackingRuns_nid_postfix(static_cast<std::uintptr_t>(entry.base), static_cast<std::size_t>(entry.bytes), &runsFile, runs.data(), runs.size(), &count)) {
+        if (resolveBackingRuns(entry, runsFile, runs, count)) {
             OwnedDescriptor owned(runsFile);
             GuestMemory::ImportWatched(base, bytes, [&] {
                 step = createBackingImport(context, entry, owned.Release(), runs.data(), count, result);
