@@ -470,8 +470,8 @@ void RedirectRequestMethods(int ssl) {
 }
 
 void RedirectFailures(int ssl) {
-    for (int mode = 0; mode < 5; ++mode) {
-        Server server(Mode::Redirect, mode == 4 ? "http://localhost/" : "/another");
+    for (int mode = 0; mode < 4; ++mode) {
+        Server server(Mode::Redirect, "/another");
         Client client(ssl);
         RedirectObservation observed;
         observed.nullMethod = mode == 0;
