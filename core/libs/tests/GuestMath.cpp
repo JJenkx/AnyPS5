@@ -1409,6 +1409,15 @@ static void CheckHyperbolic() {
     Require(std::isnan(acosh_nid_postfix(0.5)) && std::isnan(acoshf_nid_postfix(0.5f)) && std::isnan(atanh_nid_postfix(2.)));
     Require(Near(sinh_nid_postfix(1.), 1.1752011936438014, 1e-15));
     Require(Near(cosh_nid_postfix(1.), 1.5430806348152437, 1e-15));
+    for (const auto& [x, expected] : {std::pair{0x1.3333333333333p-2, 0x1.0b9b4e0b6ec4cp+0}, std::pair{0x1.5e66666666666p+4, 0x1.82afcca727c18p+30},
+             std::pair{-0x1.63p+9, 0x1.3e21a464507fap+1023}, std::pair{0x1.633ce8fb9aa5dp+9, 0x1.ffffffec77d3ap+1023}}) {
+        errno = 7;
+        Require(std::bit_cast<std::uint64_t>(cosh_nid_postfix(x)) == std::bit_cast<std::uint64_t>(expected) && errno == 7);
+    }
+    errno = 7;
+    Require(std::isinf(cosh_nid_postfix(0x1.633d70a3d70a4p+9)) && errno == ERANGE);
+    errno = 7;
+    Require(std::isinf(cosh_nid_postfix(-INFINITY)) && std::isnan(cosh_nid_postfix(NAN)) && errno == 7);
     Require(Near(coshf_nid_postfix(1.f), 1.5430806348152437, 1e-6));
     Require(Near(asinh_nid_postfix(1.), 0.881373587019543, 1e-15));
     Require(Near(asinhf_nid_postfix(1.f), 0.881373587019543, 1e-6));
