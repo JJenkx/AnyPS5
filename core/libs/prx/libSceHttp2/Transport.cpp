@@ -510,6 +510,7 @@ struct Request::State {
 
     std::string Line(Clock::time_point deadline) {
         for (;;) {
+            Check(deadline);
             for (std::size_t index = pendingOffset; index + 1 < pending.size(); ++index) {
                 if (pending[index] == '\r' && pending[index + 1] == '\n') {
                     Require(index - pendingOffset <= 65536, "sceHttp2: HTTP1 line exceeds host limit");
@@ -528,6 +529,7 @@ struct Request::State {
     }
 
     int PendingRead(void* output, std::size_t size, Clock::time_point deadline) {
+        Check(deadline);
         if (pendingOffset == pending.size()) return RawRead(output, size, deadline);
         const auto count = std::min(size, pending.size() - pendingOffset);
         std::memcpy(output, pending.data() + pendingOffset, count);
