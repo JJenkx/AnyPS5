@@ -753,6 +753,22 @@ void Http1Policies(int ssl) {
     }
 }
 
+void Http1BufferedDeadline(int ssl) {
+    for (const auto mode : {Mode::Http11, Mode::Http11Chunked, Mode::Http11Close, Mode::Http1Plain}) {
+        Server server(mode);
+        Client client(ssl, 1, 0, 2);
+        Require(sceHttp2SetTimeOut(client.tmpl, 500000) == 0, "HTTP1 overall timeout setup");
+        client.Create(server.Url());
+        Require(sceHttp2SendRequest(client.request, nullptr, 0) == 0, "HTTP1 buffered deadline send");
+        char byte = 0;
+        Require(sceHttp2ReadData(client.request, &byte, 1) == 1 && byte == 'r', "HTTP1 initial body byte");
+        server.Join();
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        byte = 'z';
+        Require(Throws([&] { sceHttp2ReadData(client.request, &byte, 1); }) && byte == 'z', "HTTP1 buffered body respects overall deadline without changing output");
+    }
+}
+
 void Http1Cancellation(int ssl) {
     for (const auto mode : {Mode::Http11StallHeaders, Mode::Http11StallBody}) {
         for (int teardown = 0; teardown < 4; ++teardown) {
@@ -1065,6 +1081,7 @@ int main(int argc, char** argv) {
         Http1Transport(ssl);
         Http1Policies(ssl);
         Http1Cancellation(ssl);
+        Http1BufferedDeadline(ssl);
     } else if (argc == 2 && std::string_view(argv[1]) == "--ssl-callbacks") {
         SslCallbacks(ssl);
     } else if (argc == 2 && std::string_view(argv[1]) == "--redirects") {
