@@ -56,7 +56,6 @@ static int APS5_VABI ScanInputSized(const char16_t* format, ...) {
     return result;
 }
 
-#ifndef _WIN32
 static int APS5_VABI ScanNarrow(FileStream* stream, const char* format, ...) {
     APS5_VA_BEGIN(format);
     const int result = vfscanf_nid_postfix(stream, format, reinterpret_cast<VaList*>(args));
@@ -77,7 +76,6 @@ static int APS5_VABI ScanNarrowInput(const char* format, ...) {
     APS5_VA_END();
     return result;
 }
-#endif
 
 static FileStream* Open(const char* text) {
     auto* stream = new FileStream(TemporaryFile::Open());
@@ -91,7 +89,6 @@ static void Close(FileStream* stream) {
     delete stream;
 }
 
-#ifndef _WIN32
 static void CheckNarrowFormatWideFields() {
     std::int32_t value = 0;
     std::int64_t count = -1;
@@ -99,9 +96,9 @@ static void CheckNarrowFormatWideFields() {
     char16_t letter = u'!';
     char narrow[8]{};
 
-    FileStream* stream = Open("  \xc5\xbelu\xc5\xa5 k\xc5\xaf\xc5\x88 7");
-    Require(fscanf_nid_postfix(stream, "%ls %lc", word, &letter) == 2 && std::u16string(word) == u"\u017elu\u0165" && letter == u'k', "fscanf %ls and %lc decode UTF-8");
-    Require(ScanNarrow(stream, "%S%ln %d", word, &count, &value) == 2 && std::u16string(word) == u"\u016f\u0148" && count == 4 && value == 7, "vfscanf %S with %ln counting bytes");
+    FileStream* stream = Open("  zlu ku 7");
+    Require(fscanf_nid_postfix(stream, "%ls %lc", word, &letter) == 2 && std::u16string(word) == u"zlu" && letter == u'k', "fscanf %ls and %lc");
+    Require(ScanNarrow(stream, "%S%ln %d", word, &count, &value) == 2 && std::u16string(word) == u"u" && count == 1 && value == 7, "vfscanf %S with %ln counting bytes");
     Require(fgetc_nid_postfix(stream) == EOF, "the whole input is consumed");
     Close(stream);
 
@@ -110,8 +107,10 @@ static void CheckNarrowFormatWideFields() {
     Close(stream);
 
     stream = Open("ab\xc3\xa9t rest");
-    Require(fscanf_nid_postfix(stream, "%l[a-c]", word) == 1 && std::u16string(word) == u"ab", "a scanset stops at a non-ASCII character");
-    Require(fscanf_nid_postfix(stream, "%l[^ ] %7s", word, narrow) == 2 && std::u16string(word) == u"\u00e9t" && std::strcmp(narrow, "rest") == 0, "the non-ASCII character stays in the stream");
+    Require(fscanf_nid_postfix(stream, "%l[a-c]", word) == 1 && std::u16string(word) == u"ab", "a scanset stops at a byte outside it");
+    *__error_nid_postfix() = 0;
+    Require(fscanf_nid_postfix(stream, "%l[^ ] %7s", word, narrow) == 0 && *__error_nid_postfix() == 86, "a byte after a UTF-8 lead byte fails the field");
+    Require(fgetc_nid_postfix(stream) == 0xa9, "the byte that failed stays in the stream");
     Close(stream);
 
     char16_t three[5] = {u'!', u'!', u'!', u'!', u'!'};
@@ -140,11 +139,10 @@ static void CheckNarrowFormatWideFields() {
     stream = Open("ab c");
     __stdinp_nid_postfix = stream;
     Require(scanf_nid_postfix("%ls", word) == 1 && std::u16string(word) == u"ab", "scanf %ls reads the guest standard input");
-    Require(ScanNarrowInput(" %C", &letter) == 1 && letter == u'c', "vscanf %C reads the guest standard input");
+    Require(ScanNarrowInput(" %lc", &letter) == 1 && letter == u'c', "vscanf %lc reads the guest standard input");
     __stdinp_nid_postfix = standardInput;
     Close(stream);
 }
-#endif
 
 static void CheckConsumption() {
     std::int32_t value = -1;
@@ -245,8 +243,6 @@ int main() {
     CheckConsumption();
     CheckWideText();
     CheckStandardInput();
-#ifndef _WIN32
     CheckNarrowFormatWideFields();
-#endif
     return 0;
 }
