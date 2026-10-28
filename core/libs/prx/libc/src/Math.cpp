@@ -383,11 +383,11 @@ static bool Log9Reduce(float& x, std::int32_t& k, float& special) {
     std::int32_t hx = std::bit_cast<std::int32_t>(x);
     if (hx < 0x00800000) {
         if ((hx & 0x7fffffff) == 0) {
-            special = -two25 / zero;
+            special = -std::numeric_limits<float>::infinity();
             return false;
         }
         if (hx < 0) {
-            errno = EDOM;
+            _Feraise_nid_postfix(0x01);
             special = (x - x) / zero;
             return false;
         }

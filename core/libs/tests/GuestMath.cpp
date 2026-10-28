@@ -1432,10 +1432,15 @@ static void CheckLog10fLog2fConsoleBits() {
     for (const auto& item : cases) {
         const float x = std::bit_cast<float>(item.input);
         const int expected = item.error != 0 ? item.error : 1234;
+        const bool invalid = item.error == EDOM;
         errno = 1234;
+        std::feclearexcept(FE_ALL_EXCEPT);
         Require(std::bit_cast<std::uint32_t>(log10f_nid_postfix(x)) == item.log10 && errno == expected);
+        Require((std::fetestexcept(FE_INVALID) != 0) == invalid && std::fetestexcept(FE_DIVBYZERO) == 0);
         errno = 1234;
+        std::feclearexcept(FE_ALL_EXCEPT);
         Require(std::bit_cast<std::uint32_t>(log2f_nid_postfix(x)) == item.log2 && errno == expected);
+        Require((std::fetestexcept(FE_INVALID) != 0) == invalid && std::fetestexcept(FE_DIVBYZERO) == 0);
     }
 }
 
