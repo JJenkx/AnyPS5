@@ -1661,10 +1661,10 @@ double APS5_VABI log10_nid_postfix(double x) {
     std::int32_t k = 0;
     if (hx < 0x00100000) {
         if (((hx & 0x7fffffff) | lx) == 0) {
-            return -two54 / zero;
+            return -std::numeric_limits<double>::infinity();
         }
         if (hx < 0) {
-            errno = EDOM;
+            _Feraise_nid_postfix(0x01);
             return (x - x) / zero;
         }
         k -= 54;
