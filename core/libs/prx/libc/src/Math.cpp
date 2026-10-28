@@ -642,7 +642,7 @@ double APS5_VABI log_nid_postfix(double x) {
             return -two54 / vzero;
         }
         if (hx < 0) {
-            errno = EDOM;
+            _Feraise_nid_postfix(0x01);
             return (x - x) / 0.0;
         }
         k -= 54;
