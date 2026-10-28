@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <source_location>
+#include <limits>
 
 static void Require(bool value, std::source_location location = std::source_location::current()) {
     if (value) return;
@@ -137,7 +138,10 @@ static void CheckRoundingModes() {
             Require(floor_nid_postfix(small) == 0.0 && !std::signbit(floor_nid_postfix(small)));
             Require(floorf_nid_postfix(static_cast<float>(small)) == 0.0f && !std::signbit(floorf_nid_postfix(static_cast<float>(small))));
         }
-        Require(floor_nid_postfix(-0.5) == -1.0 && floorf_nid_postfix(-0.5f) == -1.0f && std::signbit(floor_nid_postfix(-0.0)));
+        for (const float small : {std::numeric_limits<float>::denorm_min(), 0x1p-130f, std::numeric_limits<float>::min()})
+            Require(floorf_nid_postfix(small) == 0.0f && !std::signbit(floorf_nid_postfix(small)));
+        Require(floor_nid_postfix(-0.5) == -1.0 && floorf_nid_postfix(-0.5f) == -1.0f);
+        Require(std::signbit(floor_nid_postfix(-0.0)) && std::signbit(floorf_nid_postfix(-0.0f)));
         Require(std::fegetround() == test.mode);
     }
     Require(std::fesetround(saved) == 0);
