@@ -153,6 +153,25 @@ void CheckStrtok() {
     before = constraintCalls;
     Require(strtok_s_nid_postfix(separators, &remaining, nullptr, &context) == nullptr, "strtok_s accepted null delimiters");
     RequireViolation(before, "strtok_s: bad argument", 22);
+    before = constraintCalls;
+    Require(strtok_s_nid_postfix(separators, nullptr, ",;", &context) == nullptr, "strtok_s accepted a null s1max");
+    RequireViolation(before, "strtok_s: bad argument", 22);
+    before = constraintCalls;
+    Require(strtok_s_nid_postfix(separators, &remaining, ",;", nullptr) == nullptr && remaining == 4, "strtok_s accepted a null ptr");
+    RequireViolation(before, "strtok_s: bad argument", 22);
+    before = constraintCalls;
+    char exact[] = "ab,";
+    remaining = 2;
+    context = nullptr;
+    Require(strtok_s_nid_postfix(exact, &remaining, ",;", &context) == nullptr && remaining == 2 && context == nullptr, "strtok_s accepted a token that fills s1max");
+    RequireViolation(before, "strtok_s: missing delimiter", 22);
+    before = constraintCalls;
+    char largest[] = ",x";
+    remaining = tooLarge - 1;
+    Require(strtok_s_nid_postfix(largest, &remaining, ",;", &context) == largest + 1 && remaining == tooLarge - 3 && context == largest + 2 && constraintCalls == before, "strtok_s rejected the largest s1max");
+    remaining = 3;
+    Require(strtok_s_nid_postfix(separators, &remaining, ",;", &context) == nullptr && remaining == 3 && context == largest + 2, "strtok_s changed its state on a missing token");
+    RequireViolation(before, "strtok_s: missing token", 22);
 }
 
 void CheckWideToMultibyte() {
