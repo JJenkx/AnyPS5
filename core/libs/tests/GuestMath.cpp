@@ -1038,6 +1038,18 @@ static void CheckExpm1ScalingRounding() {
     }
     _mm_setcsr(savedCsr);
 }
+static void CheckLog10EdgeFlags() {
+    for (const double input : {-1.0, -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::quiet_NaN()}) {
+        errno = 0;
+        std::feclearexcept(FE_ALL_EXCEPT);
+        Require(std::isnan(log10_nid_postfix(input)) && errno == EDOM && std::fetestexcept(FE_INVALID) != 0);
+    }
+    for (const double input : {0.0, -0.0}) {
+        errno = 1234;
+        std::feclearexcept(FE_ALL_EXCEPT);
+        Require(log10_nid_postfix(input) == -std::numeric_limits<double>::infinity() && errno == 1234 && std::fetestexcept(FE_DIVBYZERO) == 0);
+    }
+}
 static void CheckLog10ConsoleBits() {
     constexpr struct {
         std::uint64_t input;
@@ -1065,6 +1077,18 @@ static void CheckLog10ConsoleBits() {
     }
 }
 
+static void CheckLog2EdgeFlags() {
+    for (const double input : {-1.0, -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::quiet_NaN()}) {
+        errno = 0;
+        std::feclearexcept(FE_ALL_EXCEPT);
+        Require(std::isnan(log2_nid_postfix(input)) && errno == EDOM && std::fetestexcept(FE_INVALID) != 0);
+    }
+    for (const double input : {0.0, -0.0}) {
+        errno = 1234;
+        std::feclearexcept(FE_ALL_EXCEPT);
+        Require(log2_nid_postfix(input) == -std::numeric_limits<double>::infinity() && errno == 1234 && std::fetestexcept(FE_DIVBYZERO) == 0);
+    }
+}
 static void CheckLog2ConsoleBits() {
     constexpr struct {
         std::uint64_t input;
@@ -2423,7 +2447,9 @@ int main() {
     CheckNextafterEnvironment(nextafter_nid_postfix, std::uint64_t{0x8000000000000000ull}, std::uint64_t{0x3ff0000000000000ull}, std::uint64_t{0x0010000000000000ull}, std::uint64_t{0x7fefffffffffffffull}, std::uint64_t{0x7ff0000000000000ull});
     CheckExpm1ScalingRounding();
     CheckLog10ConsoleBits();
+    CheckLog10EdgeFlags();
     CheckLog2ConsoleBits();
+    CheckLog2EdgeFlags();
     CheckAsinl();
     Require(scalbn_nid_postfix(0.75, -2) == 0.1875);
     Require(scalbnf_nid_postfix(0.75f, 4) == 12.f);
