@@ -433,7 +433,7 @@ void FrameRecorder::writeDelta(std::span<const Span> spans, std::span<const std:
         }
         for (std::uint64_t at = 0; at < range.bytes;) {
             bytes.resize(static_cast<std::size_t>(std::min<std::uint64_t>(FrameCaptureWriter::BlockBytes, range.bytes - at)));
-            GuestMemory::ReadCommittedUnsynced(range.address + at, bytes);
+            readGuest(range.address + at, bytes, GuestMemory::ReadCommittedUnsynced);
             const bool zero = std::all_of(bytes.begin(), bytes.end(), [](std::byte value) { return value == std::byte{0}; });
             if (!zero) {
                 writer->WriteDelta(group, completed, range.address + at, bytes);
@@ -457,7 +457,7 @@ void FrameRecorder::writeDelta(std::span<const Span> spans, std::span<const std:
     }
     for (const auto& [begin, end] : blocks) {
         bytes.resize(static_cast<std::size_t>(end - begin));
-        GuestMemory::ReadCommittedUnsynced(begin, bytes);
+        readGuest(begin, bytes, GuestMemory::ReadCommittedUnsynced);
         writer->WriteDelta(group, completed, begin, bytes);
         deltaBytes += bytes.size();
         any = true;
@@ -482,24 +482,13 @@ void FrameRecorder::snapshot(const Range& range) {
     for (std::uint64_t at = 0; at < range.bytes; at += SnapshotPieceBytes) {
         if (abandonIfDiskLow()) return;
         bytes.resize(static_cast<std::size_t>(std::min<std::uint64_t>(SnapshotPieceBytes, range.bytes - at)));
-        readGuest(range.address + at, bytes);
+        readGuest(range.address + at, bytes, GuestMemory::ReadCommitted);
         snapshotBytes += writer->WriteSnapshot(range.address + at, bytes);
     }
 }
 
-void FrameRecorder::readGuest(std::uint64_t address, std::span<std::byte> bytes) {
-    auto cursor = address;
-    const auto end = address + bytes.size();
-    for (const auto& [begin, size] : Graphics::HostOnlySampleRanges(address, bytes.size())) {
-        const auto skipped = std::max(begin, cursor);
-        const auto stop = std::min(begin + size, end);
-        if (stop <= skipped) continue;
-        GuestMemory::ReadCommitted(cursor, bytes.subspan(static_cast<std::size_t>(cursor - address), static_cast<std::size_t>(skipped - cursor)));
-        std::memset(bytes.data() + (skipped - address), 0, static_cast<std::size_t>(stop - skipped));
-        hostOnlySampleBytes += stop - skipped;
-        cursor = stop;
-    }
-    GuestMemory::ReadCommitted(cursor, bytes.subspan(static_cast<std::size_t>(cursor - address)));
+void FrameRecorder::readGuest(std::uint64_t address, std::span<std::byte> bytes, GuestRead read) {
+    hostOnlySampleBytes += ReadAroundRanges(address, bytes, Graphics::HostOnlySampleRanges(address, bytes.size()), read);
 }
 
 bool FrameRecorder::abandonIfDiskLow() {
