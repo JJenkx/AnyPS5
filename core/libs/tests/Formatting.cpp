@@ -445,6 +445,18 @@ __attribute__((noinline)) static void APS5_VABI RunChecks() {
         letter = u'!';
         Require(sscanf_nid_postfix("  xy z", "%S %C", first, &letter) == 1 && std::u16string(first) == u"xy" && letter == u'!');
         Require(sscanf_nid_postfix("abc", "%C", &letter) == 0 && sscanf_nid_postfix("abc", "%2C", &letter) == 0 && letter == u'!');
+        int afterWide = -7;
+        int countAfterWide = -7;
+        Require(sscanf_nid_postfix("x5", "%C%d", &letter, &afterWide) == 0 && letter == u'!' && afterWide == -7);
+        Require(sscanf_nid_postfix("xy", "%C%n", &letter, &countAfterWide) == 0 && countAfterWide == -7);
+        Require(sscanf_nid_postfix("5 x", "%d %C%d", &afterWide, &letter, &countAfterWide) == 1 && afterWide == 5 && letter == u'!' && countAfterWide == -7);
+        afterWide = -7;
+        Require(sscanf_nid_postfix("", "%C", &letter) == 0 && sscanf_nid_postfix("x5", "%*C%d", &afterWide) == 0 && afterWide == -7);
+        Require(sscanf_nid_postfix("xy", "%lC", &letter) == 0 && sscanf_nid_postfix("xy", "%hC", &letter) == 0 && letter == u'!');
+        afterWide = -7;
+        Require(ScanListS("x5", "%C%d", &letter, 4u, &afterWide) == 0 && letter == u'!' && afterWide == -7);
+        Require(ScanListS("xy", "%C%n", &letter, 4u, &countAfterWide) == 0 && countAfterWide == -7);
+        Require(ScanListS("", "%C", &letter, 4u) == 0);
         Require(sscanf_nid_postfix("abc", "%hS", first) == 1 && std::u16string(first) == u"abc");
         char16_t three[5] = {u'!', u'!', u'!', u'!', u'!'};
         Require(sscanf_nid_postfix("abcdef", "%3lc", three) == 1);
