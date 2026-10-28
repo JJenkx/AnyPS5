@@ -2,6 +2,7 @@
 #include "prx/libSceAgcDriver/Execution/include/FrameRecorder.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/MultisampleTarget.hpp"
 #include "prx/libSceAgcDriver/TraceRevision.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "prx/libc/include/GuestArena.hpp"
@@ -481,9 +482,24 @@ void FrameRecorder::snapshot(const Range& range) {
     for (std::uint64_t at = 0; at < range.bytes; at += SnapshotPieceBytes) {
         if (abandonIfDiskLow()) return;
         bytes.resize(static_cast<std::size_t>(std::min<std::uint64_t>(SnapshotPieceBytes, range.bytes - at)));
-        GuestMemory::ReadCommitted(range.address + at, bytes);
+        readGuest(range.address + at, bytes);
         snapshotBytes += writer->WriteSnapshot(range.address + at, bytes);
     }
+}
+
+void FrameRecorder::readGuest(std::uint64_t address, std::span<std::byte> bytes) {
+    auto cursor = address;
+    const auto end = address + bytes.size();
+    for (const auto& [begin, size] : Graphics::HostOnlySampleRanges(address, bytes.size())) {
+        const auto skipped = std::max(begin, cursor);
+        const auto stop = std::min(begin + size, end);
+        if (stop <= skipped) continue;
+        GuestMemory::ReadCommitted(cursor, bytes.subspan(static_cast<std::size_t>(cursor - address), static_cast<std::size_t>(skipped - cursor)));
+        std::memset(bytes.data() + (skipped - address), 0, static_cast<std::size_t>(stop - skipped));
+        hostOnlySampleBytes += stop - skipped;
+        cursor = stop;
+    }
+    GuestMemory::ReadCommitted(cursor, bytes.subspan(static_cast<std::size_t>(cursor - address)));
 }
 
 bool FrameRecorder::abandonIfDiskLow() {
@@ -583,7 +599,7 @@ std::string FrameRecorder::header() const {
     text += ",\"arena_base\":" + std::to_string(arenaBase) + ",\"arena_bytes\":" + std::to_string(arenaBytes);
     text += ",\"start_boundary\":" + std::to_string(startBoundary) + ",\"frames\":" + std::to_string(recordedFrames);
     text += ",\"calls\":" + std::to_string(recordedCalls) + ",\"prologue_calls\":" + std::to_string(prologue.size());
-    text += ",\"ranges\":" + std::to_string(ranges.size()) + ",\"late_ranges\":" + std::to_string(lateRanges) + ",\"snapshot_bytes\":" + std::to_string(snapshotBytes) + ",\"unreadable_bytes\":" + std::to_string(unreadableBytes);
+    text += ",\"ranges\":" + std::to_string(ranges.size()) + ",\"late_ranges\":" + std::to_string(lateRanges) + ",\"snapshot_bytes\":" + std::to_string(snapshotBytes) + ",\"unreadable_bytes\":" + std::to_string(unreadableBytes) + ",\"host_only_sample_bytes\":" + std::to_string(hostOnlySampleBytes);
     text += ",\"memory_groups\":" + std::to_string(deltaGroups) + ",\"delta_bytes\":" + std::to_string(deltaBytes);
     text += ",\"capture_seconds\":" + std::to_string(std::chrono::duration<double>(std::chrono::steady_clock::now() - startedAt).count());
     text += ",\"env\":{";
@@ -598,6 +614,7 @@ std::string FrameRecorder::header() const {
         text += (first ? "" : ",") + jsonString(warning);
         first = false;
     }
+    if (hostOnlySampleBytes != 0) text += (first ? "" : ",") + jsonString(std::to_string(hostOnlySampleBytes) + " bytes under multisampled targets whose samples are only on the host are zero in the capture, so replay starts those targets without their earlier contents");
     return text + "]}\n";
 }
 

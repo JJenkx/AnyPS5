@@ -576,6 +576,9 @@ void CheckNativeIndices(AgcDriver::VulkanDevice& device, const Block& source, co
         guarded = error.what();
     }
     Require(guarded.find("whose samples are only on the host") != std::string::npos, "the draw-input source is not guarded as a native target");
+    const auto hostOnly = AgcDriver::Graphics::HostOnlySampleRanges(source.Address(), 48u);
+    Require(std::ranges::any_of(hostOnly, [&](const auto& range) { return range.first <= source.Address() && source.Address() < range.first + range.second; }), "the host-only samples of the draw-input source are not reported to the frame capture snapshot");
+    Require(AgcDriver::Graphics::HostOnlySampleRanges(neighbor, 12u).empty(), "the neighbor of a native target is reported as host-only samples");
     {
         std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
         const auto* native = AgcDriver::Graphics::HostImportFor(context, source.Address(), 12u);
