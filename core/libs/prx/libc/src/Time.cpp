@@ -555,8 +555,10 @@ int64_t APS5_VABI libc_mktime_nid_postfix(GuestTm* timeptr) {
     std::tm host = toHostTm(*timeptr);
     if (host.tm_isdst > 0) {
         const auto local = utcSeconds(host);
-        GuestTm normalized{};
-        if (utcCalendarFields(local, normalized)) {
+        GuestTm early{};
+        GuestTm late{};
+        constexpr std::int64_t searchSeconds = 12 * 2629746 + SECONDS_PER_DAY;
+        if (utcCalendarFields(local - searchSeconds, early) && utcCalendarFields(local + searchSeconds, late)) {
             const int saved = *__error_nid_postfix();
             const auto guess = SonyHostZoneAt_nid_no_patch(local);
             const auto zone = SonyHostZoneAt_nid_no_patch(local - guess.standardEast - guess.daylight);

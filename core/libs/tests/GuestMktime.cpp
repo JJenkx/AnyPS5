@@ -96,6 +96,22 @@ static void CheckHistoricalDaylightAbsence(const char* zone, int year) {
 
 #endif
 
+static void CheckRepresentableYearEdges(Converter convert) {
+    const struct { int year; int month; } cases[]{
+        {std::numeric_limits<int>::min(), 0},
+        {std::numeric_limits<int>::max(), 11}
+    };
+    for (const auto& item : cases) {
+        GuestTm input{};
+        input.tm_year = item.year;
+        input.tm_mon = item.month;
+        input.tm_mday = 15;
+        input.tm_hour = 12;
+        input.tm_isdst = 1;
+        Require(convert(&input) != -1, "daylight hint at a representable year edge failed");
+    }
+}
+
 static void CheckFailure(Converter convert, int hint = -1) {
     GuestTm input{};
     input.tm_year = std::numeric_limits<int>::max();
@@ -123,6 +139,7 @@ static void CheckZone(const char* zone) {
         }
         CheckFailure(convert);
         CheckFailure(convert, 1);
+        CheckRepresentableYearEdges(convert);
         for (const int year : {40, 70, 124}) CheckUnavailableDaylightHint(convert, year);
     }
 }
