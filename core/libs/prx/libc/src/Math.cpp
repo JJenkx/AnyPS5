@@ -545,7 +545,7 @@ double APS5_VABI asin_nid_postfix(double x) {
         if (((ix - 0x3ff00000) | static_cast<std::uint32_t>(bits)) == 0) {
             return x * pio2_hi + x * pio2_lo;
         }
-        errno = EDOM;
+        _Feraise_nid_postfix(0x01);
         return (x - x) / (x - x);
     }
     if (ix < 0x3fe00000) {
@@ -580,7 +580,7 @@ double APS5_VABI acos_nid_postfix(double x) {
         if (((ix - 0x3ff00000) | static_cast<std::uint32_t>(bits)) == 0) {
             return hx > 0 ? 0.0 : pi + 2.0 * pio2_lo;
         }
-        errno = EDOM;
+        _Feraise_nid_postfix(0x01);
         return (x - x) / (x - x);
     }
     if (ix < 0x3fe00000) {

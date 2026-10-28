@@ -766,6 +766,20 @@ static long double MakeExtended(std::uint64_t mantissa, std::uint16_t signExpone
     return value;
 }
 
+static void CheckAsinEdgeFlags() {
+    for (const double input : {2.0, -2.0, std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN(), -std::numeric_limits<double>::quiet_NaN()}) {
+        errno = 0;
+        std::feclearexcept(FE_ALL_EXCEPT);
+        Require(std::isnan(asin_nid_postfix(input)) && errno == EDOM && std::fetestexcept(FE_INVALID) != 0);
+    }
+}
+static void CheckAcosEdgeFlags() {
+    for (const double input : {2.0, -2.0, std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN(), -std::numeric_limits<double>::quiet_NaN()}) {
+        errno = 0;
+        std::feclearexcept(FE_ALL_EXCEPT);
+        Require(std::isnan(acos_nid_postfix(input)) && errno == EDOM && std::fetestexcept(FE_INVALID) != 0);
+    }
+}
 static void CheckAsinConsoleBits() {
     constexpr struct {
         std::uint64_t input;
@@ -1434,9 +1448,10 @@ static void CheckAsin() {
     Require(std::fetestexcept(FE_INVALID));
     Require(errno == EDOM);
     std::feclearexcept(FE_ALL_EXCEPT);
+    errno = 0;
     asin_nid_postfix(nan);
 
-    Require(!std::fetestexcept(FE_INVALID));
+    Require(std::fetestexcept(FE_INVALID) && errno == EDOM);
 }
 
 static void CheckTrigfConsoleBits() {
@@ -2541,6 +2556,8 @@ int main() {
     CheckCbrtConsoleBits();
     CheckLogbConsoleBits();
     CheckAsinConsoleBits();
+    CheckAcosEdgeFlags();
+    CheckAsinEdgeFlags();
     CheckExpm1ConsoleBits();
     CheckLog1pConsoleBits();
     CheckNextafterConsoleBits();
