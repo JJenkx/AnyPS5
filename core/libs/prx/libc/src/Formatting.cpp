@@ -300,7 +300,9 @@ int ScanSource(TSource source, const char* format, bool secure, NextPointer next
             continue;
         }
 #endif
+#ifdef _WIN32
         if (!std::strchr("diouxXaAeEfFgGcspn[SC", conversion)) return finish(assigned);
+#endif
         if (conversion != 'c' && conversion != '[') {
             while (std::isspace(source.Peek())) source.Skip();
             if (source.Peek() == EOF) return finish(converted ? assigned : EOF);
