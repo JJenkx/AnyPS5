@@ -11,16 +11,15 @@ bool InWideScanset(const std::string& specifier, unsigned char byte) {
     if (negated) ++index;
     const std::size_t end = specifier.size() - 1;
     bool member = false;
-    for (std::size_t first = index; index < end; ++index) {
-        const auto value = static_cast<unsigned char>(specifier[index]);
-        if (specifier[index] == '-' && index != first && index + 1 < end) {
-            const auto low = static_cast<unsigned char>(specifier[index - 1]);
-            const auto high = static_cast<unsigned char>(specifier[index + 1]);
-            if (byte >= low && byte <= high) member = true;
+    while (index < end && !member) {
+        const auto first = static_cast<unsigned char>(specifier[index]);
+        if (end - index >= 3 && specifier[index + 1] == '-') {
+            member = byte >= first && byte <= static_cast<unsigned char>(specifier[index + 2]);
+            index += 3;
+        } else {
+            member = byte == first;
             ++index;
-            continue;
         }
-        if (byte == value) member = true;
     }
     return member != negated;
 }

@@ -485,6 +485,7 @@ __attribute__((noinline)) static void APS5_VABI RunChecks() {
             {"\xc3\xa9", "%lc", EOF, u"", 0}, {"\xc3" "a", "%2lc", 0, u"", 86}, {"\x80", "%lc", EOF, u"", 86},
             {"\xc3\xa9", "%S", 0, u"", 86}, {"a\xc3\xa9", "%l[^ ]", 0, u"a", 86}, {"\x80", "%l[^ ]", EOF, u"", 86},
             {"\xc3" "a", "%l[a-z]", 0, u"", 0}, {"a\xc3" "b", "%l[a-z]", 1, u"a", 0}, {"\xc3\xa9", "%l[\xc3\xa9]", 0, u"", 86},
+            {"za", "%l[z-a]", 0, u"", 0}, {"b", "%l[a-a-c]", 0, u"", 0}, {"a-c", "%l[a-a-c]", 1, u"a-c", 0}, {"+", "%l[*--]", 1, u"+", 0},
             {"\x80", "%l[\x80-\xff]", EOF, u"", 86}, {"a\x80" "b", "%l[a\x80]", 0, u"a", 86}, {"a\xc3" "b", "%l[^\xc3]", 1, u"a", 0},
         };
         for (const auto& item : cases) {
