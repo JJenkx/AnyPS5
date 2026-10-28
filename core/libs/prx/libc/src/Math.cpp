@@ -1547,6 +1547,7 @@ double APS5_VABI pow_nid_postfix(double x, double y) {
     const double two53 = 9007199254740992.0;
     const double huge = 1.0e300;
     const double tiny = 1.0e-300;
+    static const volatile double underflow = 1.0e-300;
     const double L1 = 5.99999999999994648725e-01;
     const double L2 = 4.28571428578550184252e-01;
     const double L3 = 3.33333329818377432918e-01;
@@ -1642,11 +1643,11 @@ double APS5_VABI pow_nid_postfix(double x, double y) {
     double t2;
     if (iy > 0x41e00000) {
         if (iy > 0x43f00000) {
-            if (ix <= 0x3fefffff) return hy < 0 ? huge * huge : tiny * tiny;
-            if (ix >= 0x3ff00000) return hy > 0 ? huge * huge : tiny * tiny;
+            if (ix <= 0x3fefffff) return hy < 0 ? std::numeric_limits<double>::infinity() : tiny * tiny;
+            if (ix >= 0x3ff00000) return hy > 0 ? std::numeric_limits<double>::infinity() : tiny * tiny;
         }
-        if (ix < 0x3fefffff) return hy < 0 ? s * huge * huge : s * tiny * tiny;
-        if (ix > 0x3ff00000) return hy > 0 ? s * huge * huge : s * tiny * tiny;
+        if (ix < 0x3fefffff) return hy < 0 ? s * huge * huge : s * underflow * underflow;
+        if (ix > 0x3ff00000) return hy > 0 ? s * huge * huge : s * underflow * underflow;
         const double t = ax - 1.0;
         const double w = (t * t) * (0.5 - t * (3.3333333333333331e-01 - t * 0.25));
         const double u = ivln2_h * t;
@@ -1712,7 +1713,7 @@ double APS5_VABI pow_nid_postfix(double x, double y) {
     } else if ((j & 0x7fffffff) >= 0x4090cc00) {
         if (((static_cast<std::uint32_t>(j) - 0xc090cc00u) | static_cast<std::uint32_t>(i0)) != 0 || p_l <= z - p_h) {
             errno = ERANGE;
-            return s * tiny * tiny;
+            return s * underflow * underflow;
         }
     }
     const std::int32_t i = j & 0x7fffffff;
