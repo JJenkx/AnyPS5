@@ -301,6 +301,12 @@ int ScanSource(TSource source, const char* format, bool secure, NextPointer next
                 field += size;
             }
             if (text.empty()) return finish(assigned);
+            if (bounded && kind == 'c') {
+                for (std::size_t skipped = text.size(); skipped < wanted && *field != '\0'; ++skipped) {
+                    char32_t point = 0;
+                    field += LibcDetail::ReadWideScanCharacter(field, &point);
+                }
+            }
             if (bounded && kind != 'c' && text.size() >= capacity) {
                 std::memcpy(target, text.data(), capacity * sizeof(char16_t));
                 return finish(assigned);
@@ -338,9 +344,12 @@ int ScanSource(TSource source, const char* format, bool secure, NextPointer next
             if (bounded && capacity == 0) return finish(assigned);
             const std::size_t element = length == "l" ? sizeof(char16_t) : 1;
             std::size_t taken = width;
+            std::size_t overrun = 0;
             if (bounded) {
                 const std::size_t wanted = width != 0 ? width : (conversion == 'c' ? 1 : SIZE_MAX);
-                taken = std::min({wanted, capacity, std::strlen(field)});
+                const std::size_t available = std::strlen(field);
+                taken = std::min({wanted, capacity, available});
+                if (conversion == 'c' && element != 1) overrun = std::min(wanted, available) - taken;
             }
             std::vector<unsigned char> text(bounded ? (taken + 1) * element : 0);
             alignas(16) unsigned char scratch[32];
@@ -370,7 +379,7 @@ int ScanSource(TSource source, const char* format, bool secure, NextPointer next
                 }
                 std::memcpy(target, text.data(), stored * element);
             }
-            source.Advance(consumed);
+            source.Advance(consumed + static_cast<std::ptrdiff_t>(overrun));
             converted = true;
             if (!suppress) ++assigned;
             continue;

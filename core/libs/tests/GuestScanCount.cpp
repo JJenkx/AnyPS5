@@ -1,12 +1,14 @@
 #include "prx/libc/include/Api.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "SceTypes.hpp"
+#include <algorithm>
 #include <array>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <string>
 
 static int APS5_VABI ScanList(const char* input, const char* format, ...) {
@@ -186,6 +188,40 @@ static void CheckCapacities(Scan scan) {
     }
 }
 
+struct WideField {
+    char16_t text[8];
+    WideField() { std::fill(std::begin(text), std::end(text), u'~'); }
+    bool Holds(const char16_t* expected, std::size_t size) const { return std::memcmp(text, expected, size * sizeof(char16_t)) == 0; }
+};
+
+static void CheckWideFields(Scan scan) {
+    {
+        WideField a;
+        Require(scan("abc", "%ls", a.text, std::size_t{4}) == 1 && a.Holds(u"abc\0~", 5), "Wide string that fits");
+        WideField b;
+        Require(scan("abcd", "%ls", b.text, std::size_t{4}) == 0 && b.Holds(u"abcd~", 5), "Wide string without room for the terminator");
+        WideField c;
+        Require(scan("abcde", "%ls", c.text, std::size_t{4}) == 0 && c.Holds(u"abcd~", 5), "Wide string longer than the size");
+        WideField d;
+        Require(scan("abc", "%ls", d.text, std::size_t{3}) == 0 && d.Holds(u"abc~", 4), "Wide string of the size");
+        WideField e;
+        Require(scan("abcde", "%l[a-z]", e.text, std::size_t{4}) == 0 && e.Holds(u"abcd~", 5), "Wide scanset longer than the size");
+    }
+    {
+        WideField a;
+        int count = -1;
+        Require(scan("abc", "%3lc%n", a.text, std::size_t{2}, &count) == 1 && a.Holds(u"ab~", 3) && count == 3,
+            "Clamped wide character width consumes the whole width");
+        WideField b;
+        count = -1;
+        Require(scan("abc", "%4lc%n", b.text, std::size_t{2}, &count) == 1 && b.Holds(u"ab~", 3) && count == 3,
+            "Clamped wide character width stops at the end of input");
+        WideField c;
+        count = -1;
+        Require(scan("ab", "%4lc%n", c.text, std::size_t{8}, &count) == 1 && c.Holds(u"ab~", 3) && count == 2, "Short wide character field");
+    }
+}
+
 static void CheckFailures(Scan scan) {
     int first = -1;
     int second = -1;
@@ -228,6 +264,7 @@ int main() {
     CheckConstraints(ScanList, "vsscanf_s: bad argument");
     for (const auto scan : {sscanf_s_nid_postfix, ScanList}) {
         CheckCapacities(scan);
+        CheckWideFields(scan);
         CheckFailures(scan);
     }
     for (const int count : {0, 3, 127}) {
