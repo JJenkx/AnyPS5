@@ -43,14 +43,67 @@ static void CheckNormalization(Converter convert, std::int64_t timer) {
     Require(Equal(input, expected), "mktime did not normalize a valid timestamp");
 }
 
-static void CheckFailure(Converter convert) {
+static void CheckUnavailableDaylightHint(Converter convert, int year) {
+    for (const int month : {0, 6}) {
+        GuestTm canonical{};
+        canonical.tm_year = year;
+        canonical.tm_mon = month;
+        canonical.tm_mday = 15;
+        canonical.tm_hour = 12;
+        const auto expected = convert(&canonical);
+        Require(expected != -1, "standard calendar conversion failed");
+        for (const int hint : {1, 2, std::numeric_limits<int>::max()}) {
+            GuestTm input = canonical;
+            input.tm_isdst = hint;
+            *__error_nid_postfix() = 7;
+            Require(convert(&input) == expected, "unavailable daylight hint changed the timestamp");
+            Require(Equal(input, canonical), "unavailable daylight hint changed normalized fields");
+            Require(*__error_nid_postfix() == 7, "daylight lookup changed errno");
+        }
+    }
+}
+
+static void CheckAvailableDaylightHints() {
+    Require(setenv_nid_postfix("TZ", "EST5EDT", 1) == 0, "Could not set the time zone");
+    tzset_nid_postfix();
+    constexpr std::array<Converter, 2> converters{libc_mktime_nid_postfix, mktime_nid_postfix};
+    const struct { int month; int hint; std::int64_t expected; int hour; int daylight; } cases[]{
+        {0, 1, 1705334400, 11, 0},
+        {6, 0, 1721062800, 13, 1},
+        {6, 1, 1721059200, 12, 1}
+    };
+    for (auto convert : converters) {
+        for (const auto& item : cases) {
+            GuestTm input{};
+            input.tm_year = 124;
+            input.tm_mon = item.month;
+            input.tm_mday = 15;
+            input.tm_hour = 12;
+            input.tm_isdst = item.hint;
+            Require(convert(&input) == item.expected, "available daylight hint was ignored");
+            Require(input.tm_hour == item.hour && input.tm_isdst == item.daylight, "available daylight fields differ");
+        }
+    }
+}
+
+#ifndef _WIN32
+static void CheckHistoricalDaylightAbsence(const char* zone, int year) {
+    Require(setenv_nid_postfix("TZ", zone, 1) == 0, "Could not set the time zone");
+    tzset_nid_postfix();
+    CheckUnavailableDaylightHint(libc_mktime_nid_postfix, year);
+    CheckUnavailableDaylightHint(mktime_nid_postfix, year);
+}
+
+#endif
+
+static void CheckFailure(Converter convert, int hint = -1) {
     GuestTm input{};
     input.tm_year = std::numeric_limits<int>::max();
     input.tm_mon = std::numeric_limits<int>::max();
     input.tm_mday = 1;
     input.tm_wday = 4;
     input.tm_yday = 12;
-    input.tm_isdst = -1;
+    input.tm_isdst = hint;
     input.tm_gmtoff = 123;
     input.tm_zone = "unchanged";
     const GuestTm original = input;
@@ -69,10 +122,18 @@ static void CheckZone(const char* zone) {
             CheckNormalization(convert, timer);
         }
         CheckFailure(convert);
+        CheckFailure(convert, 1);
+        for (const int year : {40, 70, 124}) CheckUnavailableDaylightHint(convert, year);
     }
 }
 
 int main() {
+    CheckZone("IST-5:30");
+    CheckAvailableDaylightHints();
+#ifndef _WIN32
+    CheckHistoricalDaylightAbsence("Australia/Lord_Howe", 40);
+    CheckHistoricalDaylightAbsence("Europe/Moscow", 124);
+#endif
     CheckZone("UTC0");
     CheckZone("UTC-2");
     CheckZone("UTC5");
