@@ -151,10 +151,14 @@ bool ExpectQsortSConstraints() {
     void* previous = set_constraint_handler_s_nid_postfix(reinterpret_cast<void*>(CountConstraint));
     Element element{};
     constexpr std::size_t huge = (static_cast<std::size_t>(-1) >> 1) + 1;
-    bool correct = ExpectConstraint("qsort_s : n > RSIZE_MAX", &element, huge, sizeof(Element), true);
-    correct &= ExpectConstraint("qsort_s : es > RSIZE_MAX", &element, 1, huge, true);
-    correct &= ExpectConstraint("qsort_s : a == NULL", nullptr, 2, sizeof(Element), true);
-    correct &= ExpectConstraint("qsort_s : cmp == NULL", &element, 2, sizeof(Element), false);
+    constexpr std::size_t aboveLimit = std::size_t{1} << 61;
+    bool correct = ExpectConstraint("qsort_s: bad argument", &element, huge, sizeof(Element), true);
+    correct &= ExpectConstraint("qsort_s: bad argument", &element, 1, huge, true);
+    correct &= ExpectConstraint("qsort_s: bad argument", &element, aboveLimit, sizeof(Element), true);
+    correct &= ExpectConstraint("qsort_s: bad argument", &element, 1, aboveLimit, true);
+    correct &= ExpectConstraint("qsort_s: bad argument", &element, 0, aboveLimit, true);
+    correct &= ExpectConstraint("qsort_s: bad argument", nullptr, 2, sizeof(Element), true);
+    correct &= ExpectConstraint("qsort_s: bad argument", &element, 2, sizeof(Element), false);
     if (set_constraint_handler_s_nid_postfix(previous) != reinterpret_cast<void*>(CountConstraint)) {
         std::fprintf(stderr, "set_constraint_handler_s did not return the installed handler\n");
         correct = false;
