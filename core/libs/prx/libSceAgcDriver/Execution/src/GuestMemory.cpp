@@ -442,19 +442,26 @@ struct PageSpan {
         auto index = (address - base) / PageBytes;
         const auto stop = std::min<std::uintptr_t>((std::min(limit, base + size) - base + PageBytes - 1) / PageBytes, size / PageBytes);
         const std::uint64_t wide = 0x0101010101010101ull * value;
+        const auto byteAt = [](const std::uint8_t* at) { return std::atomic_ref<std::uint8_t>(*const_cast<std::uint8_t*>(at)).load(std::memory_order_relaxed); };
+        const auto wordAt = [](const std::uint8_t* at) { return std::atomic_ref<std::uint64_t>(*reinterpret_cast<std::uint64_t*>(const_cast<std::uint8_t*>(at))).load(std::memory_order_relaxed); };
         while (index < stop) {
-            auto* at = entry(index, false);
+            const auto* at = entry(index, false);
+            const auto spanStop = chunks == nullptr ? stop : std::min(stop, (index / ChunkEntries + 1) * ChunkEntries);
             if (at == nullptr) {
                 if (value != 0) break;
-                index = std::min(stop, (index / ChunkEntries + 1) * ChunkEntries);
+                index = spanStop;
                 continue;
             }
-            if (index % 8 == 0 && index + 8 <= stop && std::atomic_ref<std::uint64_t>(*reinterpret_cast<std::uint64_t*>(at)).load(std::memory_order_relaxed) == wide) {
-                index += 8;
-                continue;
+            const auto* cursor = at;
+            const auto* const end = at + (spanStop - index);
+            while (cursor < end && (index + static_cast<std::size_t>(cursor - at)) % 8 != 0 && byteAt(cursor) == value) ++cursor;
+            if (cursor < end && (index + static_cast<std::size_t>(cursor - at)) % 8 == 0) {
+                while (end - cursor >= 32 && wordAt(cursor) == wide && wordAt(cursor + 8) == wide && wordAt(cursor + 16) == wide && wordAt(cursor + 24) == wide) cursor += 32;
+                while (end - cursor >= 8 && wordAt(cursor) == wide) cursor += 8;
+                while (cursor < end && byteAt(cursor) == value) ++cursor;
             }
-            if (std::atomic_ref<std::uint8_t>(*at).load(std::memory_order_relaxed) != value) break;
-            ++index;
+            index += static_cast<std::size_t>(cursor - at);
+            if (cursor < end) break;
         }
         return std::min(limit, base + index * PageBytes);
     }
