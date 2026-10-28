@@ -115,7 +115,7 @@ std::u16string FormatWide(const char16_t* format, VaList* source, bool secure = 
     const char16_t* const start = format;
     std::string ascii;
     for (const char16_t* unit = format; *unit != 0; ++unit) ascii.push_back(*unit < 0x80 ? static_cast<char>(*unit) : '?');
-    args.Number(LibcDetail::NumberedArgumentClasses(ascii.c_str()));
+    args.Number(LibcDetail::NumberedArgumentClasses(ascii.c_str(), true));
     const auto position = [&] {
         const char* cursor = ascii.c_str() + (format - start);
         const std::size_t found = LibcDetail::ArgumentPosition(cursor);

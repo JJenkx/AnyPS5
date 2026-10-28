@@ -521,7 +521,7 @@ inline size_t ArgumentPosition(const char*& format) {
     return position;
 }
 
-inline std::vector<ArgumentClass> NumberedArgumentClasses(const char* format) {
+inline std::vector<ArgumentClass> NumberedArgumentClasses(const char* format, bool wide = false) {
     if (!std::strchr(format, '$')) return {};
     std::vector<ArgumentClass> classes;
     bool numbered = false;
@@ -552,7 +552,7 @@ inline std::vector<ArgumentClass> NumberedArgumentClasses(const char* format) {
         if (!conversion) break;
         ++format;
         if (std::strchr("aAeEfFgG", conversion)) take(next++, longDouble ? ArgumentClass::LongDouble : ArgumentClass::Double);
-        else if (std::strchr("diouxXcsSpn", conversion)) take(next++, ArgumentClass::Integer);
+        else if (std::strchr(wide ? "diouxXcspn" : "diouxXcsSpn", conversion)) take(next++, ArgumentClass::Integer);
     }
     if (!numbered) classes.clear();
     return classes;
