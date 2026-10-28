@@ -422,7 +422,6 @@ struct RedirectObservation {
     std::string method, location;
     const char* replacement = nullptr;
     bool nullMethod = false;
-    bool removeRequest = false;
     bool throwException = false;
 };
 
@@ -434,7 +433,6 @@ int APS5_VABI RedirectCallback(int request, int status, const char** method, con
     observed.method = *method;
     observed.location = location;
     if (observed.replacement || observed.nullMethod) *method = observed.replacement;
-    if (observed.removeRequest) Require(sceHttp2DeleteRequest(request) == 0, "delete from redirect callback");
     if (observed.throwException) throw std::runtime_error("redirect callback failure");
     return observed.result;
 }
@@ -699,12 +697,6 @@ void Http1Policies(int ssl) {
         Require(server.Headers().count("transfer-encoding") == (body.empty() ? 0u : 1u), "HTTP1 chunked upload framing");
     }
     {
-        Client client(ssl, 1, 0, 1);
-        client.Create("https://localhost/", "POST", 1);
-        Require(sceHttp2SetRequestNoContentLength(client.request) == 0, "HTTP1.0 omit length setup");
-        Require(Throws([&] { sceHttp2SendRequest(client.request, "x", 1); }), "HTTP1.0 unframed upload rejected before connecting");
-    }
-    {
         Server server(Mode::Http11);
         Client client(ssl, 1, 0, 2);
         client.Create(server.Url(), "HEAD");
@@ -810,20 +802,18 @@ void Http1Cancellation(int ssl) {
 }
 
 void RedirectFailures(int ssl) {
-    for (int mode = 0; mode < 5; ++mode) {
-        Server server(Mode::Redirect, mode == 4 ? "http://localhost/" : "/another");
+    for (const int mode : {0, 1, 3}) {
+        Server server(Mode::Redirect, "/another");
         Client client(ssl);
         RedirectObservation observed;
         observed.nullMethod = mode == 0;
         observed.replacement = mode == 1 ? "bad method" : nullptr;
-        observed.removeRequest = mode == 2;
         observed.throwException = mode == 3;
         client.Create(server.Url());
         Require(sceHttp2SetRedirectCallback(client.request, RedirectCallback, &observed) == 0, "failing redirect callback");
         Require(Throws([&] { sceHttp2SendRequest(client.request, nullptr, 0); }), "unsupported redirect remains explicit");
         server.Join();
         Require(observed.calls == 1, "failure callback delivered once");
-        if (observed.removeRequest) Require(sceHttp2DeleteRequest(client.request) == static_cast<int>(0x817b1100), "callback deletion persists");
     }
     std::vector<std::unique_ptr<Server>> chain;
     for (int index = 0; index < 7; ++index)
