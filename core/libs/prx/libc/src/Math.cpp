@@ -1656,8 +1656,9 @@ double APS5_VABI pow_nid_postfix(double x, double y) {
         t2 = v - (t1 - u);
     } else {
         n = 0;
+        volatile double scaled = ax * two53;
         if (ix < 0x00100000) {
-            ax *= two53;
+            ax = scaled;
             n -= 53;
             ix = static_cast<std::int32_t>(std::bit_cast<std::uint64_t>(ax) >> 32);
         }

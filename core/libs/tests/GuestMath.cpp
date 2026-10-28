@@ -775,6 +775,14 @@ static void CheckPowConsoleBits() {
         Require(std::bit_cast<std::uint64_t>(pow_nid_postfix(std::bit_cast<double>(item.x), std::bit_cast<double>(item.y))) == item.expected);
         Require(errno == (item.error != 0 ? item.error : 1234));
     }
+    for (const double y : {-0.25, 0.75, -1.5}) {
+        std::feclearexcept(FE_ALL_EXCEPT);
+        const double huge = pow_nid_postfix(1e300, y);
+        Require(std::fetestexcept(FE_OVERFLOW) != 0 && std::isfinite(huge));
+        std::feclearexcept(FE_ALL_EXCEPT);
+        const double below = pow_nid_postfix(std::ldexp(1.0, 970), y);
+        Require(std::fetestexcept(FE_OVERFLOW) == 0 && std::isfinite(below));
+    }
 }
 
 static void CheckExpm1ConsoleBits() {
