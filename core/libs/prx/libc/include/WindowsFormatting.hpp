@@ -552,7 +552,7 @@ inline std::vector<ArgumentClass> NumberedArgumentClasses(const char* format) {
         if (!conversion) break;
         ++format;
         if (std::strchr("aAeEfFgG", conversion)) take(next++, longDouble ? ArgumentClass::LongDouble : ArgumentClass::Double);
-        else if (std::strchr("diouxXcCsSpn", conversion)) take(next++, ArgumentClass::Integer);
+        else if (std::strchr("diouxXcsSpn", conversion)) take(next++, ArgumentClass::Integer);
     }
     if (!numbered) classes.clear();
     return classes;

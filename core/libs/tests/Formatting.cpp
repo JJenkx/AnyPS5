@@ -76,6 +76,21 @@ static int APS5_VABI PrintList(const char* format, ...) {
     return result;
 }
 
+static void CheckPositionalUnknownConversion() {
+    char output[32];
+    for (const std::uint32_t gpOffset : {0u, 48u}) {
+        VaList args = {gpOffset, 176u, nullptr, nullptr};
+        const VaList original = args;
+        for (const char* format : {"%1$C", "%2$C", "%1$hC"}) {
+            Require(vsnprintf_nid_postfix(output, sizeof(output), format, &args) == 2 && std::strcmp(output, "%C") == 0);
+            Require(std::memcmp(&args, &original, sizeof(args)) == 0);
+        }
+        Require(vsnprintf_nid_postfix(output, sizeof(output), "[%1$5C]", &args) == 7 && std::strcmp(output, "[   %C]") == 0);
+        Require(std::memcmp(&args, &original, sizeof(args)) == 0);
+    }
+    Require(FormatList(output, sizeof(output), "%1$C%d", 7) == 3 && std::strcmp(output, "%C7") == 0);
+}
+
 static void CheckIgnoredLengths() {
     char output[96];
     Require(snprintf_nid_postfix(output, sizeof(output), "%Ld|%Lx|%Lu|%Lo", -1985229329, 0x89abcdefu, 0x89abcdefu, 0x89abcdefu) == 43 &&
@@ -573,4 +588,4 @@ static void CheckLongDoubleHexFloat() {
     }
 }
 
-int main() { CheckSizeLimits(); CheckIgnoredLengths(); RunChecks(); CheckHexFloat(); CheckDecimalFloat(); CheckLongDoubleHexFloat(); CheckAllocatingFormat(); return CheckWidePrecision() ? 0 : 1; }
+int main() { CheckPositionalUnknownConversion(); CheckSizeLimits(); CheckIgnoredLengths(); RunChecks(); CheckHexFloat(); CheckDecimalFloat(); CheckLongDoubleHexFloat(); CheckAllocatingFormat(); return CheckWidePrecision() ? 0 : 1; }
