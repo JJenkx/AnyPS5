@@ -431,7 +431,7 @@ float APS5_VABI fmodf_nid_postfix(float x, float y) {
     const std::uint32_t ix = std::bit_cast<std::uint32_t>(x) & 0x7fffffffu;
     const std::uint32_t iy = std::bit_cast<std::uint32_t>(y) & 0x7fffffffu;
     if (iy == 0 || ix >= 0x7f800000u || iy > 0x7f800000u) {
-        errno = EDOM;
+        _Feraise_nid_postfix(0x01);
         if (iy > 0x7f800000u) {
             return y + y;
         }
@@ -1801,7 +1801,7 @@ double APS5_VABI fmod_nid_postfix(double x, double y) {
     const std::uint64_t ix = std::bit_cast<std::uint64_t>(x) & 0x7fffffffffffffffull;
     const std::uint64_t iy = std::bit_cast<std::uint64_t>(y) & 0x7fffffffffffffffull;
     if (iy == 0 || ix >= 0x7ff0000000000000ull || iy > 0x7ff0000000000000ull) {
-        errno = EDOM;
+        _Feraise_nid_postfix(0x01);
         if (iy > 0x7ff0000000000000ull) {
             return y + y;
         }
