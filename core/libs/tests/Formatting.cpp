@@ -333,11 +333,13 @@ __attribute__((noinline)) static void APS5_VABI RunChecks() {
     Require(ScanList(" -0B11", "%i", &binary) == 1 && binary == 0);
     Require(ScanListS("0b1", "%i", &binary) == 1 && binary == 0);
     Require(sscanf_nid_postfix("0x1f", "%i", &binary) == 1 && binary == 31);
-    for (const char* format : {"%hls", "%lhs", "%llls", "%jls", "%lLs"}) {
-        char bytes[8];
-        std::fill(bytes, bytes + sizeof(bytes), '!');
-        Require(ScanListS("ab", format, bytes, 8u) == 0);
-        Require(std::all_of(bytes, bytes + sizeof(bytes), [](char value) { return value == '!'; }));
+    for (const char* format : {"%hls", "%lhs", "%llls", "%jls", "%lLs", "%5y", "%k"}) {
+        for (const char* input : {"ab", ""}) {
+            char bytes[8];
+            std::fill(bytes, bytes + sizeof(bytes), '!');
+            Require(ScanListS(input, format, bytes, 8u) == 0);
+            Require(std::all_of(bytes, bytes + sizeof(bytes), [](char value) { return value == '!'; }));
+        }
     }
 #ifdef _WIN32
     int scanned = -1;
