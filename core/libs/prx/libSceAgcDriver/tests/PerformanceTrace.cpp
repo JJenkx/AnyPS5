@@ -100,7 +100,8 @@ void WindowTrigger() {
     reject([&] { TraceWindow::Parse("0:1", nullptr, dirText.c_str())->Present(0, milliseconds(0)); });
     const auto badPath = trigger + "/child";
     std::error_code error;
-    std::filesystem::status(std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(badPath.c_str()))), error);
+    const auto status = std::filesystem::status(std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(badPath.c_str()))), error);
+    Check(!std::filesystem::exists(status), "a path beneath a regular file unexpectedly exists");
     Check(error == std::errc::not_a_directory || error == std::errc::no_such_file_or_directory, "unexpected error for a trigger beneath a regular file");
     if (error == std::errc::not_a_directory)
         reject([&] { TraceWindow::Parse("0:1", nullptr, badPath.c_str())->Present(0, milliseconds(0)); });
