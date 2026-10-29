@@ -213,7 +213,10 @@ int ScanSource(TSource source, const char* format, bool secure, NextPointer next
         unsigned long width = 0;
         while (std::isdigit(static_cast<unsigned char>(*cursor))) width = width * 10 + static_cast<unsigned long>(*cursor++ - '0');
         const char* lengthStart = cursor;
-        while (std::strchr("hljztL", *cursor) != nullptr && *cursor != '\0') ++cursor;
+        if (*cursor != '\0' && std::strchr("hljztL", *cursor)) {
+            const char first = *cursor++;
+            if ((first == 'h' || first == 'l') && *cursor == first) ++cursor;
+        }
         const std::string length(lengthStart, cursor);
         const char conversion = *cursor;
         if (conversion == '\0') return finish(assigned);
