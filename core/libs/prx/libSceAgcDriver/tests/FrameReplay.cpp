@@ -726,6 +726,51 @@ void testGpuStoreBehindRewind(const std::filesystem::path& tool) {
     check(replayed(tool, capture, layout.secondTarget, DataBytes) == read, "the replay released the compute queue before the copy ahead of the label it waits on");
 }
 
+void checkUnwatchedTitleStores(const std::filesystem::path& tool, bool initiallyUnwatched) {
+    constexpr std::uint32_t Stored = 0x77u;
+    const auto bulk = allocate();
+    check(GuestMemory::Watched(at(bulk.base), 4096), "the fixture needs initially watched memory");
+    auto* const word = reinterpret_cast<std::uint32_t*>(bulk.base);
+    auto output = std::make_shared<Output>();
+    AgcDriverRegisterVideoOutput_nid_postfix(Handle, output);
+    std::atomic_ref<std::uint32_t>(*word).store(0, std::memory_order_release);
+    if (initiallyUnwatched) GuestMemory::Unwatch(at(bulk.base), 4096);
+    flip();
+    if (!initiallyUnwatched) GuestMemory::Unwatch(at(bulk.base), 4096);
+    check(!GuestMemory::Watched(at(bulk.base), 4096), "the test buffer did not lose write-watch coverage");
+    std::atomic_ref<std::uint32_t>(*word).store(Stored, std::memory_order_release);
+    flip();
+    std::atomic_ref<std::uint32_t>(*word).store(0, std::memory_order_release);
+    flip();
+    AgcDriverWaitIdle_nid_postfix();
+    const auto capture = checkCapture(0);
+    const FrameCaptureReader reader(capture);
+    std::uint64_t storedGroup = 0;
+    std::uint64_t restoredGroup = 0;
+    for (const auto& chunk : reader.Chunks()) {
+        if (chunk.kind != FrameMemoryKind::Delta || chunk.address > at(word) || at(word) + 4 > chunk.address + chunk.bytes) continue;
+        const auto bytes = reader.Read(chunk);
+        std::uint32_t value = 0;
+        std::memcpy(&value, bytes.data() + (at(word) - chunk.address), sizeof(value));
+        if (value == Stored && storedGroup == 0) storedGroup = chunk.group;
+        if (value == 0 && storedGroup != 0 && chunk.group > storedGroup) restoredGroup = chunk.group;
+    }
+    check(storedGroup != 0, "the capture lost the intermediate CPU store into unwatched memory");
+    check(restoredGroup > storedGroup, "the capture lost the CPU restore to its initial value in unwatched memory");
+    const auto dumped = replayed(tool, capture, word, 4);
+    std::uint32_t value = 0;
+    std::memcpy(&value, dumped.data(), sizeof(value));
+    check(value == 0, "the replay did not restore the unwatched word's initial value");
+}
+
+void testInitiallyUnwatchedTitleStores(const std::filesystem::path& tool) {
+    checkUnwatchedTitleStores(tool, true);
+}
+
+void testLaterUnwatchedTitleStores(const std::filesystem::path& tool) {
+    checkUnwatchedTitleStores(tool, false);
+}
+
 void testFillRewrittenByTitle(const std::filesystem::path& tool) {
     constexpr std::uint32_t Filled = 0x5a5a5a5au;
     constexpr std::uint32_t Stored = 0x77u;
@@ -855,9 +900,9 @@ void testFillClearedBeforeRange(const std::filesystem::path& tool) {
 int main(int argc, char** argv) {
     const std::string mode = argc == 3 ? argv[2] : "";
     const std::map<std::string, void (*)(const std::filesystem::path&)> rewound{
-        {"rewind_store", testStoreAfterGatedCopy}, {"rewind_copy", testCopyInFlightAtDelta}, {"rewind_compute", testComputeWaitBehindRewind}, {"rewind_release", testReleaseDuringDelta}, {"rewind_fill", testFilledRewindTail}, {"rewind_split", testRewindFilledAcrossChunks}, {"wait_label", testLabelFromLaterSubmission}, {"gpu_store", testGpuStoreBehindRewind}, {"gpu_fill", testFillRewrittenByTitle}, {"gpu_cleared", testFillClearedBeforeRange}, {"fence_reuse", testFenceReused}, {"busy_queue", testQueueBusyPastPacing}};
+        {"rewind_store", testStoreAfterGatedCopy}, {"rewind_copy", testCopyInFlightAtDelta}, {"rewind_compute", testComputeWaitBehindRewind}, {"rewind_release", testReleaseDuringDelta}, {"rewind_fill", testFilledRewindTail}, {"rewind_split", testRewindFilledAcrossChunks}, {"wait_label", testLabelFromLaterSubmission}, {"gpu_store", testGpuStoreBehindRewind}, {"gpu_fill", testFillRewrittenByTitle}, {"unwatched_start", testInitiallyUnwatchedTitleStores}, {"unwatched_late", testLaterUnwatchedTitleStores}, {"gpu_cleared", testFillClearedBeforeRange}, {"fence_reuse", testFenceReused}, {"busy_queue", testQueueBusyPastPacing}};
     if (argc != 2 && !(argc == 3 && (mode == "concurrent" || mode == "pipelines" || mode == "reservation_error" || mode == "rewind" || rewound.contains(mode)))) {
-        std::fprintf(stderr, "usage: agc_driver_frame_replay_tests <agc_frame_replay> [concurrent|pipelines|reservation_error|rewind|rewind_store|rewind_copy|rewind_compute|rewind_release|rewind_fill|rewind_split|wait_label|gpu_store|gpu_fill|gpu_cleared|fence_reuse|busy_queue]\n");
+        std::fprintf(stderr, "usage: agc_driver_frame_replay_tests <agc_frame_replay> [concurrent|pipelines|reservation_error|rewind|rewind_store|rewind_copy|rewind_compute|rewind_release|rewind_fill|rewind_split|wait_label|gpu_store|gpu_fill|unwatched_start|unwatched_late|gpu_cleared|fence_reuse|busy_queue]\n");
         return 2;
     }
     int status = 0;
