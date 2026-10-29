@@ -489,7 +489,7 @@ int APS5_VABI sceKernelUnlink(const char* path) {
     constexpr int GuestEperm = 1;
     std::error_code error;
 #ifdef _WIN32
-    if (native.has_filename()) {
+    if (native.has_filename() && native.filename().native().find_first_of(L"*?<>\"") == std::wstring::npos) {
         WIN32_FIND_DATAW found{};
         if (const HANDLE find = FindFirstFileW(native.c_str(), &found); find != INVALID_HANDLE_VALUE) {
             FindClose(find);
