@@ -729,15 +729,15 @@ void testGpuStoreBehindRewind(const std::filesystem::path& tool) {
 void checkUnwatchedTitleStores(const std::filesystem::path& tool, bool initiallyUnwatched) {
     constexpr std::uint32_t Stored = 0x77u;
     const auto bulk = allocate();
-    check(GuestMemory::Watched(at(bulk.base), 4096), "the fixture needs initially watched memory");
+    check(AgcDriver::GuestMemory::Watched(at(bulk.base), 4096), "the fixture needs initially watched memory");
     auto* const word = reinterpret_cast<std::uint32_t*>(bulk.base);
     auto output = std::make_shared<Output>();
     AgcDriverRegisterVideoOutput_nid_postfix(Handle, output);
     std::atomic_ref<std::uint32_t>(*word).store(0, std::memory_order_release);
-    if (initiallyUnwatched) GuestMemory::Unwatch(at(bulk.base), 4096);
+    if (initiallyUnwatched) AgcDriver::GuestMemory::Unwatch(at(bulk.base), 4096);
     flip();
-    if (!initiallyUnwatched) GuestMemory::Unwatch(at(bulk.base), 4096);
-    check(!GuestMemory::Watched(at(bulk.base), 4096), "the test buffer did not lose write-watch coverage");
+    if (!initiallyUnwatched) AgcDriver::GuestMemory::Unwatch(at(bulk.base), 4096);
+    check(!AgcDriver::GuestMemory::Watched(at(bulk.base), 4096), "the test buffer did not lose write-watch coverage");
     std::atomic_ref<std::uint32_t>(*word).store(Stored, std::memory_order_release);
     flip();
     std::atomic_ref<std::uint32_t>(*word).store(0, std::memory_order_release);
