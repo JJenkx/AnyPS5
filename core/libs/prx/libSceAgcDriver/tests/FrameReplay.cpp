@@ -802,7 +802,8 @@ void testSharedTitleStores(const std::filesystem::path& tool) {
         GuestArena::GuestArenaMapDirect_nid_postfix(base + Bytes, Bytes, backing.section, 0, PAGE_READWRITE);
     });
 #else
-    std::unique_ptr<std::FILE, decltype(&std::fclose)> backing(std::tmpfile(), &std::fclose);
+    const auto closeFile = [](std::FILE* file) { std::fclose(file); };
+    std::unique_ptr<std::FILE, decltype(closeFile)> backing(std::tmpfile(), closeFile);
     check(backing != nullptr && ftruncate(fileno(backing.get()), Bytes) == 0, "cannot create the capture fixture's shared backing");
     checkUnwatchedTitleStores(tool, true, [&](std::byte* base) {
         AgcDriver::GuestMemory::Unwatch(at(base), 2 * Bytes);
