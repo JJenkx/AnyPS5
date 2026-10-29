@@ -44,6 +44,29 @@ public:
     using Clock = std::chrono::steady_clock;
     enum class Edge { None, Open, Close };
 
+    static bool TriggerConfigured() {
+#ifdef _WIN32
+        return _wgetenv(L"APS5_TRACE_TRIGGER_FILE") != nullptr;
+#else
+        return std::getenv("APS5_TRACE_TRIGGER_FILE") != nullptr;
+#endif
+    }
+
+    static std::optional<TraceWindow> FromEnvironment() {
+        auto window = Parse(std::getenv("APS5_TRACE_FRAMES"), std::getenv("APS5_TRACE_SECONDS"));
+#ifdef _WIN32
+        const auto* trigger = _wgetenv(L"APS5_TRACE_TRIGGER_FILE");
+#else
+        const auto* trigger = std::getenv("APS5_TRACE_TRIGGER_FILE");
+#endif
+        if (trigger != nullptr) {
+            if (trigger[0] == 0 || !window)
+                throw std::invalid_argument("APS5_TRACE_TRIGGER_FILE requires a nonempty path and APS5_TRACE_FRAMES or APS5_TRACE_SECONDS");
+            window->trigger = std::filesystem::path(trigger);
+        }
+        return window;
+    }
+
     static std::optional<TraceWindow> Parse(const char* frames, const char* seconds, const char* trigger = nullptr) {
         if (trigger != nullptr && (trigger[0] == '\0' || (frames == nullptr && seconds == nullptr)))
             throw std::invalid_argument("APS5_TRACE_TRIGGER_FILE requires a nonempty path and APS5_TRACE_FRAMES or APS5_TRACE_SECONDS");
@@ -798,7 +821,7 @@ public:
     static constexpr const char* RenderPassScope = "Graphics.RenderPass";
 
     static bool Configured() {
-        static const bool configured = std::getenv("APS5_TRACE_FRAMES") != nullptr || std::getenv("APS5_TRACE_SECONDS") != nullptr || std::getenv("APS5_TRACE_TRIGGER_FILE") != nullptr || std::getenv("APS5_TRACE_SUMMARY_EVERY") != nullptr || std::getenv("APS5_TRACE_BENCH") != nullptr;
+        static const bool configured = std::getenv("APS5_TRACE_FRAMES") != nullptr || std::getenv("APS5_TRACE_SECONDS") != nullptr || TraceWindow::TriggerConfigured() || std::getenv("APS5_TRACE_SUMMARY_EVERY") != nullptr || std::getenv("APS5_TRACE_BENCH") != nullptr;
         return configured;
     }
 
