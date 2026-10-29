@@ -3,8 +3,8 @@
 #undef main
 #include "prx/libSceAgcDriver/Execution/include/FrameRecorder.hpp"
 #include "prx/libc/include/GuestWriteWatch.hpp"
-#include <barrier>
 #include <string_view>
+#include <barrier>
 
 namespace {
 
@@ -233,8 +233,7 @@ void testBlockingSubmission(const std::filesystem::path& directory) {
     AgcDriverUnregisterVideoOutput_nid_postfix(7, output);
 }
 
-void testShaderCode(const std::filesystem::path& directory, std::string_view mode) {
-    const bool host = mode != "shader";
+void testShaderCode(const std::filesystem::path& directory, bool host, std::string_view mode = {}) {
     const bool prologue = mode.starts_with("shader_prologue_");
     const bool readOnly = mode.ends_with("readonly");
     const bool hostHeader = readOnly || mode.ends_with("header");
@@ -312,15 +311,15 @@ void testShaderCode(const std::filesystem::path& directory, std::string_view mod
             if (chunk.kind == FrameMemoryKind::Delta && chunk.group == call.values.at(0)) apply(chunk);
         }
     }
-    check(registered && captured == expected, "the complete separate shader code was not captured before registration");
-    if (hostHeader) check(capturedHeader == expectedHeader, "the host shader header was not captured before registration");
-    if (readOnly) {
+    if (hostHeader && captured == expected) check(capturedHeader == expectedHeader, "the host shader header was not captured before registration");
+    if (readOnly && captured == expected) {
         const bool protectedHeader = std::ranges::any_of(reader.Chunks(), [&](const auto& chunk) {
             return chunk.kind == FrameMemoryKind::Range && chunk.address <= address(shader) &&
                 address(shader) - chunk.address < chunk.bytes && (chunk.access & AgcDriver::FrameRangeAccess::Writable) == 0;
         });
         check(protectedHeader, "the read-only host shader was recorded with write access");
     }
+    check(registered && captured == expected, "the complete separate shader code was not captured before registration");
 }
 
 }
@@ -332,12 +331,13 @@ int main(int argc, char** argv) {
         const std::filesystem::path directory = argv[2];
         if (mode == "order") testMemoryOrder(directory);
         else if (mode == "zero") testReusedMemory(directory);
+        else if (mode.starts_with("shader_prologue_")) testShaderCode(directory, true, mode);
         else if (mode == "shared_page") testSharedPage(directory);
         else if (mode == "host_neighbors") testHostNeighbors(directory);
         else if (mode == "unwatched") testUnwatched();
         else if (mode == "tokens") testEopTokens();
         else if (mode == "blocking") testBlockingSubmission(directory);
-        else if (mode == "shader" || mode == "shader_host" || mode.starts_with("shader_prologue_")) testShaderCode(directory, mode);
+        else if (mode == "shader" || mode == "shader_host") testShaderCode(directory, mode == "shader_host");
         else throw std::runtime_error("unknown test");
         AgcDriverShutdown_nid_postfix();
         std::puts("frame replay state test passed");
