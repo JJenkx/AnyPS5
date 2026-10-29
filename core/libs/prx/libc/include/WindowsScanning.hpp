@@ -76,8 +76,7 @@ inline int ScanWindowsArguments_nid_no_patch(const char* format, const void* sou
             if ((length == "h" && *format == 'h') || (length == "l" && *format == 'l')) length += *format++;
         }
         const char conversion = *format;
-        if (!conversion) { errno = 22; return EOF; }
-        if (!std::strchr("diouxXaAeEfFgGcspn[SC", conversion)) {
+        if (!conversion || !std::strchr("diouxXaAeEfFgGcspn[SC", conversion)) {
             translated.resize(directive);
             break;
         }
