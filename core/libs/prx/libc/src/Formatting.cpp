@@ -43,8 +43,11 @@ bool RequiresGuestFormatting(const char* format) {
         while (*format && std::strchr("-+ #0'0123456789.*$", *format)) ++format;
         if (*format == 'S' || *format == 'C' || *format == 'p' ||
             (*format == 'l' && (format[1] == 's' || format[1] == 'c' || format[1] == 'p'))) return true;
+        const char* lengthStart = format;
         while (*format && std::strchr("hljztL", *format)) ++format;
         if (*format && !std::strchr(LibcDetail::KnownConversions, *format)) return true;
+        const std::string length(lengthStart, format);
+        if (*format && LibcDetail::ApplicableLength(length, *format) != length) return true;
         if (*format && std::strchr("aAeEfFgG", *format)) return true;
         if (*format) ++format;
     }
