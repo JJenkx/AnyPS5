@@ -99,7 +99,13 @@ void WindowTrigger() {
     const auto dirText = directory.string();
     reject([&] { TraceWindow::Parse("0:1", nullptr, dirText.c_str())->Present(0, milliseconds(0)); });
     const auto badPath = trigger + "/child";
-    reject([&] { TraceWindow::Parse("0:1", nullptr, badPath.c_str())->Present(0, milliseconds(0)); });
+    std::error_code error;
+    std::filesystem::status(std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(badPath.c_str()))), error);
+    Check(error == std::errc::not_a_directory || error == std::errc::no_such_file_or_directory, "unexpected error for a trigger beneath a regular file");
+    if (error == std::errc::not_a_directory)
+        reject([&] { TraceWindow::Parse("0:1", nullptr, badPath.c_str())->Present(0, milliseconds(0)); });
+    else
+        Check(TraceWindow::Parse("0:1", nullptr, badPath.c_str())->Present(0, milliseconds(0)) == Edge::None, "a missing trigger beneath a regular file opened the window");
 }
 
 void BufferCap() {
