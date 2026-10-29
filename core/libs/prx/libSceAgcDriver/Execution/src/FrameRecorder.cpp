@@ -324,7 +324,7 @@ bool FrameRecorder::triggered() {
 void FrameRecorder::emitDelta() {
     std::vector<Span> spans;
     for (const auto& range : ranges) {
-        if (range.kind == FrameRangeKind::Watched || range.kind == FrameRangeKind::Unwatched) spans.push_back({range.address, range.bytes, generation});
+        if (range.readable && ((range.access & FrameRangeAccess::Writable) != 0 || range.kind == FrameRangeKind::Watched || range.kind == FrameRangeKind::Unwatched)) spans.push_back({range.address, range.bytes, generation});
     }
     const auto mark = GuestMemory::WriteGeneration();
     const auto added = newRanges();
@@ -408,8 +408,17 @@ void FrameRecorder::writeDelta(std::span<const Span> spans, std::span<const std:
     std::vector<std::pair<std::uint64_t, std::uint64_t>> blocks;
     std::vector<std::pair<std::uint64_t, std::uint64_t>> written;
     for (const auto& span : spans) {
-        GuestMemory::CollectWrittenBlocks(span.address, static_cast<std::size_t>(span.bytes), span.since, written);
-        blocks.insert(blocks.end(), written.begin(), written.end());
+        for (std::uint64_t offset = 0; offset < span.bytes;) {
+            const auto at = span.address + offset;
+            const auto bytes = static_cast<std::size_t>(std::min<std::uint64_t>(FrameCaptureWriter::BlockBytes, span.bytes - offset));
+            if (GuestMemory::Watched(at, bytes)) {
+                GuestMemory::CollectWrittenBlocks(at, bytes, span.since, written);
+                blocks.insert(blocks.end(), written.begin(), written.end());
+            } else {
+                blocks.emplace_back(at, at + bytes);
+            }
+            offset += bytes;
+        }
     }
     auto& driver = DriverDetail::Driver::Get();
     const struct Hold {
@@ -466,6 +475,13 @@ void FrameRecorder::writeDelta(std::span<const Span> spans, std::span<const std:
     for (const auto& [begin, end] : blocks) {
         bytes.resize(static_cast<std::size_t>(end - begin));
         readGuest(begin, bytes);
+        if (!GuestMemory::Watched(begin, bytes.size())) {
+            const auto hash = contentHash(bytes);
+            const auto key = std::pair{begin, static_cast<std::uint64_t>(bytes.size())};
+            const auto found = unwatchedHashes.find(key);
+            if (found != unwatchedHashes.end() && found->second == hash) continue;
+            unwatchedHashes[key] = hash;
+        }
         writeTitleWords(begin);
     }
     if (!any) return;
