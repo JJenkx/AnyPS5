@@ -621,7 +621,7 @@ long double APS5_VABI frexpl_nid_postfix(long double x, int* exponent) {
  * Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and distribute this
- * software is freely granted, provided that this notice 
+ * software is freely granted, provided that this notice
  * is preserved.
  * ====================================================
  */
