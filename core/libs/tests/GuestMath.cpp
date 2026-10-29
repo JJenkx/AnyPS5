@@ -825,6 +825,35 @@ static void CheckLog1pConsoleBits() {
     }
 }
 
+static void CheckLogConsoleBits() {
+    constexpr struct {
+        std::uint64_t input;
+        std::uint64_t expected;
+        int error;
+    } cases[] = {
+        {0x40c68a8ce7542c21ull, 0x4022b514397e01b8ull, 0}, {0x4016af316e5913ccull, 0x3ffbc41eab3162d2ull, 0},
+        {0x3fdbedfbe338bb80ull, 0xbfea88c43e705208ull, 0}, {0x3ff9ca4dfdef7101ull, 0x3fde8dd9d34afc04ull, 0},
+        {0x3fd52f7a63ad71eaull, 0xbff1b067fe764fecull, 0}, {0x4014d785b3208e2aull, 0x3ffa6925348d8b36ull, 0},
+        {0x41b6a91eeedf9b94ull, 0x4033c193c9b13d8cull, 0}, {0x407aa89f2eb4be6bull, 0x4018390a557c3180ull, 0},
+        {0x0000000000000000ull, 0xfff0000000000000ull, ERANGE}, {0x8000000000000000ull, 0xfff0000000000000ull, ERANGE},
+        {0x3ff0000000000000ull, 0x0000000000000000ull, 0}, {0x4000000000000000ull, 0x3fe62e42fefa39efull, 0},
+        {0x0000000000000001ull, 0xc0874385446d71c3ull, 0}, {0x0010000000000000ull, 0xc086232bdd7abcd2ull, 0},
+        {0x7fefffffffffffffull, 0x40862e42fefa39efull, 0}, {0x7ff0000000000000ull, 0x7ff0000000000000ull, 0},
+        {0xbff0000000000000ull, 0xfff8000000000000ull, EDOM}, {0xfff0000000000000ull, 0xfff8000000000000ull, EDOM},
+        {0x8000000000000001ull, 0xfff8000000000000ull, EDOM}, {0x7ff8000000001234ull, 0x7ff8000000001234ull, 0},
+        {0xfff8000000001234ull, 0xfff8000000001234ull, EDOM}, {0x7ff4000000000000ull, 0x7ffc000000000000ull, 0},
+    };
+    for (const auto& item : cases) {
+        errno = 1234;
+        Require(std::bit_cast<std::uint64_t>(log_nid_postfix(std::bit_cast<double>(item.input))) == item.expected);
+        Require(errno == (item.error != 0 ? item.error : 1234));
+    }
+    std::feclearexcept(FE_ALL_EXCEPT);
+    Require(std::isnan(log_nid_postfix(std::bit_cast<double>(0xfff8000000001234ull))) && std::fetestexcept(FE_INVALID) != 0);
+    std::feclearexcept(FE_ALL_EXCEPT);
+    Require(std::isnan(log_nid_postfix(std::bit_cast<double>(0x7ff8000000001234ull))) && std::fetestexcept(FE_INVALID) == 0);
+}
+
 static void CheckTanhConsoleBits() {
     constexpr std::uint64_t cases[][2] = {
         {0x0000000000000000ull, 0x0000000000000000ull}, {0x8000000000000000ull, 0x8000000000000000ull},
@@ -2427,6 +2456,7 @@ int main() {
     CheckLogbConsoleBits();
     CheckExpm1ConsoleBits();
     CheckLog1pConsoleBits();
+    CheckLogConsoleBits();
     CheckNextafterConsoleBits();
     CheckTanhConsoleBits();
     CheckSinhMsunBits();
