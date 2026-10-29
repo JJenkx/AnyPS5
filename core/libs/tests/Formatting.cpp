@@ -164,6 +164,12 @@ static bool CheckWidePrecision() {
     Require(snprintf_nid_postfix(output, sizeof(output), "[%ls]", static_cast<const char16_t*>(nullptr)) == 8 && std::strcmp(output, "[(null)]") == 0);
     Require(snprintf_nid_postfix(output, sizeof(output), "a%lcb%C", 0, 0) == 4 && std::strcmp(output, "ab%C") == 0);
     Require(snprintf_nid_postfix(output, sizeof(output), "%3lc|%-3lc|", 0, 0) == 2 && std::strcmp(output, "||") == 0);
+    for (const char* format : {"%lc", "%.0lc", "%.1lc"})
+        Require(snprintf_nid_postfix(output, sizeof(output), format, 0xe9) == 2 && std::strcmp(output, "\xc3\xa9") == 0);
+    Require(snprintf_nid_postfix(output, sizeof(output), "%5lc|%-5lc|%5.1lc", 0xe9, 0xe9, 0xe9) == 17
+        && std::strcmp(output, "   \xc3\xa9|\xc3\xa9   |   \xc3\xa9") == 0);
+    Require(FormatList(output, sizeof(output), "%*.*lc", 5, 1, 0xe9) == 5 && std::strcmp(output, "   \xc3\xa9") == 0);
+    Require(snprintf_nid_postfix(output, sizeof(output), "%3.0lc|%-3.1lc", 0, 0) == 1 && std::strcmp(output, "|") == 0);
     Require(snprintf_nid_postfix(output, sizeof(output), "%5C|%-3C|%hC%lC%#C", 0xe9) == 16 && std::strcmp(output, "   %C|%C |%C%C%C") == 0);
     Require(snprintf_nid_postfix(output, sizeof(output), "%C%d", 65) == 4 && std::strcmp(output, "%C65") == 0);
     Require(snprintf_nid_postfix(output, sizeof(output), "%hS|%lS|%5S", u"ab", u"c\u00e9", u"d") == 12 && std::strcmp(output, "ab|c\xc3\xa9|    d") == 0);

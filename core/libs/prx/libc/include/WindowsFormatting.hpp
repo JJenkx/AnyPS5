@@ -685,7 +685,7 @@ inline int FormatWindows(char* buffer, size_t size, const char* format, const vo
         } else if (conversion == 'c' && length == "l") {
             std::string utf8;
             AppendUtf8(utf8, static_cast<char16_t>(args.Next<unsigned int>()));
-            if (utf8[0] != 0) output.Value(spec + 's', utf8.c_str());
+            if (utf8[0] != 0) output.Value(spec.substr(0, spec.find('.')) + 's', utf8.c_str());
         } else if (conversion == 's' && (length.empty() || length == "h")) {
             const char* value = args.Next<const char*>();
             if (!value && secure) throw FormatConstraintViolation("Null string argument");
