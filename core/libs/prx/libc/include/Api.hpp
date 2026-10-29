@@ -864,6 +864,8 @@ std::uint32_t APS5_VABI towlower_nid_postfix(std::uint32_t c);
 std::uint32_t APS5_VABI towupper_nid_postfix(std::uint32_t c);
 std::uint32_t APS5_VABI btowc_nid_postfix(int c);
 int APS5_VABI wctob_nid_postfix(std::uint32_t c);
+std::uint32_t APS5_VABI _Btowc_nid_postfix(int c);
+int APS5_VABI _Wctob_nid_postfix(std::uint32_t c);
 std::uint64_t APS5_VABI wctrans_nid_postfix(const char* property);
 std::uint32_t APS5_VABI towctrans_nid_postfix(std::uint32_t c, std::uint64_t desc);
 std::uint32_t APS5_VABI _Towlower_nid_postfix(std::uint32_t c, const void*);
