@@ -322,7 +322,7 @@ void testBlockingSubmission(const std::filesystem::path& directory) {
     AgcDriverUnregisterVideoOutput_nid_postfix(7, output);
 }
 
-void testShaderCode(const std::filesystem::path& directory, bool host) {
+void testShaderCode(const std::filesystem::path& directory, bool host, bool prologue = false) {
     auto* bytes = allocate(1u << 20);
     auto* shader = reinterpret_cast<Shader*>(bytes);
     auto* code = bytes + (1u << 19) + 256;
@@ -336,8 +336,10 @@ void testShaderCode(const std::filesystem::path& directory, bool host) {
         auto* memory = mapped != MAP_FAILED ? static_cast<std::byte*>(mapped) : nullptr;
 #endif
         check(memory != nullptr, "host shader allocation failed");
-        GuestAllocations::Mutation mutation;
-        mutation.Add(memory, CodeBytes + 4096, true, true, true);
+        if (!prologue) {
+            GuestAllocations::Mutation mutation;
+            mutation.Add(memory, CodeBytes + 4096, true, true, true);
+        }
         code = memory + 256;
     }
 #endif
@@ -349,12 +351,13 @@ void testShaderCode(const std::filesystem::path& directory, bool host) {
     shader->code = code;
     auto* recorder = AgcDriver::FrameRecorder::Active();
     check(recorder != nullptr, "frame recorder is disabled");
-    recorder->FrameBoundary();
+    if (!prologue) recorder->FrameBoundary();
     std::vector<std::byte> expected(CodeBytes);
     for (std::size_t i = 0; i < expected.size(); ++i) expected[i] = static_cast<std::byte>(i * 31 + 17);
     std::memcpy(code, expected.data(), expected.size());
     recorder->RegisterShader(shader);
     recorder->FrameBoundary();
+    if (prologue) recorder->FrameBoundary();
     const FrameCaptureReader reader(directory);
     std::vector<std::byte> captured(CodeBytes);
     const auto apply = [&](const FrameMemoryChunk& chunk) {
@@ -494,6 +497,7 @@ int main(int argc, char** argv) {
         else if (mode == "reservations" || mode == "reservation_failure") testRepeatedReservations(directory, mode == "reservation_failure");
         else if (mode == "blocking") testBlockingSubmission(directory);
         else if (mode == "environment") testColdPipelines();
+        else if (mode == "shader_prologue_host") testShaderCode(directory, true, true);
         else if (mode == "shader" || mode == "shader_host") testShaderCode(directory, mode == "shader_host");
         else throw std::runtime_error("unknown test");
         if (mode != "reservation_failure") AgcDriverShutdown_nid_postfix();
