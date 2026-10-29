@@ -499,23 +499,17 @@ int APS5_VABI sceKernelUnlink(const char* path) {
                 RecordWrittenPath_nid_no_patch(native);
                 return 0;
             }
-        }
-    }
-#endif
-    if (std::filesystem::is_directory(std::filesystem::symlink_status(native, error))) {
-#ifdef _WIN32
-        const DWORD attributes = GetFileAttributesW(native.c_str());
-        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
             std::string junctionTarget;
-            if (File::WindowsSymbolicLink::ReadJunction(native, junctionTarget, "unlink")) {
+            if ((found.dwFileAttributes & DirectoryLink) == DirectoryLink && found.dwReserved0 == IO_REPARSE_TAG_MOUNT_POINT
+                && File::WindowsSymbolicLink::ReadJunction(native, junctionTarget, "unlink")) {
                 if (RemoveDirectoryW(native.c_str()) == 0) return SceErrorFromErrno(GuestEperm);
                 RecordWrittenPath_nid_no_patch(native);
                 return 0;
             }
         }
-#endif
-        return SceErrorFromErrno(GuestEperm);
     }
+#endif
+    if (std::filesystem::is_directory(std::filesystem::symlink_status(native, error))) return SceErrorFromErrno(GuestEperm);
     if (NativeUnlink(native) != 0) {
 #ifdef _WIN32
         if (NativeSymbolicLinkLoop(native.parent_path())) return SCE_KERNEL_ERROR_ELOOP;
