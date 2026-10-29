@@ -53,6 +53,55 @@ void WindowRejects() {
     Check(rejected, "frames and seconds were accepted together");
 }
 
+void WindowTrigger() {
+    const auto directory = std::filesystem::temp_directory_path() / ("aps5-trigger-test-" + std::to_string(Clock::now().time_since_epoch().count()));
+    std::filesystem::create_directory(directory);
+    const auto cleanup = std::unique_ptr<const std::filesystem::path, void(*)(const std::filesystem::path*)>(&directory, [](const auto* path) {
+        std::error_code error;
+        std::filesystem::remove_all(*path, error);
+    });
+    const auto path = directory / std::filesystem::path(u8"scene-\u00e9.ready");
+    const auto utf8 = path.u8string();
+    const std::string trigger(utf8.begin(), utf8.end());
+    auto seconds = TraceWindow::Parse(nullptr, "2:1", trigger.c_str()).value();
+    Check(seconds.Present(0, milliseconds(2000)) == Edge::None, "missing trigger opened the window");
+    std::ofstream(path).close();
+    Check(seconds.Present(1, milliseconds(2249)) == Edge::None, "trigger polling was not throttled");
+    Check(seconds.Present(2, milliseconds(2250)) == Edge::Open, "trigger did not open the seconds window");
+    std::filesystem::remove(path);
+    Check(seconds.Present(3, milliseconds(3249)) == Edge::None, "seconds duration began before the trigger");
+    Check(seconds.Present(4, milliseconds(3250)) == Edge::Close, "seconds window did not close after its full duration");
+    std::ofstream(path).close();
+    Check(seconds.Present(5, milliseconds(5000)) == Edge::None, "trigger reopened a completed window");
+    auto frames = TraceWindow::Parse("3:2", nullptr, trigger.c_str()).value();
+    Check(frames.Present(2, milliseconds(0)) == Edge::None, "preexisting trigger bypassed the frame lower bound");
+    Check(frames.Present(3, milliseconds(1)) == Edge::Open, "preexisting trigger did not open at the frame lower bound");
+    Check(frames.Present(4, milliseconds(2)) == Edge::None, "trigger shortened the frame window");
+    Check(frames.Present(5, milliseconds(3)) == Edge::Close, "triggered frame window did not close");
+    std::filesystem::remove(path);
+    auto late = TraceWindow::Parse("3:2", nullptr, trigger.c_str()).value();
+    Check(late.Present(100, milliseconds(0)) == Edge::None, "late frame window opened without a trigger");
+    std::ofstream(path).close();
+    Check(late.Present(120, milliseconds(250)) == Edge::Open, "late frame trigger was ignored");
+    Check(late.Present(121, milliseconds(500)) == Edge::None, "frame duration began at its original lower bound");
+    Check(late.Present(122, milliseconds(750)) == Edge::Close, "late frame window did not close after its full length");
+    auto early = TraceWindow::Parse(nullptr, "2:1", trigger.c_str()).value();
+    Check(early.Present(0, milliseconds(1999)) == Edge::None, "preexisting trigger bypassed the time lower bound");
+    Check(early.Present(1, milliseconds(2000)) == Edge::Open, "preexisting trigger did not open at the time lower bound");
+    const auto reject = [](auto&& action) {
+        bool rejected = false;
+        try { action(); }
+        catch (const std::exception&) { rejected = true; }
+        Check(rejected, "invalid trigger configuration was accepted");
+    };
+    reject([] { TraceWindow::Parse(nullptr, nullptr, "scene.ready"); });
+    reject([] { TraceWindow::Parse("0:1", nullptr, ""); });
+    const auto dirText = directory.string();
+    reject([&] { TraceWindow::Parse("0:1", nullptr, dirText.c_str())->Present(0, milliseconds(0)); });
+    const auto badPath = trigger + "/child";
+    reject([&] { TraceWindow::Parse("0:1", nullptr, badPath.c_str())->Present(0, milliseconds(0)); });
+}
+
 void BufferCap() {
     std::atomic<std::uint64_t> presents{1};
     TraceThread thread("queue worker 0x0", presents, 2);
@@ -601,6 +650,7 @@ int main() {
         WindowByFrames();
         WindowBySeconds();
         WindowRejects();
+        WindowTrigger();
         BufferCap();
         LostEventsCount();
         TotalsOverflow();
