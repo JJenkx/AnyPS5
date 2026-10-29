@@ -405,6 +405,19 @@ void FrameRecorder::emitShaderDelta(std::span<const Shader* const> shaders) {
 
 void FrameRecorder::writeDelta(std::span<const Span> spans, std::span<const std::uint64_t> hostPages, std::span<const Range> added) {
     if (abandonIfDiskLow()) return;
+    auto& driver = DriverDetail::Driver::Get();
+    const struct Hold {
+        DriverDetail::Driver& driver;
+        ~Hold() { driver.ReleaseSettled(); }
+    } hold{driver};
+    auto [accepted, completed] = driver.SerialProgress();
+    if (completed < accepted && (!added.empty() || !spans.empty() || !hostPages.empty())) {
+        if (!driver.WaitSettledFor(std::chrono::seconds(10))) {
+            stop("stopped: the GPU work submitted before a memory delta neither finished nor waited for the title within 10 s");
+            return;
+        }
+        std::tie(accepted, completed) = driver.SerialProgress();
+    }
     std::vector<std::pair<std::uint64_t, std::uint64_t>> blocks;
     std::vector<std::pair<std::uint64_t, std::uint64_t>> written;
     for (const auto& span : spans) {
@@ -419,19 +432,6 @@ void FrameRecorder::writeDelta(std::span<const Span> spans, std::span<const std:
             }
             offset += bytes;
         }
-    }
-    auto& driver = DriverDetail::Driver::Get();
-    const struct Hold {
-        DriverDetail::Driver& driver;
-        ~Hold() { driver.ReleaseSettled(); }
-    } hold{driver};
-    auto [accepted, completed] = driver.SerialProgress();
-    if (completed < accepted && (!added.empty() || !blocks.empty())) {
-        if (!driver.WaitSettledFor(std::chrono::seconds(10))) {
-            stop("stopped: the GPU work submitted before a memory delta neither finished nor waited for the title within 10 s");
-            return;
-        }
-        std::tie(accepted, completed) = driver.SerialProgress();
     }
     const auto group = deltaGroups + 1;
     bool any = false;
@@ -476,11 +476,15 @@ void FrameRecorder::writeDelta(std::span<const Span> spans, std::span<const std:
         bytes.resize(static_cast<std::size_t>(end - begin));
         readGuest(begin, bytes);
         if (!GuestMemory::Watched(begin, bytes.size())) {
-            const auto hash = contentHash(bytes);
             const auto key = std::pair{begin, static_cast<std::uint64_t>(bytes.size())};
-            const auto found = unwatchedHashes.find(key);
-            if (found != unwatchedHashes.end() && found->second == hash) continue;
-            unwatchedHashes[key] = hash;
+            if (accepted == completed) {
+                const auto sample = std::pair{contentHash(bytes), accepted};
+                const auto found = unwatchedHashes.find(key);
+                if (found != unwatchedHashes.end() && found->second == sample) continue;
+                unwatchedHashes[key] = sample;
+            } else {
+                unwatchedHashes.erase(key);
+            }
         }
         writeTitleWords(begin);
     }
