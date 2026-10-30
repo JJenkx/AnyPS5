@@ -99,6 +99,16 @@ class TraceEventLossTests(unittest.TestCase):
         self.assertEqual(result["event_loss"], [])
         self.assertIn("Incomplete trace", trace_digest.markdown(result))
 
+    def test_markdown_loss_escapes_thread_names(self):
+        for name, escaped in (("a|b", "a&#124;b"), ("<x>", "&lt;x&gt;")):
+            with self.subTest(name=name):
+                metadata = {"name": "thread_name", "ph": "M", "ts": 0, "pid": 7, "tid": 1, "args": {"name": name}}
+                result = trace_digest.digest(trace_digest.Trace(EVENTS + [metadata, self.marker()]))
+                self.assertEqual(result["event_loss"][0]["thread"], name)
+                markdown = trace_digest.markdown(result)
+                self.assertIn(f"- {escaped}: 8 events lost; buffer full at 1.5 ms", markdown)
+                self.assertNotIn(f"- {name}: 8 events lost", markdown)
+
     def test_thread_filter_keeps_only_relevant_loss_markers(self):
         trace = trace_digest.Trace(EVENTS + [self.marker()])
         trace.select_threads(["presenter"])
