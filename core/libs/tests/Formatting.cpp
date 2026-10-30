@@ -183,6 +183,22 @@ static void CheckOrdinaryCharacterScans() {
         Require(scan("a", "%2$2c%1$n", &first, output.data()) == 0 && first == -1);
         output.fill('Z');
         Require(scan("abc", "%2c%c%n", output.data(), output.data() + 2, &last) == 2 && last == 3 && std::memcmp(output.data(), "abcZ", 4) == 0);
+        const struct { const char* width; int taken; } boundaries[] = {
+            {"2147483647", 3}, {"2147483648", 1}, {"2147483649", 1}, {"4294967295", 1}, {"4294967296", 1}, {"4294967297", 1}, {"4294967298", 2},
+            {"9223372036854775807", 1}, {"9223372036854775808", 1}, {"18446744073709551615", 1}, {"18446744073709551616", 1}, {"99999999999999999999999999999999", 1}
+        };
+        for (const auto& boundary : boundaries) {
+            for (const bool suppress : {false, true}) {
+                output.fill('Z');
+                last = -1;
+                const std::string format = std::string("%") + (suppress ? "*" : "") + boundary.width + "c%n";
+                const int result = suppress ? scan("abc", format.c_str(), &last) : scan("abc", format.c_str(), output.data(), &last);
+                Require(result == (suppress ? 0 : 1) && last == boundary.taken);
+                const auto written = suppress ? 0 : boundary.taken;
+                Require(std::memcmp(output.data(), "abc", written) == 0);
+                for (std::size_t i = written; i < output.size(); ++i) Require(output[i] == 'Z');
+            }
+        }
     }
 #endif
 }

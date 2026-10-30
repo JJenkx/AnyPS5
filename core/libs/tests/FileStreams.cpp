@@ -522,6 +522,31 @@ static void CheckOrdinaryCharacterScans() {
             Require(std::fclose(native) == 0);
         }
     }
+    const struct { const char* width; int taken; } boundaries[] = {
+        {"2147483647", 3}, {"2147483648", 1}, {"2147483649", 1}, {"4294967295", 1}, {"4294967296", 1}, {"4294967297", 1}, {"4294967298", 2},
+        {"9223372036854775807", 1}, {"9223372036854775808", 1}, {"18446744073709551615", 1}, {"18446744073709551616", 1}, {"99999999999999999999999999999999", 1}
+    };
+    for (const Scanner scan : {fscanf_nid_postfix, ScanList}) {
+        for (const auto& boundary : boundaries) {
+            for (const bool suppress : {false, true}) {
+                auto* native = std::tmpfile();
+                Require(native != nullptr && std::fputs("abc", native) >= 0);
+                std::rewind(native);
+                FileStream stream(native);
+                std::array<char, 4> output{'Z', 'Z', 'Z', 'Z'};
+                int count = -1;
+                const std::string format = std::string("%") + (suppress ? "*" : "") + boundary.width + "c%n";
+                const int result = suppress ? scan(&stream, format.c_str(), &count) : scan(&stream, format.c_str(), output.data(), &count);
+                Require(result == (suppress ? 0 : 1) && count == boundary.taken, "Ordinary stream character width changed at its signed boundary");
+                const auto written = suppress ? 0 : boundary.taken;
+                Require(std::memcmp(output.data(), "abc", written) == 0);
+                for (std::size_t i = written; i < output.size(); ++i) Require(output[i] == 'Z');
+                Require(ftell_nid_postfix(&stream) == boundary.taken && ferror_nid_postfix(&stream) == 0);
+                if (boundary.taken < 3) Require(fgetc_nid_postfix(&stream) == "abc"[boundary.taken]);
+                Require(std::fclose(native) == 0);
+            }
+        }
+    }
     const int savedError = errno;
     for (const Scanner scan : {fscanf_nid_postfix, ScanList, fscanf_s_nid_postfix, ScanShortCharacterList}) {
         const bool secure = scan == fscanf_s_nid_postfix || scan == ScanShortCharacterList;

@@ -396,7 +396,8 @@ int ScanSource(TSource source, const char* format, bool secure, NextPointer next
             if (target == nullptr) return EOF;
         }
         if (conversion == 'c' && length != "l" && (!TSource::Contiguous || !secure)) {
-            const unsigned long wanted = width == 0 ? 1 : width;
+            const auto narrowWidth = static_cast<std::uint32_t>(width);
+            const unsigned long wanted = secure ? (width == 0 ? 1 : width) : (narrowWidth == 0 || narrowWidth > INT_MAX ? 1 : narrowWidth);
             if (secure && !suppress) {
                 const auto capacity = static_cast<unsigned long>(nextCapacity());
                 if (capacity == 0 || wanted > capacity) {
