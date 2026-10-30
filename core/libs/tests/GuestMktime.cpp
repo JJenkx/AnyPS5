@@ -63,7 +63,7 @@ static void CheckUnavailableDaylightHint(Converter convert, int year) {
     }
 }
 
-static void CheckAvailableDaylightHints() {
+static void CheckAvailableDaylightHints(const char* context = "host-state") {
     Require(setenv_nid_postfix("TZ", "EST5EDT", 1) == 0, "Could not set the time zone");
     tzset_nid_postfix();
     constexpr std::array<Converter, 2> converters{libc_mktime_nid_postfix, mktime_nid_postfix};
@@ -72,6 +72,7 @@ static void CheckAvailableDaylightHints() {
         {6, 0, 1721062800, 13, 1},
         {6, 1, 1721059200, 12, 1}
     };
+    int mismatches = 0;
     for (auto convert : converters) {
         for (const auto& item : cases) {
             GuestTm input{};
@@ -80,10 +81,21 @@ static void CheckAvailableDaylightHints() {
             input.tm_mday = 15;
             input.tm_hour = 12;
             input.tm_isdst = item.hint;
-            Require(convert(&input) == item.expected, "available daylight hint was ignored");
-            Require(input.tm_hour == item.hour && input.tm_isdst == item.daylight, "available daylight fields differ");
+            const auto actual = convert(&input);
+            long standardBias = 0;
+            long daylightBias = 0;
+#ifdef _WIN32
+            _get_timezone(&standardBias);
+            _get_dstbias(&daylightBias);
+#endif
+            std::fprintf(stderr, "available-hint context=%s converter=%s month=%d hint=%d actual=%lld expected=%lld hour=%d expectedHour=%d isdst=%d expectedIsdst=%d standardBias=%ld daylightBias=%ld\n",
+                         context, convert == libc_mktime_nid_postfix ? "libc" : "libkernel", item.month, item.hint,
+                         static_cast<long long>(actual), static_cast<long long>(item.expected), input.tm_hour, item.hour,
+                         input.tm_isdst, item.daylight, standardBias, daylightBias);
+            if (actual != item.expected || input.tm_hour != item.hour || input.tm_isdst != item.daylight) ++mismatches;
         }
     }
+    Require(mismatches == 0, "available daylight hint cases differ; see named records");
 }
 
 #ifndef _WIN32
@@ -147,6 +159,15 @@ static void CheckZone(const char* zone) {
 int main() {
     CheckZone("IST-5:30");
     CheckAvailableDaylightHints();
+#ifdef _WIN32
+    Require(setenv_nid_postfix("TZ", "UTC0", 1) == 0, "Could not select the UTC zone");
+    tzset_nid_postfix();
+    long savedBias = 0;
+    _get_dstbias(&savedBias);
+    _dstbias = 0;
+    CheckAvailableDaylightHints("zero-host-daylight-bias");
+    _dstbias = savedBias;
+#endif
 #ifndef _WIN32
     CheckHistoricalDaylightAbsence("Australia/Lord_Howe", 40);
     CheckHistoricalDaylightAbsence("Europe/Moscow", 124);
