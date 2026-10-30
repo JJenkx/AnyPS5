@@ -148,7 +148,34 @@ class TimelineTests(unittest.TestCase):
 
     def run_cli(self, timeline, output):
         return subprocess.run([sys.executable, str(Path(pad_timeline.__file__)), str(timeline), str(output)],
-                              capture_output=True, text=True, timeout=5)
+                              capture_output=True, encoding="utf-8", timeout=5)
+
+    def test_cli_reports_non_ascii_output_on_a_cp1252_stream(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "\u65e5\u672c"
+            root.mkdir()
+            timeline, output = root / "sequence.json", root / "command"
+            timeline.write_text(json.dumps(self.document), encoding="utf-8")
+            env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+            result = subprocess.run([sys.executable, "-X", "utf8=0", str(Path(pad_timeline.__file__)), str(timeline), str(output)],
+                                    env=env, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+            self.assertEqual(result.stdout.decode("utf-8"), f"Queued 2 timed events in {output}\n")
+            self.assertEqual(output.read_text(encoding="utf-8").splitlines()[1:], ["200 100 18432", "500 200 64"])
+
+    def test_cli_reports_non_ascii_error_on_a_cp1252_stream(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "\u65e5\u672c"
+            root.mkdir()
+            timeline, output = root / "sequence.json", root / "missing" / "command"
+            timeline.write_text(json.dumps(self.document), encoding="utf-8")
+            env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+            result = subprocess.run([sys.executable, "-X", "utf8=0", str(Path(pad_timeline.__file__)), str(timeline), str(output)],
+                                    env=env, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, b"")
+            self.assertEqual(result.stderr.decode("utf-8"), f"pad_timeline: directory does not exist: {output.parent}\n")
+            self.assertFalse(output.exists())
 
     def test_cli_roundtrip_and_invalid_input_preservation(self):
         with tempfile.TemporaryDirectory() as directory:
