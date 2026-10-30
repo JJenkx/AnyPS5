@@ -89,7 +89,7 @@ static void CheckAvailableDaylightHints(const char* context = "host-state") {
             _get_dstbias(&daylightBias);
 #endif
             std::fprintf(stderr, "available-hint context=%s converter=%s month=%d hint=%d actual=%lld expected=%lld hour=%d expectedHour=%d isdst=%d expectedIsdst=%d standardBias=%ld daylightBias=%ld\n",
-                         context, convert == libc_mktime_nid_postfix ? "libc" : "libkernel", item.month, item.hint,
+                         context, convert == libc_mktime_nid_postfix ? "libc_mktime" : "mktime", item.month, item.hint,
                          static_cast<long long>(actual), static_cast<long long>(item.expected), input.tm_hour, item.hour,
                          input.tm_isdst, item.daylight, standardBias, daylightBias);
             if (actual != item.expected || input.tm_hour != item.hour || input.tm_isdst != item.daylight) ++mismatches;
