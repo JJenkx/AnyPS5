@@ -47,6 +47,18 @@ struct SonyHostTimeZone {
     std::int64_t daylight;
 };
 
+#ifdef _WIN32
+inline void SonyRefreshHostZone_nid_no_patch() {
+    _tzset();
+    const char* zone = std::getenv("TZ");
+    if (zone != nullptr && zone[0] != 0) {
+        int daylight = 0;
+        _get_daylight(&daylight);
+        if (daylight != 0) _dstbias = -3600;
+    }
+}
+#endif
+
 inline SonyHostTimeZone SonyHostZoneAt_nid_no_patch(std::int64_t utcTime) {
     std::tm local{};
 #ifdef _WIN32
@@ -54,7 +66,7 @@ inline SonyHostTimeZone SonyHostZoneAt_nid_no_patch(std::int64_t utcTime) {
     constexpr std::int64_t lastHostSecond = 32535215999LL;
     const std::int64_t cycles = utcTime >= 0 && utcTime <= lastHostSecond ? 0 : (utcTime >= 0 ? utcTime / cycleSeconds : -((-(utcTime + 1)) / cycleSeconds + 1));
     const std::time_t t = static_cast<std::time_t>(utcTime - cycles * cycleSeconds);
-    _tzset();
+    SonyRefreshHostZone_nid_no_patch();
     if (localtime_s(&local, &t) != 0) throw std::runtime_error(std::string(__func__) + ": no host local time for " + std::to_string(utcTime));
     long standardBias = 0;
     long daylightBias = 0;

@@ -224,7 +224,12 @@ int& zoneDepth() {
 class ZoneScope {
 public:
     ZoneScope() : lock(zoneMutex()) {
-        if (zoneDepth() == 0) applyGuestZone();
+        if (zoneDepth() == 0) {
+            applyGuestZone();
+#ifdef _WIN32
+            SonyRefreshHostZone_nid_no_patch();
+#endif
+        }
         ++zoneDepth();
     }
 
