@@ -155,6 +155,38 @@ static void CheckSizeLimits() {
     }
 }
 
+static void CheckOrdinaryCharacterScans() {
+#ifndef _WIN32
+    using Scanner = int (APS5_VABI*)(const char*, const char*, ...);
+    for (const Scanner scan : {sscanf_nid_postfix, ScanList}) {
+        for (const char* input : {"", "a", "ab", "a b"}) {
+            for (const unsigned width : {1u, 2u, 8u}) {
+                const auto taken = std::min<std::size_t>(std::strlen(input), width);
+                for (const bool suppress : {false, true}) {
+                    std::array<char, 32> output;
+                    output.fill('Z');
+                    int count = -1;
+                    const std::string format = std::string("%") + (suppress ? "*" : "") + std::to_string(width) + "c%n";
+                    const int result = suppress ? scan(input, format.c_str(), &count) : scan(input, format.c_str(), output.data(), &count);
+                    Require(result == (taken == 0 ? EOF : (suppress ? 0 : 1)) && count == (taken == 0 ? -1 : static_cast<int>(taken)));
+                    const auto written = suppress ? 0 : taken;
+                    Require(std::memcmp(output.data(), input, written) == 0);
+                    for (std::size_t i = written; i < output.size(); ++i) Require(output[i] == 'Z');
+                }
+            }
+        }
+        std::array<char, 4> output{'Z', 'Z', 'Z', 'Z'};
+        int first = -1, last = -1;
+        Require(scan("", "%n%2c%n", &first, output.data(), &last) == 0 && first == 0 && last == -1 && output[0] == 'Z');
+        Require(scan("7 a", "%d %2c%n", &first, output.data(), &last) == 2 && first == 7 && last == 3 && output[0] == 'a' && output[1] == 'Z');
+        first = -1;
+        Require(scan("a", "%2$2c%1$n", &first, output.data()) == 0 && first == -1);
+        output.fill('Z');
+        Require(scan("abc", "%2c%c%n", output.data(), output.data() + 2, &last) == 2 && last == 3 && std::memcmp(output.data(), "abcZ", 4) == 0);
+    }
+#endif
+}
+
 static bool CheckWidePrecision() {
     const char16_t input[] = u"A\u00e9\u20ac\U0001f600Z";
     const char* expected[] = {"", "A", "A", "A\xc3\xa9", "A\xc3\xa9", "A\xc3\xa9", "A\xc3\xa9\xe2\x82\xac",
@@ -321,41 +353,8 @@ static void CheckScanInputFailureErrno() {
     *__error_nid_postfix() = previousError;
 }
 
-static void CheckOrdinaryCharacterScans() {
-#ifndef _WIN32
-    using Scanner = int (APS5_VABI*)(const char*, const char*, ...);
-    for (const Scanner scan : {sscanf_nid_postfix, ScanList}) {
-        for (const char* input : {"", "a", "ab", "a b"}) {
-            for (const unsigned width : {1u, 2u, 8u}) {
-                const auto taken = std::min<std::size_t>(std::strlen(input), width);
-                for (const bool suppress : {false, true}) {
-                    std::array<char, 32> output;
-                    output.fill('Z');
-                    int count = -1;
-                    const std::string format = std::string("%") + (suppress ? "*" : "") + std::to_string(width) + "c%n";
-                    const int result = suppress ? scan(input, format.c_str(), &count) : scan(input, format.c_str(), output.data(), &count);
-                    Require(result == (taken == 0 ? EOF : (suppress ? 0 : 1)) && count == (taken == 0 ? -1 : static_cast<int>(taken)));
-                    const auto written = suppress ? 0 : taken;
-                    Require(std::memcmp(output.data(), input, written) == 0);
-                    for (std::size_t i = written; i < output.size(); ++i) Require(output[i] == 'Z');
-                }
-            }
-        }
-        std::array<char, 4> output{'Z', 'Z', 'Z', 'Z'};
-        int first = -1, last = -1;
-        Require(scan("", "%n%2c%n", &first, output.data(), &last) == 0 && first == 0 && last == -1 && output[0] == 'Z');
-        Require(scan("7 a", "%d %2c%n", &first, output.data(), &last) == 2 && first == 7 && last == 3 && output[0] == 'a' && output[1] == 'Z');
-        first = -1;
-        Require(scan("a", "%2$2c%1$n", &first, output.data()) == 0 && first == -1);
-        output.fill('Z');
-        Require(scan("abc", "%2c%c%n", output.data(), output.data() + 2, &last) == 2 && last == 3 && std::memcmp(output.data(), "abcZ", 4) == 0);
-    }
-#endif
-}
-
 __attribute__((noinline)) static void APS5_VABI RunChecks() {
     CheckScanInputFailureErrno();
-    CheckOrdinaryCharacterScans();
     char buffer[1024];
     Require(FormatList(buffer, sizeof(buffer), "Mount requested: %d", 0) == 18);
     Require(std::strcmp(buffer, "Mount requested: 0") == 0);
@@ -556,6 +555,7 @@ __attribute__((noinline)) static void APS5_VABI RunChecks() {
     Require(ScanListS("123 test", "%d %s", &scanNum, scanWord, 8u) == 2 && scanNum == 123 && std::strcmp(scanWord, "test") == 0);
     char tooSmall[4] = {'x', 'x', 'x', 'x'};
     Require(ScanListS("abcdef", "%s", tooSmall, 4u) == 0 && tooSmall[0] == '\0');
+    CheckOrdinaryCharacterScans();
     CheckIntegerScanWidths();
     std::puts("Formatting checks passed: 10000 iterations");
 }
