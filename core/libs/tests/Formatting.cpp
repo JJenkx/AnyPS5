@@ -2,6 +2,7 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
 #include "prx/libc/include/GuestHeap.hpp"
+#include "prx/libc/include/ScanQuadLength.hpp"
 #include <algorithm>
 #include <array>
 #include <climits>
@@ -198,11 +199,20 @@ static void CheckIntegerScanWidths() {
     unsigned long long unsignedQuad = 0x5555555555555555ull;
     *__error_nid_postfix() = 0;
     Require(sscanf_nid_postfix("18446744073709551616", "%llu", &unsignedQuad) == 1 && unsignedQuad == 0xffffffffffffffffull && *__error_nid_postfix() == 34);
-#ifdef _WIN32
     quad = 0x5555555555555555ll;
     *__error_nid_postfix() = 0;
     Require(sscanf_nid_postfix("5", "%qd", &quad) == 0 && quad == 0x5555555555555555ll && *__error_nid_postfix() == 0);
-#endif
+    int leading = 0;
+    Require(sscanf_nid_postfix("7 5", "%d %qd", &leading, &quad) == 1 && leading == 7 && quad == 0x5555555555555555ll);
+    leading = 0;
+    Require(ScanList("7 5", "%d %qd", &leading, &quad) == 1 && leading == 7 && quad == 0x5555555555555555ll);
+    char16_t quadWide[4] = {u'!', u'!', u'!', u'!'};
+    Require(sscanf_nid_postfix("ab cd", "%qS", quadWide) == 0 && quadWide[0] == u'!');
+    leading = 0;
+    Require(sscanf_nid_postfix("%qd 9", "%%qd %d", &leading) == 1 && leading == 9);
+    const char* const quadFormat = "%*3d %%q %[^q]%qd";
+    Require(LibcDetail::FindQuadScanDirective(quadFormat) == quadFormat + 14);
+    Require(LibcDetail::FindQuadScanDirective("%d %%qd %lld") == nullptr);
     int first = 7;
     int second = 7;
     int position = 0;
