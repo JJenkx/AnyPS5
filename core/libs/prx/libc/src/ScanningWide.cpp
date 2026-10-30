@@ -1,4 +1,5 @@
 #include "prx/libc/include/Api.hpp"
+#include "prx/libc/include/GuestLongDouble.hpp"
 #include <cerrno>
 #include <cmath>
 #include <cstdarg>
@@ -366,7 +367,6 @@ private:
     }
 
     Outcome Float(const Directive& directive) {
-        static_assert(sizeof(long double) == 16 && std::numeric_limits<long double>::digits == 64);
         if (!directive.length.empty() && directive.length != "l" && directive.length != "L")
             Fail("invalid floating length modifier " + directive.length);
         void* target = nullptr;
@@ -383,7 +383,9 @@ private:
             const bool outOfRange = !hexadecimal && errno == ERANGE && (std::isinf(extended) || extended == 0.0L);
             if (directive.length == "L") {
                 const long double value = std::isnan(extended) ? std::numeric_limits<long double>::quiet_NaN() : extended;
-                std::memcpy(target, &value, 10);
+                alignas(long double) unsigned char stored[LibcDetail::GuestLongDoubleBytes]{};
+                LibcDetail::GuestLongDoubleStore(stored, value);
+                std::memcpy(target, stored, 10);
             } else if (directive.length == "l") {
                 const double parsed = std::strtod(field.c_str(), nullptr);
                 const double value = std::isnan(parsed) ? std::numeric_limits<double>::quiet_NaN() : parsed;
