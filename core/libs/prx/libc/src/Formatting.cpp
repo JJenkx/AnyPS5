@@ -203,6 +203,7 @@ public:
 
     int Peek() const { return *position == '\0' ? EOF : static_cast<unsigned char>(*position); }
     void Skip() { ++position; }
+    void PutBack(int byte) { if (byte != EOF) --position; }
     void Advance(std::ptrdiff_t count) { position += count; }
     std::ptrdiff_t Consumed() const { return position - start; }
     const char* Remaining() const { return position; }
@@ -230,6 +231,12 @@ public:
     void Skip() {
         std::fgetc(file);
         ++consumed;
+    }
+
+    void PutBack(int byte) {
+        if (byte == EOF) return;
+        if (std::ungetc(byte, file) == EOF) throw std::runtime_error("wide scan character pushback failed");
+        --consumed;
     }
 
     void Advance(std::ptrdiff_t count) { consumed += count; }
@@ -331,6 +338,9 @@ int ScanSource(TSource source, const char* format, bool secure, NextPointer next
                 std::uint16_t unit = 0;
                 const std::size_t result = mbrtowc_nid_postfix(&unit, pending, held + 1, state);
                 if (result == static_cast<std::size_t>(-1)) {
+                    source.Skip();
+                    source.PutBack(static_cast<signed char>(pending[held]));
+                    if (held != 0) source.PutBack(static_cast<signed char>(pending[0]));
                     if (target != nullptr) std::memcpy(target, text.data(), text.size() * sizeof(char16_t));
                     return finish(read == 0 && !converted ? EOF : assigned);
                 }

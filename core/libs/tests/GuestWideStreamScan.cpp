@@ -2,6 +2,7 @@
 #include "prx/libc/include/FileStream.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "tests/TemporaryFile.hpp"
+#include <array>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -110,7 +111,7 @@ static void CheckNarrowFormatWideFields() {
     Require(fscanf_nid_postfix(stream, "%l[a-c]", word) == 1 && std::u16string(word) == u"ab", "a scanset stops at a byte outside it");
     *__error_nid_postfix() = 0;
     Require(fscanf_nid_postfix(stream, "%l[^ ] %7s", word, narrow) == 0 && *__error_nid_postfix() == 86, "a byte after a UTF-8 lead byte fails the field");
-    Require(fgetc_nid_postfix(stream) == 0xa9, "the byte that failed stays in the stream");
+    Require(fgetc_nid_postfix(stream) == 0xc3 && fgetc_nid_postfix(stream) == 0xa9, "the whole invalid multibyte character stays in the stream");
     Close(stream);
 
     char16_t three[5] = {u'!', u'!', u'!', u'!', u'!'};
@@ -239,7 +240,70 @@ static void CheckStandardInput() {
     Close(stream);
 }
 
+static void CheckNarrowWideFailurePosition() {
+    struct Case {
+        const char* input;
+        const char* format;
+        int result;
+        long position;
+        int next;
+        int error;
+        int count;
+        std::array<char16_t, 8> output;
+        const char* remaining;
+    };
+    const Case cases[]{
+        {"\xc3\xa9", "%ls%n", 0, 0, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\xa9"},
+        {"\x61\xc3\xa9", "%ls%n", 0, 1, 195, 86, -77, {0x61, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\xa9"},
+        {"\x61\x62\x80", "%ls%n", 0, 2, 128, 86, -77, {0x61, 0x62, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\x80"},
+        {"\xc3\x20\x61", "%ls%n", -1, 1, 32, 97, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\x20\x61"},
+        {"\xc3", "%ls%n", -1, 1, -1, 97, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, ""},
+        {"\x80", "%ls%n", -1, 0, 128, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\x80"},
+        {"\x61\x80", "%ls%n", 0, 1, 128, 86, -77, {0x61, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\x80"},
+        {"\xc3\xa9", "%1ls%n", -1, 1, 169, 97, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xa9"},
+        {"\x61\xc3\xa9", "%2ls%n", -1, 2, 169, 97, -77, {0x61, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xa9"},
+        {"\x61\xc3\xa9", "%3ls%n", 0, 1, 195, 86, -77, {0x61, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\xa9"},
+        {"\xc3\xa9", "%2lc%n", 0, 0, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\xa9"},
+        {"\x61\xc3\xa9", "%l[^ ]%n", 0, 1, 195, 86, -77, {0x61, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\xa9"},
+        {"\xc3\xa9", "%S%n", 0, 0, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\xa9"},
+        {"\x61\xc3\xa9", "%lS%n", 0, 1, 195, 86, -77, {0x61, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\xa9"},
+        {"\xff\x7a", "%ls%n", -1, 1, 122, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\x7a"},
+        {"\x61\xff\x7a", "%ls%n", 0, 2, 122, 86, -77, {0x61, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\x7a"},
+        {"\xc3\xff\x7a", "%ls%n", 0, 1, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\x7a"},
+        {"\xc3\x80\x7a", "%ls%n", 0, 0, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\x80\x7a"},
+        {"\xc3\xc3\x7a", "%ls%n", 0, 0, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\xc3\x7a"},
+        {"\xc3\xff\x7a", "%2lc%n", 0, 1, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\x7a"},
+        {"\xc3\xff\x7a", "%3ls%n", 0, 1, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\x7a"},
+        {"\xc3\xff\x7a", "%l[^ ]%n", 0, 1, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\x7a"},
+        {"\xff\x7a", "%S%n", -1, 1, 122, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\x7a"},
+        {"\xc3\xff\x7a", "%lS%n", 0, 1, 195, 86, -77, {0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5, 0xa5a5}, "\xc3\x7a"},
+    };
+    for (const auto& item : cases) {
+        for (const bool secure : {false, true}) {
+            for (const bool variadic : {false, true}) {
+                auto* stream = Open(item.input);
+                std::array<char16_t, 8> output;
+                output.fill(0xa5a5);
+                int count = -77;
+                *__error_nid_postfix() = 97;
+                const int result = secure ? (variadic ? ScanNarrowSized(stream, item.format, output.data(), 8u, &count) : fscanf_s_nid_postfix(stream, item.format, output.data(), 8u, &count)) : (variadic ? ScanNarrow(stream, item.format, output.data(), &count) : fscanf_nid_postfix(stream, item.format, output.data(), &count));
+                Require(result == item.result && count == item.count && output == item.output, "wide field failure keeps measured result, count and stored units");
+                Require(*__error_nid_postfix() == item.error, "wide field failure keeps measured errno");
+                Require(ftell_nid_postfix(stream) == item.position, "wide field failure keeps the measured stream position");
+                const int next = fgetc_nid_postfix(stream);
+                Require(next == item.next, "wide field failure leaves the measured next input byte");
+                std::string remaining;
+                if (next != EOF) remaining += static_cast<char>(next);
+                for (int byte; (byte = fgetc_nid_postfix(stream)) != EOF;) remaining += static_cast<char>(byte);
+                Require(remaining == item.remaining, "wide field failure keeps the measured remaining input");
+                Close(stream);
+            }
+        }
+    }
+}
+
 int main() {
+    CheckNarrowWideFailurePosition();
     CheckConsumption();
     CheckWideText();
     CheckStandardInput();
