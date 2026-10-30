@@ -434,7 +434,10 @@ int ScanSource(TSource source, const char* format, bool secure, NextPointer next
         directive += "%n";
         int consumed = -1;
         const int matched = source.Scan(directive.c_str(), suppress, target, &consumed);
-        if (consumed < 0 || (!suppress && matched != 1)) return finish(!converted && source.Peek() == EOF ? EOF : assigned);
+        if (consumed < 0 || (!suppress && matched != 1)) {
+            const bool inputFailure = TSource::Contiguous ? source.Peek() == EOF : matched == EOF;
+            return finish(!converted && inputFailure ? EOF : assigned);
+        }
         source.Advance(consumed);
         if (capped && conversion != 'c') {
             const int next = source.Peek();
