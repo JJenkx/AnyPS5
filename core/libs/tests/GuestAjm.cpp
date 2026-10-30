@@ -2536,18 +2536,42 @@ void TestPcmResample(std::uint32_t context) {
 }
 
 void TestStrError() {
-    const int implemented[] = {static_cast<int>(0x80930002), static_cast<int>(0x80930003), static_cast<int>(0x80930004), static_cast<int>(0x80930005), static_cast<int>(0x80930007)};
-    for (int code : implemented) {
-        const char* text = sceAjmStrError(code);
-        Require(text != nullptr && std::strlen(text) > 0);
-        Require(sceAjmStrError(code) == text);
+    const std::pair<std::uint32_t, const char*> expected[] = {
+        {0x00000000u, "ok"},
+        {0x80930002u, "context does not exist"},
+        {0x80930003u, "instance does not exist"},
+        {0x80930004u, "batch does not exist"},
+        {0x80930005u, "invalid parameter"},
+        {0x80930006u, "not enough memory"},
+        {0x80930007u, "not enough resources"},
+        {0x80930008u, "codec is not supported"},
+        {0x80930009u, "codec is already registered in the context"},
+        {0x8093000au, "codec is not registered in the context"},
+        {0x8093000bu, "wrong revision in the flags"},
+        {0x8093000cu, "flag is not supported"},
+        {0x8093000du, "busy"},
+        {0x8093000eu, "priority is invalid"},
+        {0x8093000fu, "in progress"},
+        {0x80930010u, "operation cannot be performed at the moment"},
+        {0x80930011u, "malformed batch"},
+        {0x80930012u, "error at job creation"},
+        {0x80930013u, "invalid opcode"},
+        {0x80930014u, "priority violation"},
+        {0x80930015u, "buffer is too big"},
+        {0x80930016u, "invalid address"},
+        {0x80930017u, "batch was cancelled"},
+        {0x80930018u, "specified memory area is already registered"},
+        {0x80930019u, "specified memory area is not registered"},
+    };
+    for (const auto& [code, message] : expected) {
+        const auto* text = sceAjmStrError(static_cast<int>(code));
+        Require(text != nullptr && std::strcmp(text, message) == 0);
+        Require(sceAjmStrError(static_cast<int>(code)) == text);
     }
-    const char* fallback = sceAjmStrError(0);
-    Require(fallback != nullptr && std::strlen(fallback) > 0);
-    for (int code : {static_cast<int>(0x80930001), 0x7fffffff})
-        Require(sceAjmStrError(code) == fallback);
-    for (int code : implemented)
-        Require(sceAjmStrError(code) != fallback);
+    for (const auto code : {0x8092ffffu, 0x80930000u, 0x80930001u, 0x8093001au, 0x8093001bu, 1u, 0xffffffffu, 0x80020001u, 0x8a6e0001u, 0x7fffffffu, 0x80000000u}) {
+        const auto* text = sceAjmStrError(static_cast<int>(code));
+        Require(text != nullptr && std::strcmp(text, "(unknown)") == 0);
+    }
 }
 
 int main(int argc, char** argv) {
