@@ -127,10 +127,28 @@ static int APS5_VABI ScanShortCharacterList(FileStream* stream, const char* form
     return result;
 }
 
-static void CheckShortCharacterScanLocking() {
+static int APS5_VABI ScanList(FileStream* stream, const char* format, ...) {
+#ifdef _WIN32
+    __builtin_sysv_va_list args;
+    __builtin_sysv_va_start(args, format);
+#else
+    std::va_list args;
+    va_start(args, format);
+#endif
+    const int result = vfscanf_nid_postfix(stream, format, reinterpret_cast<VaList*>(args));
+#ifdef _WIN32
+    __builtin_sysv_va_end(args);
+#else
+    va_end(args);
+#endif
+    return result;
+}
+
+static void CheckShortCharacterScanLocking(bool secure = true) {
     constexpr std::size_t bytes = 1u << 20;
     using Scanner = int (APS5_VABI*)(FileStream*, const char*, ...);
-    for (const Scanner scan : {fscanf_s_nid_postfix, ScanShortCharacterList}) {
+    const std::array<Scanner, 2> scanners = secure ? std::array<Scanner, 2>{fscanf_s_nid_postfix, ScanShortCharacterList} : std::array<Scanner, 2>{fscanf_nid_postfix, ScanList};
+    for (const Scanner scan : scanners) {
         auto* native = TemporaryFile::Open();
         Require(native != nullptr);
         const std::vector<char> input(bytes, 'a');
@@ -145,7 +163,7 @@ static void CheckShortCharacterScanLocking() {
         std::thread reader([&] {
             start.arrive_and_wait();
             try {
-                result = scan(&stream, "%1048576c%n", output.data(), output.size(), &consumed);
+                result = secure ? scan(&stream, "%1048576c%n", output.data(), output.size(), &consumed) : scan(&stream, "%1048576c%n", output.data(), &consumed);
             } catch (...) {
                 failure = std::current_exception();
             }
@@ -203,21 +221,37 @@ static void CheckShortCharacterScans() {
     }
 }
 
-static int APS5_VABI ScanList(FileStream* stream, const char* format, ...) {
-#ifdef _WIN32
-    __builtin_sysv_va_list args;
-    __builtin_sysv_va_start(args, format);
-#else
-    std::va_list args;
-    va_start(args, format);
+static void CheckOrdinaryCharacterScans() {
+#ifndef _WIN32
+    CheckShortCharacterScanLocking(false);
+    using Scanner = int (APS5_VABI*)(FileStream*, const char*, ...);
+    for (const Scanner scan : {fscanf_nid_postfix, ScanList}) {
+        for (const std::string input : {std::string(), std::string("a"), std::string("ab"), std::string("a\0b", 3), std::string("a b")}) {
+            for (const unsigned width : {1u, 2u, 8u}) {
+                const auto taken = std::min<std::size_t>(input.size(), width);
+                for (const bool suppress : {false, true}) {
+                    auto* native = TemporaryFile::Open();
+                    Require(native != nullptr && std::fwrite(input.data(), 1, input.size(), native) == input.size());
+                    std::rewind(native);
+                    FileStream stream(native);
+                    std::array<char, 32> output;
+                    output.fill('Z');
+                    int consumed = -1;
+                    const std::string format = std::string("%") + (suppress ? "*" : "") + std::to_string(width) + "c%n";
+                    const int result = suppress ? scan(&stream, format.c_str(), &consumed) : scan(&stream, format.c_str(), output.data(), &consumed);
+                    Require(result == (taken == 0 ? EOF : (suppress ? 0 : 1)) && consumed == (taken == 0 ? -1 : static_cast<int>(taken)), "Ordinary short character scan result or consumption");
+                    const auto written = suppress ? 0 : taken;
+                    Require(std::memcmp(output.data(), input.data(), written) == 0);
+                    for (std::size_t i = written; i < output.size(); ++i) Require(output[i] == 'Z');
+                    Require(ftell_nid_postfix(&stream) == static_cast<long>(taken));
+                    Require((feof_nid_postfix(&stream) != 0) == (input.size() < width));
+                    Require(ferror_nid_postfix(&stream) == 0);
+                    Require(std::fclose(native) == 0);
+                }
+            }
+        }
+    }
 #endif
-    const int result = vfscanf_nid_postfix(stream, format, reinterpret_cast<VaList*>(args));
-#ifdef _WIN32
-    __builtin_sysv_va_end(args);
-#else
-    va_end(args);
-#endif
-    return result;
 }
 
 static void CheckScanInputFailureErrno(const std::string& path) {
@@ -479,6 +513,7 @@ int main(int argc, char** argv) {
     Require(argc == 2);
     CheckExclusiveCppOpen(argv[1]);
     CheckShortCharacterScans();
+    CheckOrdinaryCharacterScans();
     CheckZeroSizedTransfers(argv[1]);
     CheckUpdateStreamReadsAfterWrites(argv[1]);
     CheckStreamWritesAfterReads(argv[1]);
