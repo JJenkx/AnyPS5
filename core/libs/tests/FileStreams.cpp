@@ -507,6 +507,21 @@ static void CheckOrdinaryCharacterScans() {
             }
         }
     }
+    for (const Scanner scan : {fscanf_nid_postfix, ScanList}) {
+        for (const char* format : {"%qd %c%n", "%qi %c%n", "%qu %c%n", "%qo %c%n", "%qx %c%n", "%qX %c%n"}) {
+            auto* native = std::tmpfile();
+            Require(native != nullptr && std::fputs("12345670123 z!", native) >= 0);
+            std::rewind(native);
+            FileStream stream(native);
+            std::uint64_t value = 0;
+            char output = 'Z';
+            int count = -77;
+            const std::uint64_t expected = format[2] == 'o' ? 012345670123ull : (format[2] == 'x' || format[2] == 'X' ? 0x12345670123ull : 12345670123ull);
+            Require(scan(&stream, format, &value, &output, &count) == 2 && value == expected && output == 'z' && count == 13, "Ordinary stream scan lost the host quad length");
+            Require(ftell_nid_postfix(&stream) == 13 && fgetc_nid_postfix(&stream) == '!' && ferror_nid_postfix(&stream) == 0);
+            Require(std::fclose(native) == 0);
+        }
+    }
     const int savedError = errno;
     for (const Scanner scan : {fscanf_nid_postfix, ScanList, fscanf_s_nid_postfix, ScanShortCharacterList}) {
         const bool secure = scan == fscanf_s_nid_postfix || scan == ScanShortCharacterList;
