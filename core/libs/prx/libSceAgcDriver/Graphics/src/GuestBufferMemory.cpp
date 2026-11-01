@@ -1422,7 +1422,7 @@ bool importStaysWatched(const Context& context, HostImports& state, const Import
 #else
     const auto watching = importWatching(context, state, false, true, run.bytes);
     BackingFile backing;
-    return watching.hostPointer && (watching.dmaBuf || !sharedBacking(context, run.base, run.bytes, backing));
+    return sharedBacking(context, run.base, run.bytes, backing) ? watching.dmaBuf && (watching.hostPointer || state.dmaBufSelected) : watching.hostPointer;
 #endif
 }
 
@@ -2211,6 +2211,7 @@ const HostImport* importRunAt(const Context& context, HostImports& state, Import
             return step == nullptr;
         }, watchedDmaBuf);
         if (step != nullptr && std::strcmp(step, "UDMABUF_CREATE") == 0) {
+            if (requester == ImportRequester::ColorTarget && !watchedHostPointer) return failedImport();
             // udmabuf refused the range before anything was imported (above its size limit the sparse path declines
             // it up front), so the range keeps the host-pointer import main makes for it.
             std::fprintf(stderr, "[gpu] dma-buf import of 0x%llx+0x%llx refused by udmabuf; host-pointer import\n", static_cast<unsigned long long>(base), static_cast<unsigned long long>(bytes));
