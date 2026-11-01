@@ -21,6 +21,7 @@
 #include <sys/mman.h>
 #endif
 #include <algorithm>
+#include <atomic>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -452,6 +453,14 @@ void Compared(AgcDriver::VulkanDevice& device) {
 #ifdef __linux__
 namespace {
 
+PFN_vkGetDeviceProcAddr DmaBufOriginalDeviceProc = nullptr;
+std::atomic<std::uint32_t> DmaBufHostPointerQueries{0};
+
+PFN_vkVoidFunction ResolveDmaBufRefusal(VkDevice device, const char* name) {
+    if (std::strcmp(name, "vkGetMemoryHostPointerPropertiesEXT") == 0) DmaBufHostPointerQueries.fetch_add(1, std::memory_order_relaxed);
+    return DmaBufOriginalDeviceProc(device, name);
+}
+
 bool DmaBufColorTarget(AgcDriver::VulkanDevice& device, bool refused) {
     using namespace AgcDriver::Graphics;
     auto context = AgcDriver::VulkanDeviceTestAccess::ContextOf(device);
@@ -471,7 +480,11 @@ bool DmaBufColorTarget(AgcDriver::VulkanDevice& device, bool refused) {
         context.sparseBinding = false;
         Require(block.Watched(), "refused dma-buf: direct memory is not watched before the import");
         Require(ExistingHostImportFor(context, block.Address(), block.bytes) == nullptr, "refused dma-buf: direct memory already has an import");
+        DmaBufHostPointerQueries.store(0, std::memory_order_relaxed);
+        DmaBufOriginalDeviceProc = context.deviceProc;
+        context.deviceProc = ResolveDmaBufRefusal;
         const auto* imported = HostImportFor(context, block.Address(), block.bytes, ImportRequester::ColorTarget);
+        Require(DmaBufHostPointerQueries.load(std::memory_order_relaxed) == 0, "refused dma-buf: a color target attempted an unwatched host-pointer import");
         Require(imported == nullptr, "refused dma-buf: a color target fell back to an unwatched host-pointer import");
         Require(block.Watched(), "refused dma-buf: the failed color target import dropped write tracking");
         Require(ExistingHostImportFor(context, block.Address(), block.bytes) == nullptr, "refused dma-buf: the failed color target left an import cached");
