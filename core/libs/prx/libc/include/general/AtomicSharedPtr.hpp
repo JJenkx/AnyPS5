@@ -30,12 +30,16 @@ public:
         return std::exchange(value, std::move(desired));
     }
     bool compare_exchange_strong(std::shared_ptr<T>& expected, std::shared_ptr<T> desired, std::memory_order = std::memory_order_seq_cst) noexcept {
-        std::lock_guard lock(mutex);
-        if (value == expected) {
-            value = std::move(desired);
-            return true;
+        std::shared_ptr<T> current;
+        {
+            std::lock_guard lock(mutex);
+            if (value == expected && !value.owner_before(expected) && !expected.owner_before(value)) {
+                value.swap(desired);
+                return true;
+            }
+            current = value;
         }
-        expected = value;
+        expected.swap(current);
         return false;
     }
     operator std::shared_ptr<T>() const noexcept { return load(); }
