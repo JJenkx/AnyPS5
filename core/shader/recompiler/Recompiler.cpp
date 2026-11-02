@@ -14,7 +14,6 @@
 #include "SpirvBackend/SpirvSpecialization.hpp"
 #include "RdnaDecoder/RdnaDescriptorFormat.hpp"
 #include "ShaderDiskCache.hpp"
-#include "ThreadOwned.hpp"
 #include <list>
 #include <functional>
 #include <map>
@@ -1836,31 +1835,44 @@ bool RecycleResults() {
     return enabled;
 }
 
-constexpr std::size_t RecycledResultsKept = 8;
 std::atomic<std::uint64_t> resultsRecycled{0};
 
-std::vector<std::shared_ptr<RecompileResult>>& recycledResults() {
-    static thread_local std::vector<std::shared_ptr<RecompileResult>>* slot = nullptr;
-    return ThreadOwned(slot);
+struct ResultRecycleReceiver {
+    const RecompileResult* expected = nullptr;
+    std::unique_ptr<RecompileResult> result;
+};
+
+thread_local ResultRecycleReceiver* resultRecycleReceiver = nullptr;
+
+struct MemoResultDelete {
+    void operator()(RecompileResult* result) const {
+        if (resultRecycleReceiver != nullptr && resultRecycleReceiver->expected == result) resultRecycleReceiver->result.reset(result);
+        else delete result;
+    }
+};
+
+template<typename TValue>
+std::shared_ptr<RecompileResult> makeMemoResult(TValue&& value) {
+    return {new RecompileResult(std::forward<TValue>(value)), MemoResultDelete{}};
 }
 
-void recycleResult(std::shared_ptr<const RecompileResult>& result) {
-    if (!RecycleResults() || result == nullptr || result.use_count() != 1) return;
-    auto& kept = recycledResults();
-    if (kept.size() >= RecycledResultsKept) return;
-    std::atomic_thread_fence(std::memory_order_acquire);
-    kept.push_back(std::const_pointer_cast<RecompileResult>(std::move(result)));
-}
-
-std::shared_ptr<RecompileResult> copyResult(const RecompileResult& donor) {
-    if (!RecycleResults()) return std::make_shared<RecompileResult>(donor);
-    auto& kept = recycledResults();
-    if (kept.empty()) return std::make_shared<RecompileResult>(donor);
-    auto result = std::move(kept.back());
-    kept.pop_back();
-    *result = donor;
-    resultsRecycled.fetch_add(1, std::memory_order_relaxed);
-    return result;
+std::shared_ptr<RecompileResult> takeReusableResult(SourceEntry& source, std::uint64_t index) {
+    if (!RecycleResults()) return nullptr;
+    auto* set = memoSet(source.memo, index);
+    if (set == nullptr) return nullptr;
+    auto* victim = std::min_element(set, set + ResultMemoWays, [](const auto& left, const auto& right) { return left.used < right.used; });
+    if (victim->result == nullptr || victim->result.use_count() != 1) return nullptr;
+    ResultRecycleReceiver receiver{victim->result.get(), nullptr};
+    auto* previous = std::exchange(resultRecycleReceiver, &receiver);
+    victim->result.reset();
+    resultRecycleReceiver = previous;
+    auto& counters = resultMemoCounters();
+    counters.evictions.fetch_add(1, std::memory_order_relaxed);
+    counters.heldBytes.fetch_sub(victim->bytes, std::memory_order_relaxed);
+    counters.heldEntries.fetch_sub(1, std::memory_order_relaxed);
+    *victim = {};
+    if (receiver.result == nullptr) return nullptr;
+    return {receiver.result.release(), MemoResultDelete{}};
 }
 
 std::shared_ptr<const RecompileResult> materializePreparedMemoized(SourceEntry& source, const std::shared_ptr<const CompiledVariant>& variant, const RecompileRequest& request, const ResourceSnapshot& snapshot, bool cacheHit, bool* memoHit) {
@@ -1889,6 +1901,7 @@ std::shared_ptr<const RecompileResult> materializePreparedMemoized(SourceEntry& 
     const auto maskedIndex = (variantId * 0x9e3779b97f4a7c15ull) ^ maskedHash;
     std::shared_ptr<const RecompileResult> donor;
     std::shared_ptr<const MemoPatch> donorPatch;
+    std::shared_ptr<RecompileResult> reusable;
     if (masking) {
         std::lock_guard lock(source.mutex);
         if (auto* set = memoSet(source.maskedMemo, maskedIndex)) {
@@ -1901,19 +1914,26 @@ std::shared_ptr<const RecompileResult> materializePreparedMemoized(SourceEntry& 
                 break;
             }
         }
+        if (donor != nullptr) reusable = takeReusableResult(source, index);
     }
     const auto started = profile ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     std::shared_ptr<RecompileResult> result;
     std::shared_ptr<MemoPatch> patch;
     if (donor != nullptr) {
-        result = copyResult(*donor);
+        if (reusable != nullptr) {
+            result = std::move(reusable);
+            *result = *donor;
+            resultsRecycled.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            result = makeMemoResult(*donor);
+        }
         applyMemoPatch(*result, *donorPatch, snapshot);
         if (VerifyMaskedResultMemo()) verifyPatchedResult(*result, materializeResult(*variant, request, snapshot, false, nullptr, &substitutes), variantId);
         if (profile) counters.patchNanoseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count()), std::memory_order_relaxed);
         counters.patched.fetch_add(1, std::memory_order_relaxed);
     } else {
         if (masking) patch = std::make_shared<MemoPatch>();
-        result = std::make_shared<RecompileResult>(materializeResult(*variant, request, snapshot, false, patch.get(), &substitutes));
+        result = makeMemoResult(materializeResult(*variant, request, snapshot, false, patch.get(), &substitutes));
         if (profile) counters.populateNanoseconds.fetch_add(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count()), std::memory_order_relaxed);
         counters.misses.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1944,7 +1964,6 @@ std::shared_ptr<const RecompileResult> materializePreparedMemoized(SourceEntry& 
             counters.heldBytes.fetch_sub(victim->bytes, std::memory_order_relaxed);
             counters.heldEntries.fetch_sub(1, std::memory_order_relaxed);
         }
-        recycleResult(victim->result);
         const auto held = bytes + (recipe != nullptr ? patchBytes(*recipe) : 0u);
         *victim = {variantId, key, shared, nextMemoUse(), std::move(recipe), held};
         counters.heldBytes.fetch_add(held, std::memory_order_relaxed);
