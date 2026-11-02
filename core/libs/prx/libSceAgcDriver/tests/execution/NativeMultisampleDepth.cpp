@@ -1370,6 +1370,7 @@ void CheckStencilTarget(Context context, std::uint32_t fragments, bool one, bool
         ~Cleanup() { recorder.Sync(); ClearCachedTextures(context.device); ClearDepthSurfaces(context.device); }
     } cleanup{recorder, context};
     const auto view = DepthSurfaceView(context, target);
+    NoteDepthSurfaceWrite(context, target);
     const auto words = DepthSampleWords(target);
     auto texture = CachedSampledTexture(context, words);
     Require(texture != nullptr && CachedSampledTexture(context, words) == texture, "native depth-stencil sampled view was not reused");
