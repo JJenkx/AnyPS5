@@ -11,7 +11,10 @@
 
 #include "SceTypes.hpp"
 #include "ProcessParametersFixture.hpp"
+#include "prx/libSceHttp/include/Http.hpp"
 #include "prx/libSceHttp/src/Resolver.hpp"
+#include "prx/libSceNet/include/Net.hpp"
+#include "prx/libSceSsl/include/Ssl.hpp"
 #include "SslCertificateFixture.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include <algorithm>
@@ -35,30 +38,6 @@
 #include <utility>
 #include <thread>
 #include <vector>
-
-extern "C" {
-int APS5_VABI sceNetInit_nid_postfix(void);
-int APS5_VABI sceSslInit_nid_postfix(std::uint64_t);
-int APS5_VABI sceSslTerm_nid_postfix(int);
-int APS5_VABI sceHttpInit_nid_postfix(int, int, std::uint64_t);
-int APS5_VABI sceHttpTerm_nid_postfix(int);
-int APS5_VABI sceHttpCreateTemplate(int, const char*, int, int);
-int APS5_VABI sceHttpDeleteTemplate(int);
-int APS5_VABI sceHttpCreateConnectionWithURL(int, const char*, int);
-int APS5_VABI sceHttpDeleteConnection(int);
-int APS5_VABI sceHttpCreateRequestWithURL(int, int, const char*, std::uint64_t);
-int APS5_VABI sceHttpDeleteRequest(int);
-int APS5_VABI sceHttpAddRequestHeader(int, const char*, const char*, std::uint32_t);
-int APS5_VABI sceHttpSetConnectTimeOut(int, std::uint32_t);
-int APS5_VABI sceHttpSetResolveTimeOut(int, std::uint32_t);
-int APS5_VABI sceHttpsSetSslCallback(int, HttpsCallback, void*);
-int APS5_VABI sceHttpSendRequest(int, const void*, std::size_t);
-int APS5_VABI sceHttpGetStatusCode(int, int*);
-int APS5_VABI sceHttpGetLastErrno(int, int*);
-int APS5_VABI sceHttpGetResponseContentLength(int, int*, std::uint64_t*);
-int APS5_VABI sceHttpGetAllResponseHeaders(int, char**, std::size_t*);
-int APS5_VABI sceHttpReadData(int, void*, std::size_t);
-}
 
 #ifdef _WIN32
 using NativeSocket = SOCKET;
@@ -382,6 +361,38 @@ static void CheckChunkedResponse() {
     DeleteRequest(objects);
 }
 
+static void CheckOversizedChunkTrailer() {
+    std::string response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n3\r\nabc\r\n0\r\n";
+    for (int line = 0; line < 64; ++line) response += "X-Trailer-" + std::to_string(line) + ": " + std::string(48, 't') + "\r\n";
+    response += "\r\n";
+    HttpServer server({response});
+    const auto objects = CreateRequest(server.Port(), 0);
+    Require(sceHttpSetResponseHeaderMaxSize(objects.request, 1024) == 0);
+    Require(sceHttpSendRequest(objects.request, nullptr, 0) == 0);
+    std::array<char, 16> buffer{};
+    Require(sceHttpReadData(objects.request, buffer.data(), 3) == 3 && std::string_view(buffer.data(), 3) == "abc");
+    Require(sceHttpReadData(objects.request, buffer.data(), buffer.size()) == static_cast<int>(0x80431063u));
+    int lastError = 0;
+    Require(sceHttpGetLastErrno(objects.request, &lastError) == 0 && lastError == static_cast<int>(0x80432060u));
+    DeleteRequest(objects);
+}
+
+static void CheckLongChunkedResponse() {
+    std::string response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+    std::string expected;
+    for (int chunk = 0; chunk < 20000; ++chunk) {
+        const std::string value(2, static_cast<char>('a' + chunk % 26));
+        response += "2\r\n" + value + "\r\n";
+        expected += value;
+    }
+    response += "0\r\n\r\n";
+    HttpServer server({response});
+    const auto objects = CreateRequest(server.Port(), 0);
+    Require(sceHttpSendRequest(objects.request, nullptr, 0) == 0);
+    Require(ReadBody(objects.request) == expected);
+    DeleteRequest(objects);
+}
+
 static void CheckTlsTransport() {
     TlsHttpServer server;
     Require(sceNetInit_nid_postfix() == 0);
@@ -478,6 +489,8 @@ int main() {
     Require(sceNetInit_nid_postfix() == 0);
     CheckContentLengthResponse();
     CheckChunkedResponse();
+    CheckOversizedChunkTrailer();
+    CheckLongChunkedResponse();
     CheckRedirect();
     CheckTlsTransport();
     CheckConnectTimeout();

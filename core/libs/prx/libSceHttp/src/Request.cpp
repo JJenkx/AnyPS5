@@ -11,6 +11,9 @@
 #endif
 
 #include "SceTypes.hpp"
+#include "prx/libSceHttp/include/Http.hpp"
+#include "prx/libSceNet/include/Net.hpp"
+#include "prx/libSceSsl/include/Ssl.hpp"
 #include "prx/libSceHttp/src/HttpErrors.hpp"
 #include "prx/libSceHttp/src/Options.hpp"
 #include "prx/libSceHttp/src/Resolver.hpp"
@@ -29,29 +32,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
-extern "C" {
-int APS5_VABI sceHttpUriParse(SceHttpUriElement*, const char*, void*, std::size_t*, std::size_t);
-int APS5_VABI sceHttpUriMerge(char*, const char*, const char*, std::size_t*, std::size_t, std::uint32_t);
-int APS5_VABI sceNetSocket(const char*, int, int, int);
-int APS5_VABI sceNetSocketClose(int);
-int APS5_VABI sceNetConnect(int, const void*, std::uint32_t);
-std::int64_t APS5_VABI sceNetSend(int, const void*, std::size_t, int);
-std::int64_t APS5_VABI sceNetRecv(int, void*, std::size_t, int);
-int APS5_VABI sceNetSetsockopt(int, int, int, const void*, std::uint32_t);
-int APS5_VABI sceNetGetsockopt(int, int, int, void*, std::uint32_t*);
-int APS5_VABI sceNetEpollCreate(const char*, int);
-int APS5_VABI sceNetEpollControl(int, int, int, const NetEpollEvent*);
-int APS5_VABI sceNetEpollWait(int, NetEpollEvent*, int, int);
-int APS5_VABI sceNetEpollDestroy(int);
-int APS5_VABI sceSslCreateConnection(int, int, const char*);
-int APS5_VABI sceSslDeleteConnection(int);
-int APS5_VABI sceSslConnect(int);
-int APS5_VABI sceSslRead(int, void*, std::size_t, int);
-int APS5_VABI sceSslWrite(int, void*, std::size_t, int);
-int APS5_VABI sceSslSetVerifyCallback(int, int (APS5_VABI *)(int, unsigned int, void**, int, void*), void*);
-int APS5_VABI sceHttpParseStatusLine(const char*, std::size_t, std::int32_t*, std::int32_t*, std::int32_t*, const char**, std::size_t*);
-}
 
 namespace {
 
@@ -191,6 +171,7 @@ struct RequestData {
     bool bodyDone = false;
     std::uint64_t chunkRemaining = 0;
     bool needChunkTerminator = false;
+    std::size_t trailerMaximum = 0;
 };
 
 std::mutex g_objectsMutex;
@@ -268,6 +249,16 @@ std::shared_ptr<RequestData> FindRequest(const int id) {
     return found == g_requests.end() ? nullptr : found->second;
 }
 
+void DropConsumed(std::vector<unsigned char>& pending, std::size_t& offset) {
+    if (offset == pending.size()) {
+        pending.clear();
+        offset = 0;
+    } else if (offset >= kIoBufferSize) {
+        pending.erase(pending.begin(), pending.begin() + static_cast<std::ptrdiff_t>(offset));
+        offset = 0;
+    }
+}
+
 int ReadLine(NetworkStream& stream, std::vector<unsigned char>& pending, std::size_t& offset, std::string& line,
     const std::size_t limit) {
     line.clear();
@@ -283,6 +274,7 @@ int ReadLine(NetworkStream& stream, std::vector<unsigned char>& pending, std::si
             return 0;
         }
         if (pending.size() - offset > limit) return ERROR_PARSE_HTTP_INVALID_RESPONSE;
+        DropConsumed(pending, offset);
         std::array<unsigned char, kIoBufferSize> buffer{};
         const int received = stream.Read(buffer.data(), buffer.size());
         if (received <= 0) return ERROR_NETWORK;
@@ -297,6 +289,7 @@ int ReadPending(NetworkStream& stream, std::vector<unsigned char>& pending, std:
         const auto count = std::min(size, pending.size() - offset);
         std::memcpy(output, pending.data() + offset, count);
         offset += count;
+        DropConsumed(pending, offset);
         return static_cast<int>(count);
     }
     return stream.Read(output, size);
@@ -596,6 +589,7 @@ int ReadRequestHeaders(RequestData& request, const std::shared_ptr<RequestData>&
     const auto maxHeader = static_cast<std::size_t>(std::min<std::uint64_t>(settings.responseHeaderMaxSize,
         static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())));
     if (maxHeader == 0) return ERROR_INVALID_VALUE;
+    request.trailerMaximum = maxHeader;
     const int result = ParseResponseHeaders(request, *request.stream, maxHeader);
     if (result != 0) {
         request.lastError = result;
@@ -709,8 +703,11 @@ int ReadChunkedBody(RequestData& request, void* output, const std::size_t size) 
             if (lineResult != 0) return lineResult;
             if (const int parseResult = ParseChunkSize(line, request.chunkRemaining); parseResult != 0) return parseResult;
             if (request.chunkRemaining == 0) {
+                std::size_t trailerBytes = 0;
                 for (;;) {
                     if (ReadLine(*request.stream, request.pending, request.pendingOffset, line, kMaximumChunkLine) != 0) return ERROR_NETWORK;
+                    trailerBytes += line.size() + 2;
+                    if (trailerBytes > request.trailerMaximum) return ERROR_PARSE_HTTP_INVALID_RESPONSE;
                     if (line.empty()) break;
                 }
                 request.bodyDone = true;
