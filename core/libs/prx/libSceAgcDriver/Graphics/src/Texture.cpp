@@ -5,6 +5,7 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Draw/DrawPipeline.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Texture.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/MultisampleTarget.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/SlimMutex.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Mutex.hpp"
 #include "prx/libc/include/General.hpp"
@@ -71,6 +72,8 @@ Recorder* recorderFor(const Context& context) {
     auto* recorder = Recorder::Active();
     return recorder != nullptr && recorder->Device() == context.device ? recorder : nullptr;
 }
+
+std::atomic<bool> anyCreated{false};
 
 // APS5_PROFILE_DRAW: accumulate texture setup phases and report every 200 textures.
 struct TextureProfile {
@@ -1497,6 +1500,8 @@ std::shared_ptr<StorageTexture> StorageTexture::Create(const Context& context, T
     PhaseTimer timer;
     static const bool unwatchHooked = [] {
         GuestMemory::SetUnwatchHook(&StorageTexture::SaveBeforeUnwatch);
+        anyCreated.store(true, std::memory_order_release);
+        UpdateResidentImageUnmapObserver_nid_no_patch();
         return true;
     }();
     static_cast<void>(unwatchHooked);
@@ -5500,6 +5505,10 @@ bool StorageTexture::ScanPending(std::span<PendingQuery> queries) {
         if (query.pending != nullptr && query.found != query.pending) identities = false;
     }
     return identities;
+}
+
+bool StorageTexture::AnyCreated() {
+    return anyCreated.load(std::memory_order_acquire);
 }
 
 std::size_t StorageTexture::DiscardPendingInside(std::uint64_t address, std::size_t bytes) {

@@ -893,6 +893,7 @@ void forgetSingleClears(std::uintptr_t address, std::size_t bytes) {
 
 void retireUnmapped(std::uintptr_t address, std::size_t bytes) {
     forgetSingleClears(address, bytes);
+    static_cast<void>(StorageTexture::DiscardPendingInside(address, bytes));
     RetireUnmappedDepth_nid_no_patch(address, bytes);
     std::unique_lock lock(guardedMutex());
     bool metadataChanged = false;
@@ -1098,7 +1099,7 @@ void InstallResidentImageReadGuard_nid_no_patch() {
 void UpdateResidentImageUnmapObserver_nid_no_patch() {
     static std::mutex mutex;
     std::lock_guard lock(mutex);
-    GuestAllocations::GuestAllocationsSetUnmapObserver_nid_postfix(anyGuarded().load(std::memory_order_acquire) || anySingleClears().load(std::memory_order_acquire) || HasResidentDepthGuards_nid_no_patch() ? &retireUnmapped : nullptr);
+    GuestAllocations::GuestAllocationsSetUnmapObserver_nid_postfix(anyGuarded().load(std::memory_order_acquire) || anySingleClears().load(std::memory_order_acquire) || HasResidentDepthGuards_nid_no_patch() || StorageTexture::AnyCreated() ? &retireUnmapped : nullptr);
 }
 
 std::optional<DccKeys> MultisampledCmaskKeys(std::uint8_t code) {
