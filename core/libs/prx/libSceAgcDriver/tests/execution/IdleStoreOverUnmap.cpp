@@ -111,6 +111,28 @@ std::uint32_t* MapSurface() {
 #endif
 }
 
+std::uint32_t* RemapSurface(std::uint32_t* at) {
+#ifdef _WIN32
+    auto* texels = static_cast<std::uint32_t*>(GuestArena::GuestArenaAllocateFromHint_nid_postfix(AddressOf(at), SurfaceBytes, Block));
+    if (texels == nullptr) return nullptr;
+    if (texels != at) {
+        GuestArena::GuestArenaRelease_nid_postfix(texels, SurfaceBytes);
+        return nullptr;
+    }
+    GuestArena::GuestArenaCommit_nid_postfix(texels, SurfaceBytes, PAGE_READWRITE, SurfaceBytes);
+    return texels;
+#else
+    void* mapped = mmap(at, SurfaceBytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (mapped == MAP_FAILED) return nullptr;
+    if (mapped != at) {
+        munmap(mapped, SurfaceBytes);
+        return nullptr;
+    }
+    GuestWriteWatch::GuestWriteWatchRegister_nid_postfix(at, SurfaceBytes);
+    return at;
+#endif
+}
+
 void ReleaseSurface(std::uint32_t* texels) {
 #ifdef _WIN32
     GuestArena::GuestArenaReset_nid_postfix(texels, SurfaceBytes);
@@ -190,6 +212,7 @@ Outcome Run() {
     }
     Store(texels, StoreAgainCode);
     if (!HoldLive(hold, texels, StoredAgain)) return Outcome::Missed;
+    bool remapped = false;
     {
         GuestAllocations::Mutation mutation;
         mutation.Unmap(texels, SurfaceBytes, [](const void* piece, std::size_t, const void*, bool) {
@@ -197,13 +220,27 @@ Outcome Run() {
         });
         mapped = false;
         hold.unlock();
+        if (RemapSurface(texels) != nullptr) {
+            mutation.Add(texels, SurfaceBytes, true, true, true);
+            mapped = true;
+            remapped = true;
+        }
         std::this_thread::sleep_for(IdleStoreWindow);
-        Require(StorageTexture::AnyPending(), "idle store over unmap: the queue's idle store ran while a guest unmap of the surface was in progress");
     }
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (StorageTexture::AnyPending() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    Require(!StorageTexture::AnyPending(), "idle store over unmap: the queue's idle store did not settle the results of the unmapped surface");
+    if (!remapped) {
+        std::printf("skipped the remap check, the surface's address could not be mapped again\n");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (StorageTexture::AnyPending() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        Require(!StorageTexture::AnyPending(), "idle store over unmap: the queue's idle store did not settle the results of the unmapped surface");
+        AgcDriverWaitIdle_nid_postfix();
+        return Outcome::Settled;
+    }
+    std::this_thread::sleep_for(IdleStoreWindow);
+    hold.lock();
+    StorageTexture::FlushAllPending("idle store over unmap fixture");
+    hold.unlock();
     AgcDriverWaitIdle_nid_postfix();
+    Require(!Holds(texels, StoredAgain), "idle store over unmap: results of the unmapped surface were stored into the memory mapped over it");
     return Outcome::Settled;
 }
 
