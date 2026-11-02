@@ -8057,7 +8057,7 @@ void GuestBufferMemory::AddressStores(std::vector<std::pair<std::uint64_t, std::
 }
 
 void GuestBufferMemory::RecordStagingCopies(Recorder& recorder) {
-    ResidentBuffer::FlushChanged(context);
+    ResidentBuffer::FlushChanged(context, true);
     if (!uploaded || committed) return;
     static const bool profile = std::getenv("APS5_PROFILE_DRAW") != nullptr;
     std::vector<Region*> copies;
