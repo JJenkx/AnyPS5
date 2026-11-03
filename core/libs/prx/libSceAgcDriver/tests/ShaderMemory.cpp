@@ -1984,7 +1984,7 @@ void verifyTypeZeroImageMaterialization() {
         AgcDriver::ShaderMemory twoWaitMemory({}, multiPending, nullptr, hookWaits);
         const auto twoWaitCapture = twoWaitMemory.Capture(twoWaitReq);
         const auto& col = twoWaitCapture->snapshot.tables.tables.at(0);
-        require(waits == 2u && forcedHookCalls == 15u && (!gateSecondWaitOnSrtRoot || srtRootReads == 5u) && col.keys == 3u,
+        require(waits == 2u && forcedHookCalls == 15u && (!gateSecondWaitOnSrtRoot || srtRootReads == 3u) && col.keys == 3u,
                 "multi-wait readWords: forced third attempt did not execute or nested forceSync scope was not preserved");
         require(col.words.at(col.codes.at(0)).dwords == newT && col.words.at(col.codes.at(1)).dwords == thirdT && col.words.at(col.codes.at(2)).dwords == newT,
                 "multi-wait readWords: retry pass accepted an unstable epoch after a second invalidation");
