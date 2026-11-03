@@ -2113,6 +2113,42 @@ void verifyTypeZeroImageMaterialization() {
         std::copy(oldT.begin(), oldT.end(), srt.begin());
         std::copy(outputV.begin(), outputV.end(), srt.begin() + 16u);
         srt[20] = 1u;
+        phase = 0u;
+        static bool landed = false;
+        static std::array<std::uint32_t, 8> landedT{};
+        landed = false;
+        landedT = newT;
+        static std::uint64_t landedWaits = 0;
+        const auto landingPending = +[](std::uint64_t address, std::size_t bytes, std::span<std::byte>) -> AgcDriver::ShaderMemory::PendingWrite {
+            using Pending = AgcDriver::ShaderMemory::PendingWrite;
+            if (bytes >= 4096u) return address <= srtAddress && srtAddress < address + bytes ? Pending::Sync : Pending::None;
+            if (address < srtAddress + 32u && srtAddress < address + bytes) return landed ? Pending::None : Pending::Raw;
+            if (address < srtAddress + 80u && srtAddress + 64u < address + bytes) {
+                if (!landed) {
+                    landed = true;
+                    std::memcpy(srt.data(), landedT.data(), sizeof(landedT));
+                }
+                return Pending::Sync;
+            }
+            return Pending::None;
+        };
+        const auto landedHookWaits = +[]() -> std::uint64_t { return landedWaits; };
+        AgcDriver::ShaderMemory landingMemory({}, landingPending, nullptr, landedHookWaits);
+        static_cast<void>(AgcDriver::ShaderMemory::descriptorScope(&landingMemory, SrtDescriptorForceSync));
+        const auto landedCapture = landingMemory.Capture(request);
+        static_cast<void>(AgcDriver::ShaderMemory::descriptorScope(&landingMemory, SrtDescriptorEndForceSync));
+        const auto holds = [&](const std::array<std::uint32_t, 8>& expected) {
+            return std::ranges::any_of(landedCapture->snapshot.images, [&](const DescriptorValue& value) { return std::equal(expected.begin(), expected.end(), value.dwords.begin()); });
+        };
+        require(landed && holds(newT) && !holds(oldT),
+                "forced SrtDescriptorForceSync: a raw T# that changed before a Sync read that did not wait was kept instead of read again");
+    }
+
+    {
+        srt.fill(0u);
+        std::copy(oldT.begin(), oldT.end(), srt.begin());
+        std::copy(outputV.begin(), outputV.end(), srt.begin() + 16u);
+        srt[20] = 1u;
         phase = 1u;
         waits = 0u;
         flushed = true;
