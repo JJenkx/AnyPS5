@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 from collections import defaultdict
+from functools import cache
 from pathlib import Path
 
 import nid_names
@@ -459,14 +460,21 @@ def module_files(directory):
             raise AuditError(f"{file}: expected ELF module (first bytes {magic!r})")
 
 
+class ModuleImports(dict):
+    def __init__(self):
+        super().__init__()
+        self.paths = defaultdict(set)
+
+
 def read_modules(directories):
-    imports = {}
+    imports = ModuleImports()
     exports = defaultdict(set)
     images = {}
     for directory in directories:
         for file in module_files(directory):
             data = file.read_bytes()
             digest = hashlib.sha256(data).digest()
+            imports.paths[file.name].add(file.absolute())
             if file.name in images:
                 previous, fingerprint = images[file.name]
                 if digest != fingerprint:
@@ -778,6 +786,32 @@ def classify(nid, library, providers, stubs, guest_providers, partial=frozenset(
 
 
 def audit(imports, exports, stubs, libraries, modules, module_imports=None, module_exports=None, *, needed_libraries=(), windows_libraries=(), partial=frozenset()):
+    module_paths = getattr(module_imports, "paths", {})
+    path_providers = defaultdict(set)
+    for provider, paths in module_paths.items():
+        for path in paths:
+            path_providers[path.resolve()].add(provider)
+
+    @cache
+    def origin_modules(name, importer):
+        prefix = next((prefix for prefix in ("$ORIGIN/", "${ORIGIN}/") if name.startswith(prefix)), None)
+        if prefix is None:
+            return None
+        paths = module_paths.get(importer, ())
+        if not paths:
+            return set()
+        selected = set()
+        for path in paths:
+            try:
+                target = Path(str(path.parent) + "/" + name[len(prefix):]).resolve()
+            except (OSError, RuntimeError):
+                return set()
+            providers = path_providers.get(target, ())
+            if not providers:
+                return set()
+            selected.update(providers)
+        return selected
+
     windows_names = {}
     for library in windows_libraries:
         windows_names.setdefault(library.casefold(), set()).add(library)
@@ -801,7 +835,10 @@ def audit(imports, exports, stubs, libraries, modules, module_imports=None, modu
                     return next(iter(candidates))
         return name
 
-    def available(name):
+    def available(name, importer=None):
+        selected = origin_modules(name, importer)
+        if selected is not None:
+            return bool(selected)
         return name in modules or system_library(name) in libraries
 
     guest_names = {}
@@ -809,7 +846,10 @@ def audit(imports, exports, stubs, libraries, modules, module_imports=None, modu
         names = {provider, provider.removesuffix(".guest.prx")}
         guest_names[provider] = ModuleNames(names, fold=getattr(modules, "fold", False))
 
-    def guest_matches(name):
+    def guest_matches(name, importer=None):
+        selected = origin_modules(name, importer)
+        if selected is not None:
+            return selected
         filename = name.lower() if getattr(modules, "fold", False) else name
         exact = {provider for provider, names in guest_names.items() if filename in names.files}
         return exact or {provider for provider, names in guest_names.items() if name in names}
@@ -826,7 +866,7 @@ def audit(imports, exports, stubs, libraries, modules, module_imports=None, modu
         elif hosts:
             module = record.get("module")
             needed = (module_imports or {})[module][1] if module else needed_libraries
-            selected = {provider for name in needed for provider in guest_matches(name)}
+            selected = {provider for name in needed for provider in guest_matches(name, module)}
             guests = [provider for provider in guests if provider == module or provider in selected]
         return sorted(set(hosts) | set(guests)), guests
 
@@ -868,7 +908,7 @@ def audit(imports, exports, stubs, libraries, modules, module_imports=None, modu
         for library in needed:
             if module.endswith(".guest.prx") and library == "ld-linux-x86-64.so.2":
                 continue
-            if not available(library):
+            if not available(library, module):
                 missing[library] += 1
     return ordered, dict(sorted(missing.items()))
 
