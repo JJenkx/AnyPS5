@@ -463,10 +463,13 @@ def read_modules(directories):
     imports = {}
     exports = defaultdict(set)
     images = {}
+    paths = {}
+    origins = {}
     for directory in directories:
         for file in module_files(directory):
             data = file.read_bytes()
             digest = hashlib.sha256(data).digest()
+            paths[file.resolve()] = file.name
             if file.name in images:
                 previous, fingerprint = images[file.name]
                 if digest != fingerprint:
@@ -479,9 +482,23 @@ def read_modules(directories):
             else:
                 symbols, needed = elf_imports(file, data)
                 imports[file.name] = (sorted(symbols.items()), sorted(needed))
+                origins[file.name] = file.resolve().parent
                 names = elf_exports(file, data)
             for name in names:
                 exports[name.split(MODULE_SUFFIX, 1)[0]].add(file.name)
+    for module, origin in origins.items():
+        symbols, needed = imports[module]
+        resolved = set()
+        for library in needed:
+            for prefix in ("$ORIGIN/", "${ORIGIN}/"):
+                if library.startswith(prefix):
+                    try:
+                        library = paths.get((origin / library[len(prefix):]).resolve(), library)
+                    except (OSError, RuntimeError):
+                        pass
+                    break
+            resolved.add(library)
+        imports[module] = (symbols, sorted(resolved))
     return imports, {name: sorted(files) for name, files in exports.items()}
 
 

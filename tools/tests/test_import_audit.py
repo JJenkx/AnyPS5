@@ -1125,6 +1125,54 @@ class ImportAuditTests(unittest.TestCase):
                     self.assertEqual(result.read_bytes(), previous)
                 module.unlink()
 
+    def test_origin_dependency_resolves_only_to_a_supplied_module(self):
+        work = self.work
+        (work.libs / "libc.prx").write_bytes(exporting())
+        name, nid = "sceOriginSynthetic", nid_names.compute_nid("sceOriginSynthetic")
+        (work.libs / "libSceSynthetic.prx").write_bytes(exporting(nid))
+        write_source(work.source, "libSceSynthetic", STUB_SOURCE.format(name=name))
+        provider = work.root / "providers"
+        provider.mkdir()
+        (provider / "provider.prx.guest.prx").write_bytes(exporting(nid))
+        registry, result = work.root / "game.json", work.root / "audit.json"
+        write_registry(registry, [])
+        for prefix in ("$ORIGIN", "${ORIGIN}"):
+            with self.subTest(prefix=prefix):
+                (work.modules / "consumer.prx.guest.prx").write_bytes(build_elf(
+                    [(nid, 0, GLOBAL_FUNCTION)], [prefix + "/../providers/provider.prx.guest.prx"]))
+                code, _, err = work.run(registry, "--modules", str(provider), "--json", str(result))
+                self.assertEqual((code, err), (0, ""))
+                data = json.loads(result.read_text())
+                self.assertEqual(data["missing_libraries"], {})
+                self.assertEqual(data["imports"][0]["class"], "implemented")
+                self.assertEqual(data["imports"][0]["providers"], ["libSceSynthetic.prx", "provider.prx.guest.prx"])
+
+    def test_origin_dependency_does_not_match_a_different_directory(self):
+        work = self.work
+        (work.libs / "libc.prx").write_bytes(exporting())
+        (work.modules / "provider.prx.guest.prx").write_bytes(exporting())
+        dependency = "$ORIGIN/missing/provider.prx.guest.prx"
+        (work.modules / "consumer.prx.guest.prx").write_bytes(build_elf([], [dependency]))
+        registry, result = work.root / "game.json", work.root / "audit.json"
+        write_registry(registry, [])
+        code, _, err = work.run(registry, "--json", str(result))
+        self.assertEqual((code, err), (1, ""))
+        self.assertEqual(json.loads(result.read_text())["missing_libraries"], {dependency: 1})
+
+    def test_origin_dependency_does_not_include_an_unsupplied_module(self):
+        work = self.work
+        (work.libs / "libc.prx").write_bytes(exporting())
+        provider = work.root / "providers"
+        provider.mkdir()
+        (provider / "provider.prx.guest.prx").write_bytes(exporting())
+        dependency = "$ORIGIN/../providers/provider.prx.guest.prx"
+        (work.modules / "consumer.prx.guest.prx").write_bytes(build_elf([], [dependency]))
+        registry, result = work.root / "game.json", work.root / "audit.json"
+        write_registry(registry, [])
+        code, _, err = work.run(registry, "--json", str(result))
+        self.assertEqual((code, err), (1, ""))
+        self.assertEqual(json.loads(result.read_text())["missing_libraries"], {dependency: 1})
+
     def test_module_needed_library_without_a_file_is_missing(self):
         work = self.work
         (work.libs / "libc.prx").write_bytes(exporting())
