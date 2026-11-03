@@ -71,6 +71,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <barrier>
 #include <deque>
 #include <cctype>
 #include <charconv>
@@ -1077,7 +1078,69 @@ Recorder::WriteRanges expectedWriteUnion(Recorder::WriteRanges ranges) {
     return result;
 }
 
+void pendingWriteGapTests(Recorder& recorder) {
+    recorder.Sync();
+    recorder.NotePendingWrite(0x10000, 16);
+    recorder.NotePendingWrite(0x20000, 16);
+    const auto check = [&](std::uint64_t address, std::size_t bytes) {
+        const auto snapshot = Recorder::PendingWriteSnapshot();
+        const bool expected = Recorder::SnapshotOverlaps(snapshot.get(), address, bytes);
+        Require(Recorder::SnapshotWriteOverlaps(address, bytes) == expected, "cached overlap probe differs from the published snapshot");
+    };
+    const std::array<std::pair<std::uint64_t, std::size_t>, 16> queries{{
+        {0, 1}, {0xFFFF, 1}, {0xFFFF, 2}, {0x10000, 1},
+        {0x1000F, 1}, {0x10010, 1}, {0x1FFFF, 1}, {0x1FFFF, 2},
+        {0x20000, 1}, {0x2000F, 1}, {0x20010, 1}, {0x10010, 0xFFF0},
+        {0x10010, 0xFFF1}, {0, 0}, {UINT64_MAX - 8, 16}, {UINT64_MAX - 16, 16}
+    }};
+    for (int repeat = 0; repeat < 8; ++repeat) for (const auto& [address, bytes] : queries) check(address, bytes);
+    check(0x14000, 16);
+    const auto hits = Recorder::SnapshotGapCacheHits();
+    for (int repeat = 0; repeat < 64; ++repeat) check(0x14000 + repeat * 16, 16);
+    if (std::getenv("APS5_NO_WRITE_SNAPSHOT_GAP_CACHE") == nullptr) {
+        Require(Recorder::SnapshotGapCacheHits() >= hits + 64, "negative overlap probes did not reuse their gap");
+    } else {
+        Require(Recorder::SnapshotGapCacheHits() == hits, "disabled gap cache still reused a negative result");
+    }
+    recorder.NotePendingWrite(0x14000, 16);
+    Require(Recorder::SnapshotWriteOverlaps(0x14000, 16), "a newly published write was hidden by an older negative gap");
+    recorder.Sync();
+    Require(!Recorder::SnapshotWriteOverlaps(0x14000, 16), "completed writes remained in the gap cache");
+    std::atomic<bool> invalid{false};
+    std::barrier phase(3);
+    std::array<std::jthread, 2> readers;
+    for (auto& reader : readers) reader = std::jthread([&] {
+        for (std::uint64_t round = 0; round < 128; ++round) {
+            const auto address = 0xA0000 + round * 128;
+            if (Recorder::SnapshotWriteOverlaps(address, 16)) invalid.store(true, std::memory_order_relaxed);
+            phase.arrive_and_wait();
+            phase.arrive_and_wait();
+            if (!Recorder::SnapshotWriteOverlaps(address, 16)) invalid.store(true, std::memory_order_relaxed);
+            phase.arrive_and_wait();
+        }
+    });
+    for (std::uint64_t round = 0; round < 128; ++round) {
+        phase.arrive_and_wait();
+        recorder.NotePendingWrite(0xA0000 + round * 128, 16);
+        phase.arrive_and_wait();
+        phase.arrive_and_wait();
+    }
+    for (auto& reader : readers) reader.join();
+    Require(!invalid.load(), "snapshot publication left another thread's cached gap valid");
+    recorder.Sync();
+    for (const auto& [address, bytes] : queries) check(address, bytes);
+    recorder.NotePendingWrite(UINT64_MAX - 3, 8);
+    for (const auto& [address, bytes] : queries) check(address, bytes);
+    recorder.Sync();
+    recorder.NotePendingWrite(0x14000, 16);
+    check(0x14000, 16);
+    check(0x15000, 16);
+    recorder.Sync();
+    std::cout << "Pending write gap boundaries, engagement and cross-thread invalidation passed\n";
+}
+
 void pendingWriteSnapshotTests(const Device& device, Recorder& recorder) {
+    pendingWriteGapTests(recorder);
     recorder.Sync();
     Recorder::WriteRanges expected;
     const auto check = [&] {
@@ -1090,6 +1153,11 @@ void pendingWriteSnapshotTests(const Device& device, Recorder& recorder) {
         recorder.NotePendingWrite(address, bytes);
         if (bytes != 0) expected.emplace_back(address, address + bytes);
         check();
+        const auto current = Recorder::PendingWriteSnapshot();
+        for (const auto offset : {std::uint64_t{0}, std::uint64_t{1}, std::uint64_t{16}, UINT64_MAX}) {
+            const auto probe = address + offset;
+            Require(Recorder::SnapshotWriteOverlaps(probe, 16) == Recorder::SnapshotOverlaps(current.get(), probe, 16), "cached probe differs after a snapshot update");
+        }
         Require(previous == nullptr || *previous == saved, "publishing a new write modified an older reader's snapshot");
     };
     note(0x10000, 16);

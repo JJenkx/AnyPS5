@@ -653,6 +653,24 @@ using WriteRanges = Recorder::WriteRanges;
 // reader that sees no overlap either precedes the note (the queues are unordered then, as on the
 // GPU) or follows the write-back.
 AtomicSharedPtr<const WriteRanges> pendingWrites;
+std::atomic<std::uint64_t> pendingWriteEpoch{0};
+
+struct WriteGap {
+    std::uint64_t epoch = 0;
+    std::uint64_t begin = 0;
+    std::uint64_t end = 0;
+    std::uint64_t hits = 0;
+};
+
+thread_local WriteGap pendingWriteGap;
+
+void PublishWriteSnapshot(std::shared_ptr<const WriteRanges> snapshot, bool valid) {
+    const auto epoch = pendingWriteEpoch.load(std::memory_order_relaxed);
+    if ((epoch & 1) == 0) pendingWriteEpoch.fetch_add(1, std::memory_order_acq_rel);
+    pendingWrites.store(std::move(snapshot), std::memory_order_release);
+    if (valid && epoch < UINT64_MAX - 1) pendingWriteEpoch.fetch_add(1, std::memory_order_release);
+}
+
 
 bool HookSnapshotEnabled() {
     // Debug aid: APS5_NO_HOOK_SNAPSHOT=1 takes the GpuMutex on every access as before.
@@ -669,8 +687,35 @@ bool SnapshotOverlaps(const WriteRanges* snapshot, std::uint64_t address, std::s
 
 bool SnapshotOverlaps(std::uint64_t address, std::size_t bytes) {
     if (bytes == 0) return false;
+    static const bool cacheEnabled = std::getenv("APS5_NO_WRITE_SNAPSHOT_GAP_CACHE") == nullptr;
+    const auto epoch = pendingWriteEpoch.load(std::memory_order_acquire);
+    if (!cacheEnabled || (epoch & 1) != 0 || bytes > UINT64_MAX - address) {
+        const auto snapshot = pendingWrites.load(std::memory_order_acquire);
+        return SnapshotOverlaps(snapshot.get(), address, bytes);
+    }
+    const auto end = address + bytes;
+    auto& gap = pendingWriteGap;
+    if (gap.epoch == epoch && gap.begin <= address && end <= gap.end) {
+        ++gap.hits;
+        return false;
+    }
     const auto snapshot = pendingWrites.load(std::memory_order_acquire);
-    return SnapshotOverlaps(snapshot.get(), address, bytes);
+    std::uint64_t begin = 0;
+    std::uint64_t limit = UINT64_MAX;
+    if (snapshot != nullptr && !snapshot->empty()) {
+        const auto it = std::partition_point(snapshot->begin(), snapshot->end(), [&](const auto& range) { return range.second <= address; });
+        if (it != snapshot->end()) {
+            if (it->first < end) return true;
+            limit = it->first;
+        }
+        if (it != snapshot->begin()) begin = std::prev(it)->second;
+    }
+    if (pendingWriteEpoch.load(std::memory_order_acquire) == epoch) {
+        gap.epoch = epoch;
+        gap.begin = begin;
+        gap.end = limit;
+    }
+    return false;
 }
 
 // Whether one merged range of the snapshot contains [address, end) entirely.
@@ -1198,7 +1243,7 @@ Recorder::~Recorder() {
     holdKept.clear();
     if (activeRecorder == this) {
         activeRecorder = nullptr;
-        pendingWrites.store(nullptr, std::memory_order_release);
+        PublishWriteSnapshot(nullptr, true);
         publishGeneration.fetch_add(1, std::memory_order_release);
         pendingLabelSince.store(NoPendingLabel, std::memory_order_release);
         completionLabels.store(0, std::memory_order_release);
@@ -1545,6 +1590,10 @@ void Recorder::DeferDispatchBarrier(std::uint32_t queueKey, std::span<const void
     open->deferredDispatchQueue = queueKey;
     open->coveredAccess = 0;
     overlapDeferred.fetch_add(1, std::memory_order_relaxed);
+}
+
+std::uint64_t Recorder::SnapshotGapCacheHits() {
+    return pendingWriteGap.hits;
 }
 
 bool Recorder::SnapshotWriteOverlaps(std::uint64_t address, std::size_t bytes) {
@@ -3288,7 +3337,7 @@ void Recorder::publishPendingWrites(std::span<const std::pair<std::uint64_t, std
     publishedWriteRangesValid = std::all_of(merged->begin(), merged->end(), [](const auto& range) { return range.second > range.first; });
     publishedWriteRanges = merged;
     published = merged;
-    pendingWrites.store(std::move(merged), std::memory_order_release);
+    PublishWriteSnapshot(std::move(merged), publishedWriteRangesValid);
     publishGeneration.fetch_add(1, std::memory_order_release);
     ++snapshotRebuilds;
     if (DrawProfiled()) snapshotRebuildMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
