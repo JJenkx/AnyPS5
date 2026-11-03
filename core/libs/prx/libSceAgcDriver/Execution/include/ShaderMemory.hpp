@@ -146,6 +146,7 @@ private:
     static bool unchangedSince(void* context, std::uint64_t address, std::uint64_t bytes, const ShaderRecompiler::SrtWriteStamp& stamp);
     static bool supplyWords(void* context, const std::shared_ptr<const ShaderRecompiler::SrtGuestWords>& words);
     bool invalidateRawPages();
+    bool invalidateChangedRawPages();
     Page& page(std::uint64_t base);
     [[nodiscard]] std::size_t pageAtOrAfter(std::uint64_t base) const;
     Page& addPage(std::size_t position, std::uint64_t base);
