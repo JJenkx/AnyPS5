@@ -5817,7 +5817,11 @@ public:
         }
         const auto [frames, busyMs] = Recorder::FrameGpuBusy();
         const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-        if (swept) return policy.InPlace(begin, end, use, frames, busyMs, nowMs, !writtenPolicy.Probing());
+        if (swept) {
+            writtenPolicy.AdvanceProbe(frames, busyMs, nowMs);
+            return policy.InPlace(begin, end, use, frames, busyMs, nowMs, !writtenPolicy.Probing());
+        }
+        policy.AdvanceProbe(frames, busyMs, nowMs);
         return writtenPolicy.InPlaceGroup(use, frames, busyMs, nowMs, !policy.Probing());
     }
 

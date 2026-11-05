@@ -41,6 +41,10 @@ public:
 
     bool Probing() const { return probe.active; }
 
+    void AdvanceProbe(std::uint64_t frames, double busyMs, std::int64_t nowMs) {
+        if (probe.active) tick(frames, busyMs, nowMs, false);
+    }
+
 private:
     using Key = std::pair<std::uint64_t, std::uint64_t>;
 

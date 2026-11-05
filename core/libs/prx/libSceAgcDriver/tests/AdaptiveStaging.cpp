@@ -173,6 +173,28 @@ void CheckProbeArbitration() {
     Require(!written.InPlaceGroup(false, frames, busy, now, false), "the written group inherited the swept policy's decision");
 }
 
+void CheckAbsentClassDoesNotBlockTheOther() {
+    AdaptiveStaging absent;
+    AdaptiveStaging present;
+    std::uint64_t frames = 1;
+    double busy = 100;
+    std::int64_t now = FrameMs;
+    absent.InPlaceGroup(true, frames, busy, now);
+    Require(absent.Probing(), "the disappearing class did not start its probe");
+    unsigned completed = 0;
+    for (unsigned frame = 0; frame < 400; ++frame) {
+        ++frames;
+        now += FrameMs;
+        busy += 100;
+        absent.AdvanceProbe(frames, busy, now);
+        present.InPlaceGroup(true, frames, busy, now, !absent.Probing());
+        Require(!(absent.Probing() && present.Probing()), "advancing an absent class overlapped the present class's probe");
+        completed += present.Probing();
+    }
+    Require(!absent.Probing(), "a disappeared buffer class left its probe active forever");
+    Require(completed != 0, "a disappeared class blocked the present class from probing");
+}
+
 }
 
 int main() {
@@ -186,6 +208,7 @@ int main() {
         CheckWrittenGroupMovesTogether();
         CheckWrittenGroupKeepsFasterStaging();
         CheckProbeArbitration();
+        CheckAbsentClassDoesNotBlockTheOther();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;
