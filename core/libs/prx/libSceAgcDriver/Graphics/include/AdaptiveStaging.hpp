@@ -24,15 +24,22 @@ public:
     static constexpr double SceneShift = 0.25;
 
     std::function<void(const std::string&)> report;
+    std::string name;
 
-    bool InPlace(std::uint64_t begin, std::uint64_t end, bool use, std::uint64_t frames, double busyMs, std::int64_t nowMs) {
+    bool InPlace(std::uint64_t begin, std::uint64_t end, bool use, std::uint64_t frames, double busyMs, std::int64_t nowMs, bool allowNewProbe = true) {
         const Key key{begin, end};
         auto& element = elements[key];
         if (use) element.bytes += end - begin;
-        tick(frames, busyMs, nowMs);
+        tick(frames, busyMs, nowMs, allowNewProbe);
         if (probe.active && probe.key == key) return probe.phase == 1 ? !element.inPlace : element.inPlace;
         return element.inPlace;
     }
+
+    bool InPlaceGroup(bool use, std::uint64_t frames, double busyMs, std::int64_t nowMs, bool allowNewProbe = true) {
+        return InPlace(0, 1, use, frames, busyMs, nowMs, allowNewProbe);
+    }
+
+    bool Probing() const { return probe.active; }
 
 private:
     using Key = std::pair<std::uint64_t, std::uint64_t>;
@@ -58,7 +65,7 @@ private:
         report(text);
     }
 
-    void tick(std::uint64_t frames, double busyMs, std::int64_t now) {
+    void tick(std::uint64_t frames, double busyMs, std::int64_t now, bool allowNewProbe) {
         if (frames == lastFrames) return;
         const auto newFrames = frames - lastFrames;
         const double perFrame = (busyMs - lastBusyMs) / static_cast<double>(newFrames);
@@ -70,7 +77,7 @@ private:
         }
         if (!probe.active) {
             watchScene(perFrame, newFrames, now);
-            start(now);
+            if (allowNewProbe) start(now);
             return;
         }
         auto& element = elements[probe.key];
@@ -154,7 +161,10 @@ private:
         decidedMs = flip ? otherMean : currentMean;
         sceneMs = decidedMs;
         settling = SettleFrames;
-        say("[staging] adaptive: 0x%llx+0x%llx GPU %.1f ms/frame staged, %.1f in place (%zu/%zu frames) -> %s%s, next probe in %lld s", static_cast<unsigned long long>(probe.key.first), static_cast<unsigned long long>(probe.key.second - probe.key.first), stagedMs, inPlaceMs, current.size(), other.size(), element.inPlace ? "in place" : "staged", measured ? "" : " (not measured)", static_cast<long long>(element.intervalMs / 1000));
+        char identity[96];
+        if (name.empty()) std::snprintf(identity, sizeof(identity), "0x%llx+0x%llx", static_cast<unsigned long long>(probe.key.first), static_cast<unsigned long long>(probe.key.second - probe.key.first));
+        else std::snprintf(identity, sizeof(identity), "%s", name.c_str());
+        say("[staging] adaptive: %s GPU %.1f ms/frame staged, %.1f in place (%zu/%zu frames) -> %s%s, next probe in %lld s", identity, stagedMs, inPlaceMs, current.size(), other.size(), element.inPlace ? "in place" : "staged", measured ? "" : " (not measured)", static_cast<long long>(element.intervalMs / 1000));
         probe = Probe{};
     }
 

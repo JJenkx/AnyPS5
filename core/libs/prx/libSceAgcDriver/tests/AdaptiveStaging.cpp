@@ -114,6 +114,65 @@ void CheckSmallElementIsNotProbed() {
     Require(!smallInPlace, "a 64 KiB element next to a 202 MiB one was probed in place");
 }
 
+void CheckWrittenGroupMovesTogether() {
+    AdaptiveStaging policy;
+    policy.name = "written buffers";
+    std::vector<std::string> lines;
+    policy.report = [&](const std::string& line) { lines.push_back(line); };
+    std::uint64_t frames = 0;
+    double busy = 0;
+    std::int64_t now = 1;
+    for (unsigned frame = 0; frame < 400; ++frame) {
+        const bool inPlace = policy.InPlaceGroup(true, frames, busy, now);
+        for (unsigned region = 1; region < 12; ++region) {
+            Require(policy.InPlaceGroup(true, frames, busy, now) == inPlace, "written buffers in one frame received different group decisions");
+        }
+        busy += inPlace ? 90.0 : 400.0;
+        ++frames;
+        now += FrameMs;
+    }
+    Require(policy.InPlaceGroup(false, frames, busy, now), "collectively faster written buffers remained staged");
+    bool named = false;
+    for (const auto& line : lines) named = named || line.find("adaptive: written buffers GPU") != std::string::npos;
+    Require(named, "the written-group decision was reported as a guest address range");
+}
+
+void CheckWrittenGroupKeepsFasterStaging() {
+    AdaptiveStaging policy;
+    std::uint64_t frames = 0;
+    double busy = 0;
+    std::int64_t now = 1;
+    for (unsigned frame = 0; frame < 400; ++frame) {
+        const bool inPlace = policy.InPlaceGroup(true, frames, busy, now);
+        busy += inPlace ? 500.0 : 100.0;
+        ++frames;
+        now += FrameMs;
+    }
+    Require(!policy.InPlaceGroup(false, frames, busy, now), "written buffers stayed in place although staging was faster");
+}
+
+void CheckProbeArbitration() {
+    AdaptiveStaging swept;
+    AdaptiveStaging written;
+    std::uint64_t frames = 0;
+    double busy = 0;
+    std::int64_t now = 1;
+    unsigned sweptProbes = 0, writtenProbes = 0;
+    for (unsigned frame = 0; frame < 4000; ++frame) {
+        const bool first = swept.InPlace(Begin, End, true, frames, busy, now, !written.Probing());
+        const bool second = written.InPlaceGroup(true, frames, busy, now, !swept.Probing());
+        Require(!(swept.Probing() && written.Probing()), "swept and written probes overlapped and confounded their frame measurements");
+        sweptProbes += swept.Probing();
+        writtenProbes += written.Probing();
+        busy += (first ? 70.0 : 100.0) + (second ? 300.0 : 100.0);
+        ++frames;
+        now += FrameMs;
+    }
+    Require(sweptProbes != 0 && writtenProbes != 0, "probe arbitration starved one staging policy");
+    Require(swept.InPlace(Begin, End, false, frames, busy, now, false), "the faster swept policy lost its independent decision");
+    Require(!written.InPlaceGroup(false, frames, busy, now, false), "the written group inherited the swept policy's decision");
+}
+
 }
 
 int main() {
@@ -124,6 +183,9 @@ int main() {
         CheckBackOffGrowsToTheCap();
         CheckSceneChangeProbesAgain();
         CheckSmallElementIsNotProbed();
+        CheckWrittenGroupMovesTogether();
+        CheckWrittenGroupKeepsFasterStaging();
+        CheckProbeArbitration();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

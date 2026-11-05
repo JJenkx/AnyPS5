@@ -5805,22 +5805,26 @@ public:
         return !disabled;
     }
 
-    bool InPlace(std::uint64_t begin, std::uint64_t end, bool use) {
+    bool InPlace(std::uint64_t begin, std::uint64_t end, bool use, bool swept) {
         if (!Enabled()) return false;
         std::lock_guard lock(mutex);
         if (!stampsRequested) {
             Recorder::RequestBatchStamps();
             policy.report = [](const std::string& line) { std::fprintf(stderr, "%s\n", line.c_str()); };
+            writtenPolicy.report = policy.report;
+            writtenPolicy.name = "written buffers";
             stampsRequested = true;
         }
         const auto [frames, busyMs] = Recorder::FrameGpuBusy();
         const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-        return policy.InPlace(begin, end, use, frames, busyMs, nowMs);
+        if (swept) return policy.InPlace(begin, end, use, frames, busyMs, nowMs, !writtenPolicy.Probing());
+        return writtenPolicy.InPlaceGroup(use, frames, busyMs, nowMs, !policy.Probing());
     }
 
 private:
     std::mutex mutex;
     AdaptiveStaging policy;
+    AdaptiveStaging writtenPolicy;
     bool stampsRequested = false;
 };
 
@@ -5879,8 +5883,8 @@ bool GuestBufferMemory::stagingEligible(const Region& region, bool addressable) 
 }
 
 bool GuestBufferMemory::adaptiveInPlace(const Region& region, bool use) const {
-    if (!region.swept || region.atomic || region.overlay) return false;
-    return AdaptiveStagingGate::Get().InPlace(region.begin, region.end, use);
+    if (region.atomic || region.overlay) return false;
+    return AdaptiveStagingGate::Get().InPlace(region.begin, region.end, use, region.swept);
 }
 
 bool GuestBufferMemory::StagingDecisionsCurrent() const {
