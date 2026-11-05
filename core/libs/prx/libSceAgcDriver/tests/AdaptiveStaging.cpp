@@ -159,7 +159,9 @@ void CheckProbeArbitration() {
     std::int64_t now = 1;
     unsigned sweptProbes = 0, writtenProbes = 0;
     for (unsigned frame = 0; frame < 4000; ++frame) {
+        written.AdvanceProbe(frames, busy, now);
         const bool first = swept.InPlace(Begin, End, true, frames, busy, now, !written.Probing());
+        swept.AdvanceProbe(frames, busy, now);
         const bool second = written.InPlaceGroup(true, frames, busy, now, !swept.Probing());
         Require(!(swept.Probing() && written.Probing()), "swept and written probes overlapped and confounded their frame measurements");
         sweptProbes += swept.Probing();
