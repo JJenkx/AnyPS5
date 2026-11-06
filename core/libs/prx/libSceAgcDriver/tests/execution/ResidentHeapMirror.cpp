@@ -281,8 +281,10 @@ void ResidentTests(AgcDriver::VulkanDevice& device) {
     CheckHeld(before.heapBytes, 4 * Block, "after a guest write into a never-written block and zeros written into another");
     CheckReads(output, "after a guest write into a never-written block", true);
     const auto steady = AgcDriver::Graphics::MirrorCounters();
+    const auto reusedBefore = AgcDriver::Graphics::ResidentReadbacksReused();
     Dispatch(device, read, written, output);
     const auto again = AgcDriver::Graphics::MirrorCounters();
+    Require(AgcDriver::Graphics::ResidentReadbacksReused() > reusedBefore, "resident heap mirror: an unchanged dispatch did not reuse the written heap's readback buffer");
     Require(again.rebuilds == steady.rebuilds && again.heapBytes == steady.heapBytes, "resident heap mirror: an unchanged dispatch rebuilt or grew the heap mirrors");
     CheckReads(output, "unchanged dispatch", true);
     CheckStores(written, "unchanged dispatch");

@@ -35,6 +35,8 @@ constexpr std::uint32_t SlabBlocks = static_cast<std::uint32_t>(SlabBytes / Bloc
 constexpr std::uint64_t ZeroBytes = SlabBytes;
 constexpr VkAccessFlags TransferredAccess = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 
+std::atomic<std::uint64_t> readbacksReused{0};
+
 [[noreturn]] void fail(const char* step, VkResult result) {
     char text[160];
     std::snprintf(text, sizeof(text), "%s failed (%d)", step, static_cast<int>(result));
@@ -526,13 +528,21 @@ void ResidentBuffer::Store(std::uint64_t guest, std::span<const std::byte> bytes
     }
 }
 
+std::uint64_t ResidentReadbacksReused() {
+    return readbacksReused.load(std::memory_order_relaxed);
+}
+
 std::shared_ptr<Buffer> ResidentBuffer::RecordReadback(VkCommandBuffer commands, std::uint64_t guest, std::uint64_t bytes) const {
     Require(guest >= origin && bytes <= size && guest - origin <= size - bytes, "heap mirror readback outside its buffer");
     std::shared_ptr<Buffer> staging;
     {
         std::lock_guard lock(readbackMutex);
-        if (readback != nullptr && readback.use_count() == 1 && readback->Bytes().size() == bytes) staging = readback;
-        else staging = readback = std::make_shared<Buffer>(context, static_cast<std::size_t>(bytes), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        if (readback != nullptr && readback.use_count() == 1 && readback->Bytes().size() == bytes) {
+            staging = readback;
+            readbacksReused.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            staging = readback = std::make_shared<Buffer>(context, static_cast<std::size_t>(bytes), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        }
     }
     CopyBuffer(context, commands, buffer, guest - origin, staging->Handle(), 0, bytes);
     return staging;
