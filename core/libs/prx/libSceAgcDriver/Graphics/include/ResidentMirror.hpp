@@ -72,6 +72,8 @@ private:
     std::vector<Slot> slots;
     std::mutex changedMutex;
     GuestRuns changed;
+    mutable std::mutex readbackMutex;
+    mutable std::shared_ptr<Buffer> readback;
 };
 
 }

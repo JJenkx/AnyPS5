@@ -528,7 +528,12 @@ void ResidentBuffer::Store(std::uint64_t guest, std::span<const std::byte> bytes
 
 std::shared_ptr<Buffer> ResidentBuffer::RecordReadback(VkCommandBuffer commands, std::uint64_t guest, std::uint64_t bytes) const {
     Require(guest >= origin && bytes <= size && guest - origin <= size - bytes, "heap mirror readback outside its buffer");
-    auto staging = std::make_shared<Buffer>(context, static_cast<std::size_t>(bytes), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    std::shared_ptr<Buffer> staging;
+    {
+        std::lock_guard lock(readbackMutex);
+        if (readback != nullptr && readback.use_count() == 1 && readback->Bytes().size() == bytes) staging = readback;
+        else staging = readback = std::make_shared<Buffer>(context, static_cast<std::size_t>(bytes), VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    }
     CopyBuffer(context, commands, buffer, guest - origin, staging->Handle(), 0, bytes);
     return staging;
 }
