@@ -165,6 +165,7 @@ struct ChannelState {
     std::size_t capacity = 0;
     bool closed = false;
     int terminalError = 0;
+    std::optional<Address> expectedPeer;
 
     ~ChannelState() {
         if (notification != InvalidSocket) CloseSocket(notification);
@@ -257,7 +258,11 @@ struct TransportState {
             {
                 std::lock_guard lock(channel->mutex);
                 const std::size_t charge = std::max<std::size_t>(1, frame.payload.size());
-                if (channel->closed || charge > channel->capacity - channel->queuedBytes) dropped = true;
+                const bool wrongPeer = channel->expectedPeer &&
+                    (channel->expectedPeer->ipv4 != from.sin_addr.s_addr ||
+                     channel->expectedPeer->udpPort != ntohs(from.sin_port) || channel->expectedPeer->channel != frame.source);
+                if (channel->closed || wrongPeer || channel->queuedBytes > channel->capacity ||
+                    charge > channel->capacity - channel->queuedBytes) dropped = true;
                 else {
                     const bool empty = channel->packets.empty();
                     channel->packets.push_back({std::move(frame.payload),
@@ -294,6 +299,21 @@ std::uint16_t DatagramChannel::Number() const {
     return state->number;
 }
 std::uintptr_t DatagramChannel::NotificationSocket() const { return static_cast<std::uintptr_t>(state->notification); }
+
+std::size_t DatagramChannel::ReadableBytes() const {
+    std::lock_guard lock(state->mutex);
+    return state->packets.empty() ? 0 : state->packets.front().payload.size();
+}
+
+void DatagramChannel::SetPeer(std::optional<Address> peer) {
+    std::lock_guard lock(state->mutex);
+    state->expectedPeer = std::move(peer);
+}
+
+void DatagramChannel::SetReceiveCapacity(std::size_t capacity) {
+    std::lock_guard lock(state->mutex);
+    state->capacity = capacity;
+}
 
 IoResult DatagramChannel::SendTo(Address peer, std::span<const std::uint8_t> payload) {
     if (peer.udpPort == 0 || peer.channel == 0 || peer.channel == 0xffff) return {Error::InvalidArgument};

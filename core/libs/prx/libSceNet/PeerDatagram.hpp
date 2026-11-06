@@ -67,6 +67,9 @@ public:
     DatagramChannel& operator=(const DatagramChannel&) = delete;
     std::uint16_t Number() const;
     std::uintptr_t NotificationSocket() const;
+    std::size_t ReadableBytes() const;
+    void SetPeer(std::optional<Address> peer);
+    void SetReceiveCapacity(std::size_t capacity);
     IoResult SendTo(Address peer, std::span<const std::uint8_t> payload);
     IoResult Receive(std::span<std::uint8_t> output, bool peek, bool dontWait,
         std::chrono::microseconds timeout = {});
