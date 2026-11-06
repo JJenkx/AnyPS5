@@ -61,6 +61,7 @@ class DatagramChannel {
     explicit DatagramChannel(std::shared_ptr<ChannelState> state);
     friend class DatagramTransport;
 public:
+    static std::shared_ptr<DatagramChannel> Create();
     ~DatagramChannel();
     DatagramChannel(const DatagramChannel&) = delete;
     DatagramChannel& operator=(const DatagramChannel&) = delete;
@@ -82,6 +83,8 @@ public:
     DatagramTransport& operator=(const DatagramTransport&) = delete;
     Address LocalAddress() const;
     std::shared_ptr<DatagramChannel> Bind(std::uint16_t channel, std::size_t receiveCapacity = 262144);
+    void BindChannel(const std::shared_ptr<DatagramChannel>& channel, std::uint16_t number,
+        std::size_t receiveCapacity = 262144);
     void SetCommunicationId(std::optional<CommunicationId> identifier);
     Statistics GetStatistics() const;
     void Close();

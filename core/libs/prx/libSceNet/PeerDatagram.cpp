@@ -283,20 +283,36 @@ struct TransportControl {
 
 DatagramChannel::DatagramChannel(std::shared_ptr<ChannelState> state) : state(std::move(state)) {}
 DatagramChannel::~DatagramChannel() { Close(); }
-std::uint16_t DatagramChannel::Number() const { return state->number; }
+std::shared_ptr<DatagramChannel> DatagramChannel::Create() {
+    auto state = std::make_shared<ChannelState>();
+    state->notificationAddress = Address::Loopback(0, 0);
+    state->notification = BoundSocket(state->notificationAddress);
+    return std::shared_ptr<DatagramChannel>(new DatagramChannel(std::move(state)));
+}
+std::uint16_t DatagramChannel::Number() const {
+    std::lock_guard lock(state->mutex);
+    return state->number;
+}
 std::uintptr_t DatagramChannel::NotificationSocket() const { return static_cast<std::uintptr_t>(state->notification); }
 
 IoResult DatagramChannel::SendTo(Address peer, std::span<const std::uint8_t> payload) {
     if (peer.udpPort == 0 || peer.channel == 0 || peer.channel == 0xffff) return {Error::InvalidArgument};
-    auto transport = state->transport.lock();
-    if (!transport) return {Error::Closed};
+    std::shared_ptr<TransportState> transport;
+    std::uint16_t source;
+    {
+        std::lock_guard channelLock(state->mutex);
+        if (state->closed) return {Error::Closed};
+        transport = state->transport.lock();
+        source = state->number;
+    }
+    if (!transport) return {Error::InvalidArgument};
     std::lock_guard transportLock(transport->mutex);
     {
         std::lock_guard channelLock(state->mutex);
         if (state->closed || transport->stopping.load()) return {Error::Closed};
     }
     std::vector<std::uint8_t> packet;
-    try { packet = EncodeDatagram(state->number, peer.channel, payload, transport->identifier); }
+    try { packet = EncodeDatagram(source, peer.channel, payload, transport->identifier); }
     catch (const std::length_error&) { return {Error::MessageTooLarge}; }
     const auto address = NativeAddress(peer);
     const int result = static_cast<int>(::sendto(transport->socket, reinterpret_cast<const char*>(packet.data()),
@@ -334,10 +350,19 @@ IoResult DatagramChannel::Receive(std::span<std::uint8_t> output, bool peek, boo
 
 void DatagramChannel::Close() {
     state->Stop(0);
-    if (auto transport = state->transport.lock()) {
+    std::shared_ptr<TransportState> transport;
+    std::uint16_t number;
+    std::uint64_t generation;
+    {
+        std::lock_guard lock(state->mutex);
+        transport = state->transport.lock();
+        number = state->number;
+        generation = state->generation;
+    }
+    if (transport) {
         std::lock_guard lock(transport->mutex);
-        const auto entry = transport->channels.find(state->number);
-        if (entry != transport->channels.end() && entry->second.first == state->generation)
+        const auto entry = transport->channels.find(number);
+        if (entry != transport->channels.end() && entry->second.first == generation)
             transport->channels.erase(entry);
     }
 }
@@ -368,23 +393,32 @@ std::shared_ptr<DatagramTransport> DatagramTransport::Open(std::uint16_t udpPort
 Address DatagramTransport::LocalAddress() const { return control->state->local; }
 
 std::shared_ptr<DatagramChannel> DatagramTransport::Bind(std::uint16_t number, std::size_t receiveCapacity) {
-    if (number == 0 || number == 0xffff || receiveCapacity == 0)
+    auto channel = DatagramChannel::Create();
+    BindChannel(channel, number, receiveCapacity);
+    return channel;
+}
+
+void DatagramTransport::BindChannel(const std::shared_ptr<DatagramChannel>& endpoint, std::uint16_t number,
+    std::size_t receiveCapacity) {
+    if (!endpoint || number == 0 || number == 0xffff || receiveCapacity == 0)
         throw std::system_error(std::make_error_code(std::errc::invalid_argument));
-    auto channel = std::make_shared<ChannelState>();
-    channel->number = number;
-    channel->capacity = receiveCapacity;
-    channel->notificationAddress = Address::Loopback(0, 0);
-    channel->notification = BoundSocket(channel->notificationAddress);
+    const auto& channel = endpoint->state;
     const auto& state = control->state;
     std::lock_guard lock(state->mutex);
+    std::lock_guard channelLock(channel->mutex);
     if (state->stopping.load()) throw std::system_error(std::make_error_code(std::errc::bad_file_descriptor));
+    if (channel->closed) throw std::system_error(std::make_error_code(std::errc::bad_file_descriptor));
+    if (channel->number != 0) throw std::system_error(std::make_error_code(std::errc::invalid_argument));
     const auto entry = state->channels.find(number);
     if (entry != state->channels.end() && !entry->second.second.expired())
         throw std::system_error(std::make_error_code(std::errc::address_in_use));
+    const auto generation = state->nextGeneration;
+    state->channels[number] = {generation, channel};
+    ++state->nextGeneration;
     channel->transport = state;
-    channel->generation = state->nextGeneration++;
-    state->channels[number] = {channel->generation, channel};
-    return std::shared_ptr<DatagramChannel>(new DatagramChannel(std::move(channel)));
+    channel->number = number;
+    channel->capacity = receiveCapacity;
+    channel->generation = generation;
 }
 
 void DatagramTransport::SetCommunicationId(std::optional<CommunicationId> identifier) {

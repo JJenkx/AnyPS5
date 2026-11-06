@@ -123,7 +123,12 @@ static void CheckTransport() {
     const auto firstPort = first->LocalAddress().udpPort;
     const auto secondPort = second->LocalAddress().udpPort;
     auto source = first->Bind(1111);
-    auto firstGame = first->Bind(7777);
+    auto firstGame = DatagramChannel::Create();
+    const auto beforeBind = firstGame->NotificationSocket();
+    Require(firstGame->Number() == 0 && !Ready(beforeBind), "unbound channel has stable empty poll handle");
+    first->BindChannel(firstGame, 7777);
+    Require(firstGame->Number() == 7777 && firstGame->NotificationSocket() == beforeBind,
+        "bind preserves pre-registered native poll handle");
     auto target = second->Bind(2222);
     auto secondGame = second->Bind(7777);
     const std::array<std::uint8_t, 4> payload{10, 20, 30, 40};
@@ -209,6 +214,23 @@ static void CheckTransport() {
         Require(result.error == Error::None && result.size == 1 && output[0] == i, "FIFO packet delivery during concurrent I/O");
     }
     sender.get();
+    auto attaching = DatagramChannel::Create();
+    std::promise<void> start;
+    auto gate = start.get_future().share();
+    auto binder = std::async(std::launch::async, [&] {
+        gate.wait();
+        try { first->BindChannel(attaching, 4444); }
+        catch (const std::system_error& error) {
+            Require(error.code() == std::errc::bad_file_descriptor, "concurrent close only cancels bind with closed error");
+        }
+    });
+    auto closer = std::async(std::launch::async, [&] { gate.wait(); attaching->Close(); });
+    start.set_value();
+    binder.get();
+    closer.get();
+    auto rebound = first->Bind(4444);
+    Require(rebound->Number() == 4444 && attaching->Receive(output, false, true).error == Error::Closed,
+        "bind-close race leaves no stale channel registration");
     auto waiter = std::async(std::launch::async, [&] { return replacement->Receive(output, false, false, 2s); });
     Require(waiter.wait_for(10ms) == std::future_status::timeout, "receive waits before transport close");
     second->Close();
