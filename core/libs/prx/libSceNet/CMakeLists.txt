@@ -4,6 +4,18 @@ target_link_libraries(libSceNet PRIVATE libSceNetCtl)
 configure_windows_unwind(libSceNet)
 
 if(BUILD_TESTING)
+    add_test_executable(net_peer_datagram_transport_tests tests/PeerDatagramTransport.cpp PeerDatagram.cpp)
+    configure_host_test_executable(net_peer_datagram_transport_tests)
+    if(WIN32)
+        target_link_libraries(net_peer_datagram_transport_tests PRIVATE ws2_32)
+    endif()
+    add_test(NAME net_peer_datagram_transport COMMAND net_peer_datagram_transport_tests)
+    set_tests_properties(net_peer_datagram_transport PROPERTIES TIMEOUT 30)
+    if(MINGW)
+        get_filename_component(peerDatagramRuntimeDirectory "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        set_tests_properties(net_peer_datagram_transport PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${peerDatagramRuntimeDirectory}")
+    endif()
     add_test_executable(net_reuseport_patched_tests tests/ReusePortPatched.cpp
         ${LIBS_INCLUDE_DIR}/nid/src/NidCompute.cpp
         ${LIBS_INCLUDE_DIR}/nid/src/Sha1.cpp)
