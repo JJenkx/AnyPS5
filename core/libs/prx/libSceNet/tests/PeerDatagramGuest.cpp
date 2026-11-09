@@ -176,6 +176,19 @@ static void Test(const Api& api) {
     Require(api.sceNetRecvmsg(second, &receive, 0) == 5 && std::memcmp(left.data(), "ab", 2) == 0 &&
         std::memcmp(right.data(), "cde", 3) == 0 && right[3] == 0 && source == firstAddress,
         "scatter payload and report virtual source");
+    Require(api.sceNetSendto(wire, packet.data(), packet.size(), 0, local.data(), local.size()) == packet.size(),
+        "send from a different endpoint to connected receiver");
+    Require(api.sceNetSendto(second, "right", 5, 0, firstAddress.data(), firstAddress.size()) == 5,
+        "send from connected receiver's selected peer");
+    Require(api.sceNetRecv(first, buffer.data(), buffer.size(), 0) == 5 && std::memcmp(buffer.data(), "right", 5) == 0,
+        "connected receiver filters other source endpoints");
+    Require(api.sceNetSend(first, "abcde", 5, 0) == 5, "send datagram for scatter truncation");
+    incoming[1].length = 1;
+    receive.name_length = source.size();
+    Require(api.sceNetRecvmsg(second, &receive, 0) == 3 && receive.flags == 0x10 &&
+        left[0] == 'a' && left[1] == 'b' && right[0] == 'c', "scatter receive reports datagram truncation");
+    Require(api.sceNetEpollWait(epoll, events.data(), events.size(), 0) == 0,
+        "truncation consumes entire packet");
     Require(api.sceNetSocketClose(first) == 0, "close first virtual channel independently");
     auto secondPacket = packet;
     secondPacket[4] = 0x22;
@@ -183,6 +196,14 @@ static void Test(const Api& api) {
     Require(api.sceNetSendto(wire, secondPacket.data(), secondPacket.size(), 0, local.data(), local.size()) == secondPacket.size(),
         "remaining channel keeps shared transport alive");
     Require(api.sceNetRecv(second, buffer.data(), buffer.size(), 0) == 5, "receive after another channel closes");
+    Require(api.sceNetSendto(wire, secondPacket.data(), 6, 0, local.data(), local.size()) == 6,
+        "send empty framed datagram");
+    Require(api.sceNetEpollWait(epoll, events.data(), events.size(), 1000000) == 1 && events[0].data.u64 == 202,
+        "empty datagram is readable");
+    Require(api.sceNetIoctl(second, 0x4004667f, &available) == 0 && available == 0,
+        "empty datagram has zero payload bytes");
+    Require(api.sceNetRecv(second, nullptr, 0, 0) == 0 &&
+        api.sceNetEpollWait(epoll, events.data(), events.size(), 0) == 0, "consume empty datagram");
     Require(api.sceNetSocketClose(second) == 0 && api.sceNetSocketClose(wire) == 0 && api.sceNetEpollDestroy(epoll) == 0,
         "close sockets and epoll");
 }
