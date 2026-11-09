@@ -165,6 +165,7 @@ struct ChannelState {
     std::size_t capacity = 0;
     bool closed = false;
     int terminalError = 0;
+    int pendingError = 0;
     std::optional<Address> expectedPeer;
 
     ~ChannelState() {
@@ -182,6 +183,7 @@ struct ChannelState {
         if (closed) return;
         closed = true;
         terminalError = error;
+        pendingError = error;
         const bool empty = packets.empty();
         packets.clear();
         queuedBytes = 0;
@@ -308,6 +310,13 @@ std::size_t DatagramChannel::ReadableBytes() const {
 void DatagramChannel::SetPeer(std::optional<Address> peer) {
     std::lock_guard lock(state->mutex);
     state->expectedPeer = std::move(peer);
+}
+
+int DatagramChannel::TakePendingError() {
+    std::lock_guard lock(state->mutex);
+    const int error = state->pendingError;
+    state->pendingError = 0;
+    return error;
 }
 
 void DatagramChannel::SetReceiveCapacity(std::size_t capacity) {

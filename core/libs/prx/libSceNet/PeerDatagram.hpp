@@ -68,6 +68,7 @@ public:
     std::uint16_t Number() const;
     std::uintptr_t NotificationSocket() const;
     std::size_t ReadableBytes() const;
+    int TakePendingError();
     void SetPeer(std::optional<Address> peer);
     void SetReceiveCapacity(std::size_t capacity);
     IoResult SendTo(Address peer, std::span<const std::uint8_t> payload);

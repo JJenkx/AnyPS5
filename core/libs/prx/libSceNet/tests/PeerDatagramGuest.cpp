@@ -45,6 +45,7 @@ struct Api {
     NET_FUNCTION(sceNetBind_nid_postfix, sceNetBind);
     NET_FUNCTION(sceNetSocketClose, sceNetSocketClose);
     NET_FUNCTION(sceNetSetsockopt, sceNetSetsockopt);
+    NET_FUNCTION(sceNetGetsockopt, sceNetGetsockopt);
     NET_FUNCTION(sceNetGetsockname, sceNetGetsockname);
     NET_FUNCTION(sceNetGetpeername, sceNetGetpeername);
     NET_FUNCTION(sceNetConnect, sceNetConnect);
@@ -85,6 +86,10 @@ static int Socket(const Api& api, int type) {
     const std::array<std::int64_t, 2> timeout{2, 0};
     Require(api.sceNetSetsockopt(descriptor, 0xffff, 0x1006, timeout.data(), sizeof(timeout)) == 0,
         "bound receive duration");
+    int error = -1;
+    std::uint32_t length = sizeof(error);
+    Require(api.sceNetGetsockopt(descriptor, 0xffff, 0x1007, &error, &length) == 0 && error == 0 && length == sizeof(error),
+        "new socket has no pending error");
     return descriptor;
 }
 
@@ -139,6 +144,10 @@ static void Test(const Api& api) {
     auto remote = wireAddress;
     remote[9] = 41;
     Require(source == remote && sourceLength == source.size(), "return source UDP and virtual ports");
+    int pending = -1;
+    std::uint32_t pendingLength = sizeof(pending);
+    Require(api.sceNetGetsockopt(first, 0xffff, 0x1007, &pending, &pendingLength) == 0 && pending == 0,
+        "queued payload is independent of pending socket error");
     Require(api.sceNetEpollWait(epoll, events.data(), events.size(), 0) == 1, "peek preserves readability");
     Require(api.sceNetRecv(first, buffer.data(), 3, 0) == 3 && std::memcmp(buffer.data(), "hel", 3) == 0,
         "truncate and consume one datagram");

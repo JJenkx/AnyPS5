@@ -2271,6 +2271,11 @@ int APS5_VABI sceNetGetsockopt(int s, int level, int optname, void* optval, uint
         case NET_SO_SCE_CONNECTTIMEO: value = socket.native->connectTimeout; break;
         case NET_SO_ONESBCAST: value = socket.onesbcast; break;
         case NET_SO_ERROR: {
+            if (socket.native->peer) {
+                const int pending = socket.native->peer->TakePendingError();
+                value = pending == 0 ? 0 : net_error(pending);
+                break;
+            }
             int pending = 0;
             NativeLength size = sizeof(pending);
             if (::getsockopt(socket.native->value, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&pending), &size) != 0)
