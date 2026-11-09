@@ -21,7 +21,10 @@ if(BUILD_TESTING)
     target_compile_definitions(net_peer_datagram_guest_patched_tests PRIVATE NET_PEER_PATCHED=1)
     target_link_libraries(net_peer_datagram_guest_patched_tests PRIVATE ${CMAKE_DL_LIBS})
     configure_host_test_executable(net_peer_datagram_guest_patched_tests)
-    add_dependencies(net_peer_datagram_guest_patched_tests libs)
+    add_custom_target(net_peer_datagram_guest_patched_libraries DEPENDS
+        ${PATCHED_DIR}/libSceNet.prx ${PATCHED_DIR}/libSceNetCtl.prx
+        ${PATCHED_DIR}/libkernel.prx ${LIBC_PATCHED})
+    add_dependencies(net_peer_datagram_guest_patched_tests net_peer_datagram_guest_patched_libraries)
     add_test(NAME net_peer_datagram_guest_patched COMMAND net_peer_datagram_guest_patched_tests ${PATCHED_DIR})
     set_tests_properties(net_peer_datagram_guest_patched PROPERTIES TIMEOUT 20)
     if(MINGW)
