@@ -976,13 +976,14 @@ std::int64_t SendPeer(const Sock& socket, const void* buffer, std::size_t length
     if (!socket.bound) NotImplemented_nid_no_patch("send on unbound peer channel");
     NetPeer::Address peer;
     if (address) {
+        if (socket.peerRemote) return fail(56);
         if (const int error = ReadPeerAddress(address, addressLength, peer)) return fail(error);
     } else {
         if (addressLength != 0) return fail(NET_EINVAL);
-        if (!socket.peerRemote) return fail(NET_ENOTCONN);
+        if (!socket.peerRemote) return fail(39);
         peer = *socket.peerRemote;
     }
-    if (peer.ipv4 == 0 || peer.udpPort == 0 || peer.channel == 0) return fail(NET_EINVAL);
+    if (peer.ipv4 == 0 || peer.udpPort == 0 || peer.channel == 0) return fail(49);
     if (peer.ipv4 == INADDR_BROADCAST || (ntohl(peer.ipv4) & 0xf0000000u) == 0xe0000000u || peer.channel >= 0x8000)
         NotImplemented_nid_no_patch("peer broadcast, multicast or reserved destination");
     if (length > 65501) return fail(NET_EMSGSIZE);
