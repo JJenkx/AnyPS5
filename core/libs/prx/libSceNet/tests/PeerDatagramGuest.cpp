@@ -124,7 +124,7 @@ static void Test(const Api& api) {
     std::array<NetEpollEvent, 2> events{};
     Require(api.sceNetEpollWait(epoll, events.data(), events.size(), 0) == 0, "empty peer channels are not readable");
     const std::array<std::uint8_t, 11> packet{0xff, 0x83, 0, 41, 0x1e, 0x61, 'h', 'e', 'l', 'l', 'o'};
-    Require(api.sceNetSendto(wire, packet.data(), packet.size(), 0, local.data(), local.size()) == packet.size(),
+    Require(api.sceNetSendto(wire, packet.data(), packet.size(), 0, local.data(), local.size()) == static_cast<std::int64_t>(packet.size()),
         "send independent wire packet to shared port");
     Require(api.sceNetEpollWait(epoll, events.data(), events.size(), 1000000) == 1 &&
         events[0].data.u64 == 101 && (events[0].events & 1) != 0, "readiness survives bind and selects only addressed channel");
@@ -176,7 +176,7 @@ static void Test(const Api& api) {
     Require(api.sceNetRecvmsg(second, &receive, 0) == 5 && std::memcmp(left.data(), "ab", 2) == 0 &&
         std::memcmp(right.data(), "cde", 3) == 0 && right[3] == 0 && source == firstAddress,
         "scatter payload and report virtual source");
-    Require(api.sceNetSendto(wire, packet.data(), packet.size(), 0, local.data(), local.size()) == packet.size(),
+    Require(api.sceNetSendto(wire, packet.data(), packet.size(), 0, local.data(), local.size()) == static_cast<std::int64_t>(packet.size()),
         "send from a different endpoint to connected receiver");
     Require(api.sceNetSendto(second, "right", 5, 0, firstAddress.data(), firstAddress.size()) == 5,
         "send from connected receiver's selected peer");
@@ -193,7 +193,7 @@ static void Test(const Api& api) {
     auto secondPacket = packet;
     secondPacket[4] = 0x22;
     secondPacket[5] = 0xb8;
-    Require(api.sceNetSendto(wire, secondPacket.data(), secondPacket.size(), 0, local.data(), local.size()) == secondPacket.size(),
+    Require(api.sceNetSendto(wire, secondPacket.data(), secondPacket.size(), 0, local.data(), local.size()) == static_cast<std::int64_t>(secondPacket.size()),
         "remaining channel keeps shared transport alive");
     Require(api.sceNetRecv(second, buffer.data(), buffer.size(), 0) == 5, "receive after another channel closes");
     Require(api.sceNetSendto(wire, secondPacket.data(), 6, 0, local.data(), local.size()) == 6,
