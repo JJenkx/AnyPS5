@@ -3067,6 +3067,16 @@ std::string HostWriteReport() {
     return line;
 }
 
+namespace {
+
+void landBeforeHostWrite(std::uint64_t address, std::size_t bytes) {
+    FlushGpuWrites(address, bytes);
+    static_cast<void>(MarkWritten(address, bytes));
+    FlushGpuWrites(address, bytes);
+}
+
+}
+
 void PrepareHostWrite(std::uintptr_t address, std::size_t bytes) {
     if (ownHostWrite || bytes == 0) return;
     if (GpuMutex().HeldByThisThread()) noteLockedHostWrite(address, bytes);
@@ -3074,11 +3084,11 @@ void PrepareHostWrite(std::uintptr_t address, std::size_t bytes) {
     if (hostWritesStopped.load(std::memory_order_seq_cst)) return;
     const ReadSiteScope site(ReadSite::Store);
     if (!MemoryProfiled()) {
-        FlushGpuWrites(address, bytes);
+        landBeforeHostWrite(address, bytes);
         return;
     }
     const auto waitedBefore = threadWaitedMs();
-    FlushGpuWrites(address, bytes);
+    landBeforeHostWrite(address, bytes);
     noteHostWriteWait(threadWaitedMs() - waitedBefore);
 }
 
