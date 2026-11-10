@@ -70,6 +70,10 @@ inline HostImportStart HostImportBufferStart(const HostImport& import) {
     return {import.base - import.lead, import.address - import.lead};
 }
 
+inline VkDeviceAddress HostImportDeviceAddress(const HostImport& import, std::uint64_t address) {
+    return HostImportBufferStart(import).device + HostImportOffset(import, address);
+}
+
 enum class ImportWatch : std::uint8_t { Watch, Unwatch };
 enum class SnapshotService : std::uint8_t { Served, Outside, Partial, Changed };
 
