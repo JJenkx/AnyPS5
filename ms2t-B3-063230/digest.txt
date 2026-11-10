@@ -1,0 +1,87 @@
+**seconds 80:20** from present 188: 10 presents, frame p50 2497.9 / p90 2955.5 / p99 2955.5 / max 2955.5 ms, GPU busy 360.1 ms per present
+AMD Radeon RX 6650 XT (RADV NAVI23), radv Mesa 26.2.6-arch1.1, Linux 7.2.14-arch1-1, 3840x2160, commit ac133e612c33, dropped: no
+
+```json
+{"commit":"ac133e612c33","dirty":false,"env":{"APS5_PAD_INPUT_FILE":"<path>","APS5_PLAYGO_UNLISTED_CHUNKS":"installed","APS5_TRACE_DIR":"<path>","APS5_TRACE_SECONDS":"80:20"},"gpu":"AMD Radeon RX 6650 XT (RADV NAVI23)","driver":"radv Mesa 26.2.6-arch1.1","os":"Linux 7.2.14-arch1-1","cpu":"AMD Ryzen 9 7950X 16-Core Processor","cpu_threads":32,"memory_mib":127901,"title_id":"PPSA34008","title":"Mortal Shell II","content_version":"01.000.010","resolution":"3840x2160","window":{"spec":"seconds 80:20","first_present":188,"ms":20499.07},"presents":10,"frame_ms":{"p50":2497.879,"p90":2955.499,"p99":2955.499,"max":2955.499},"gpu_busy_ms_per_present":360.083,"worker_busy_pct":{"queue worker 0x0":99.949,"queue worker 0x20":99.493},"top_phases_ms_per_frame":{"Driver.Packet":4087.847,"Driver.Packet.dispatch":2240.085,"Driver.Dispatch":2227.782,"Vulkan.Dispatch":1746.844,"Vulkan.Dispatch.shader_resources":1510.746,"Resources.Complete":1456.806,"Driver.Packet.pipeline_drain":1222.508,"GpuMutex.wait.label":1045.951},"owned_draw_counts":{},"trace_dropped":false,"trace":"aps5-trace-ac133e612c33-2610110.json.gz"}
+```
+
+**Slowest frames** (largest slices inside each, inclusive)
+
+- present 194: 2955.5 ms at 11579 ms: Driver.Packet (queue worker 0x20) 2952.7, Driver.Packet (queue worker 0x0) 2947.0, Driver.Packet.dispatch (queue worker 0x20) 2372.2, Driver.Dispatch (queue worker 0x20) 2370.3
+- present 192: 2759.0 ms at 6320 ms: Driver.Packet (queue worker 0x20) 2756.4, Driver.Packet (queue worker 0x0) 2751.4, Driver.Packet.dispatch (queue worker 0x20) 2133.3, Driver.Dispatch (queue worker 0x20) 2130.8
+- present 196: 2673.9 ms at 16227 ms: Driver.Packet (queue worker 0x20) 2670.7, Driver.Packet (queue worker 0x0) 2666.4, Driver.Packet.dispatch (queue worker 0x20) 2060.3, Driver.Dispatch (queue worker 0x20) 2058.4
+- present 193: 2500.0 ms at 9079 ms: Driver.Packet (queue worker 0x20) 2497.7, Driver.Packet (queue worker 0x0) 2492.0, Driver.Packet.dispatch (queue worker 0x20) 1892.1, Driver.Dispatch (queue worker 0x20) 1890.2
+- present 189: 2497.9 ms at 788 ms: Driver.Packet (queue worker 0x20) 2495.2, Driver.Packet (queue worker 0x0) 2490.2, Driver.Packet.dispatch (queue worker 0x20) 1930.0, Driver.Dispatch (queue worker 0x20) 1928.6
+
+**Persistent spikes** (frame time above the fastest frame that separates it from a longer frame; one entry per stall, not per frame)
+
+- present 194: 2955.5 ms at 11579 ms, persistence 2167.7 ms
+- present 189: 2497.9 ms at 788 ms, persistence 1708.2 ms
+- present 196: 2673.9 ms at 16227 ms, persistence 980.9 ms
+- present 192: 2759.0 ms at 6320 ms, persistence 259.1 ms
+
+**Threads** (ms per frame)
+
+| thread | busy | wait | untraced | in slices < 20 us | largest |
+|---|---|---|---|---|---|
+| shader prepare | 19.0 (1 %) | 0.0 (0 %) | 2030.9 | 0.0 | Shader.PrepareArtifact 19.0 |
+| shader prepare | 16.3 (1 %) | 0.0 (0 %) | 2033.6 | 0.0 | Shader.PrepareArtifact 16.3 |
+| shader prepare | 16.9 (1 %) | 0.0 (0 %) | 2033.0 | 0.0 | Shader.PrepareArtifact 16.9 |
+| shader prepare | 22.7 (1 %) | 0.0 (0 %) | 2027.2 | 0.0 | Shader.PrepareArtifact 22.7 |
+| shader prepare | 16.1 (1 %) | 0.0 (0 %) | 2033.8 | 0.0 | Shader.PrepareArtifact 16.1 |
+| shader prepare | 18.3 (1 %) | 0.0 (0 %) | 2031.6 | 0.0 | Shader.PrepareArtifact 18.3 |
+| shader prepare | 23.8 (1 %) | 0.0 (0 %) | 2026.1 | 0.0 | Shader.PrepareArtifact 23.8 |
+| shader prepare | 21.6 (1 %) | 0.0 (0 %) | 2028.3 | 0.0 | Shader.PrepareArtifact 21.6 |
+| shader prepare | 20.5 (1 %) | 0.0 (0 %) | 2029.4 | 0.0 | Shader.PrepareArtifact 20.5 |
+| shader prepare | 21.2 (1 %) | 0.0 (0 %) | 2028.7 | 0.0 | Shader.PrepareArtifact 21.2 |
+| shader prepare | 22.4 (1 %) | 0.0 (0 %) | 2027.5 | 0.0 | Shader.PrepareArtifact 22.4 |
+| shader prepare | 20.4 (1 %) | 0.0 (0 %) | 2029.5 | 0.0 | Shader.PrepareArtifact 20.4 |
+| shader prepare | 20.8 (1 %) | 0.0 (0 %) | 2029.1 | 0.0 | Shader.PrepareArtifact 20.8 |
+| shader prepare | 19.7 (1 %) | 0.0 (0 %) | 2030.2 | 0.0 | Shader.PrepareArtifact 19.7 |
+| shader prepare | 16.6 (1 %) | 0.0 (0 %) | 2033.3 | 0.0 | Shader.PrepareArtifact 16.6 |
+| shader prepare | 22.7 (1 %) | 0.0 (0 %) | 2027.2 | 0.0 | Shader.PrepareArtifact 22.7 |
+| shader prepare | 0.0 (0 %) | 0.0 (0 %) | 2049.9 | 0.0 | Vulkan.GraphicsPipelinePrebuild 0.0 |
+| shader prepare | 0.0 (0 %) | 0.0 (0 %) | 2049.9 | 0.0 | Vulkan.GraphicsPipelinePrebuild 0.0 |
+| shader prepare | 0.0 (0 %) | 0.0 (0 %) | 2049.9 | 0.0 | Vulkan.GraphicsPipelinePrebuild 0.0 |
+| queue worker 0x0 | 1584.7 (77 %) | 457.5 (22 %) | 7.7 | 31.2 | Driver.Packet 2042.2, VideoOut.Readiness 0.0 |
+| draw committer | 41.6 (2 %) | 1132.2 (55 %) | 876.2 | 3.3 | Graphics.Draw 22.2, Recorder.Submit 18.7 |
+| queue worker 0x20 | 1486.8 (73 %) | 558.0 (27 %) | 5.2 | 9.5 | Driver.Packet 2036.9, Driver.EndSubmission 0.5 |
+| presenter | 1.1 (0 %) | 0.7 (0 %) | 2048.1 | 0.1 | VideoOut.Flip 1.6, Driver.Present 0.1 |
+| title | 0.0 (0 %) | 0.5 (0 %) | 2049.4 | 0.0 |  |
+| title | 3.4 (0 %) | 0.0 (0 %) | 2046.5 | 0.0 | Shader.Register 3.4 |
+| title | 0.2 (0 %) | 0.0 (0 %) | 2049.7 | 0.0 | Shader.Register 0.2 |
+| title | 3.5 (0 %) | 0.0 (0 %) | 2046.4 | 0.0 | Shader.Register 3.0, Shader.ResolveAbi 0.4 |
+| title | 2.4 (0 %) | 0.0 (0 %) | 2047.5 | 0.0 | Shader.Register 2.4 |
+| title | 2.2 (0 %) | 0.0 (0 %) | 2047.7 | 0.0 | Shader.Register 2.2 |
+| title | 3.7 (0 %) | 0.0 (0 %) | 2046.2 | 0.0 | Shader.Register 3.3, Shader.ResolveAbi 0.4 |
+| title | 3.1 (0 %) | 0.0 (0 %) | 2046.8 | 0.0 | Shader.Register 3.1 |
+| title | 4.1 (0 %) | 0.0 (0 %) | 2045.8 | 0.0 | Shader.Register 3.9, Shader.ResolveAbi 0.1 |
+| title | 2.9 (0 %) | 0.0 (0 %) | 2047.0 | 0.0 | Shader.Register 2.9 |
+| title | 2.7 (0 %) | 0.0 (0 %) | 2047.2 | 0.0 | Shader.Register 2.7 |
+| title | 2.7 (0 %) | 0.0 (0 %) | 2047.2 | 0.0 | Shader.Register 2.3, Shader.ResolveAbi 0.3 |
+| title | 2.1 (0 %) | 0.0 (0 %) | 2047.8 | 0.0 | Shader.Register 2.1 |
+| title | 3.0 (0 %) | 0.0 (0 %) | 2046.9 | 0.0 | Shader.Register 3.0 |
+| gpu | 391.1 (19 %) | 0.0 (0 %) | 1658.8 | 0.0 | batch 391.1 |
+
+**Largest slices** (ms per frame, inclusive, all threads): Driver.Packet 4079.1, Driver.Packet.dispatch 2239.5, Driver.Dispatch 2226.8, Vulkan.Dispatch 1745.2, Vulkan.Dispatch.shader_resources 1508.6, Resources.Complete 1455.9, Driver.Packet.pipeline_drain 1220.7, GpuMutex.wait.label 1045.1, Recorder.Sync 681.9, Driver.Packet.memory_wait 526.7
+
+**Longest waits**
+
+- Driver.Packet.memory_wait (queue worker 0x20) 493.3 ms at 18243 ms, present 196
+- Driver.Packet.memory_wait (queue worker 0x20) 485.5 ms at 10933 ms, present 193
+- Driver.Packet.memory_wait (queue worker 0x20) 474.3 ms at 8415 ms, present 192
+- Driver.Packet.memory_wait (queue worker 0x20) 468.8 ms at 19856 ms, present 197
+- Driver.Packet.memory_wait (queue worker 0x20) 453.5 ms at 5686 ms, present 191
+- Driver.Packet.memory_wait (queue worker 0x20) 446.2 ms at 15616 ms, present 195
+- Driver.Packet.memory_wait (queue worker 0x20) 422.0 ms at 13913 ms, present 194
+- Driver.Packet.memory_wait (queue worker 0x20) 421.7 ms at 2698 ms, present 189
+- GpuMutex.wait.label (draw committer) 302.7 ms at 17941 ms, present 196
+- GpuMutex.wait.dispatch (queue worker 0x0) 296.9 ms at 16826 ms, present 196
+
+**Largest GPU batches** (GPU ranges inside, and the CPU slices that recorded each, inclusive)
+
+- batch 125: 40.4 ms at 1692 ms, present 189: GPU no ranges; recorded by Driver.Dispatch (queue worker 0x20) 273.9, Driver.Packet (queue worker 0x20) 273.8, Driver.Packet.dispatch (queue worker 0x20) 273.7, Vulkan.Dispatch (queue worker 0x20) 273.5
+- batch 124: 40.2 ms at 1414 ms, present 189: GPU no ranges; recorded by Driver.Packet (queue worker 0x0) 1568.8, Driver.Packet.pipeline_drain (queue worker 0x0) 1301.5, Driver.Packet.dispatch (queue worker 0x0) 266.4, Driver.Dispatch (queue worker 0x0) 266.4
+- batch 917: 40.1 ms at 16832 ms, present 196: GPU no ranges; recorded by Vulkan.Dispatch.shader_resources (queue worker 0x20) 264.3, Resources.Complete (queue worker 0x20) 264.3, Driver.Packet (queue worker 0x20) 249.7, Driver.Packet.dispatch (queue worker 0x20) 249.7
+- batch 710: 40.0 ms at 12155 ms, present 194: GPU no ranges; recorded by Driver.Packet (queue worker 0x0) 2007.1, Driver.Packet.dispatch (queue worker 0x0) 1008.0, Driver.Dispatch (queue worker 0x0) 1008.0, GpuMutex.wait.dispatch (queue worker 0x0) 1004.6
+- batch 131: 40.0 ms at 2956 ms, present 189: GPU no ranges; recorded by Driver.Packet (queue worker 0x0) 247.7, Driver.Packet.dispatch (queue worker 0x0) 246.7, Driver.Dispatch (queue worker 0x0) 246.7, Vulkan.Dispatch (queue worker 0x0) 246.6
