@@ -1,0 +1,59 @@
+**seconds 360:20** from present 1698: 20 presents, frame p50 1028.0 / p90 1130.7 / p99 1150.9 / max 1150.9 ms, GPU busy 724.4 ms per present
+AMD Radeon RX 6650 XT (RADV NAVI23), radv Mesa 26.2.6-arch1.1, Linux 7.2.14-arch1-1, 3840x2160, commit fbe969020bc2, dropped: no
+
+```json
+{"commit":"fbe969020bc2","dirty":false,"env":{"APS5_PAD_INPUT_FILE":"<path>","APS5_PLAYGO_UNLISTED_CHUNKS":"installed","APS5_TRACE_DIR":"<path>","APS5_TRACE_SECONDS":"360:20"},"gpu":"AMD Radeon RX 6650 XT (RADV NAVI23)","driver":"radv Mesa 26.2.6-arch1.1","os":"Linux 7.2.14-arch1-1","cpu":"AMD Ryzen 9 7950X 16-Core Processor","cpu_threads":32,"memory_mib":127901,"title_id":"PPSA06565","title":"Dusk Diver 2","content_version":"01.000.000","resolution":"3840x2160","window":{"spec":"seconds 360:20","first_present":1698,"ms":20643.429},"presents":20,"frame_ms":{"p50":1027.959,"p90":1130.716,"p99":1150.87,"max":1150.87},"gpu_busy_ms_per_present":724.378,"worker_busy_pct":{"queue worker 0x0":99.458,"queue worker 0x20":96.08},"top_phases_ms_per_frame":{"Driver.Packet":1983.032,"Graphics.Draw":865.757,"Graphics.Draw.draw_and_resource_release":856.869,"Driver.Packet.memory_wait":747.99,"Driver.Packet.draw":485.235,"Driver.Draw":484.941,"Driver.Draw.draw_enqueued":440.353,"Graphics.Wait":304.765},"owned_draw_counts":{},"trace_dropped":false,"trace":"aps5-trace-fbe969020bc2-2118712.json.gz"}
+```
+
+**Slowest frames** (largest slices inside each, inclusive)
+
+- present 1699: 1150.9 ms at 1018 ms: Driver.Packet (queue worker 0x20) 1134.7, Driver.Packet (queue worker 0x0) 1115.9, Graphics.Draw (draw committer) 998.3, Graphics.Draw.draw_and_resource_release (draw committer) 988.5
+- present 1716: 1130.7 ms at 18511 ms: Driver.Packet (queue worker 0x20) 1130.2, Driver.Packet (queue worker 0x0) 1113.0, Graphics.Draw (draw committer) 961.4, Graphics.Draw.draw_and_resource_release (draw committer) 951.6
+- present 1703: 1113.3 ms at 5142 ms: Driver.Packet (queue worker 0x20) 1087.3, Driver.Packet (queue worker 0x0) 1082.8, Graphics.Draw (draw committer) 960.5, Graphics.Draw.draw_and_resource_release (draw committer) 950.2
+- present 1705: 1079.0 ms at 7283 ms: Driver.Packet (queue worker 0x20) 1050.9, Driver.Packet (queue worker 0x0) 1048.6, Graphics.Draw (draw committer) 975.1, Graphics.Draw.draw_and_resource_release (draw committer) 964.7
+- present 1707: 1064.9 ms at 9326 ms: Driver.Packet (queue worker 0x0) 1035.4, Driver.Packet (queue worker 0x20) 1032.4, Driver.Packet.memory_wait (queue worker 0x20) 873.9, Graphics.Draw (draw committer) 873.9
+
+**Persistent spikes** (frame time above the fastest frame that separates it from a longer frame; one entry per stall, not per frame)
+
+- present 1699: 1150.9 ms at 1018 ms, persistence 186.8 ms
+- present 1716: 1130.7 ms at 18511 ms, persistence 166.6 ms
+- present 1703: 1113.3 ms at 5142 ms, persistence 141.6 ms
+- present 1707: 1064.9 ms at 9326 ms, persistence 77.9 ms
+- present 1705: 1079.0 ms at 7283 ms, persistence 50.9 ms
+- present 1711: 1031.5 ms at 13445 ms, persistence 36.0 ms
+- present 1714: 1017.3 ms at 16507 ms, persistence 15.1 ms
+- present 1709: 1029.7 ms at 11387 ms, persistence 1.2 ms
+
+**Threads** (ms per frame)
+
+| thread | busy | wait | untraced | in slices < 20 us | largest |
+|---|---|---|---|---|---|
+| queue worker 0x0 | 1019.1 (99 %) | 0.2 (0 %) | 12.9 | 44.9 | Driver.Packet 1001.1, Driver.EndSubmission 18.2 |
+| draw committer | 659.8 (64 %) | 320.7 (31 %) | 51.6 | 15.1 | Graphics.Draw 863.7, Recorder.Submit 36.9 |
+| presenter | 1.1 (0 %) | 71.8 (7 %) | 959.3 | 0.1 | VideoOut.Flip 69.2, Driver.Present 3.7 |
+| queue worker 0x20 | 45.3 (4 %) | 946.5 (92 %) | 40.4 | 0.1 | Driver.Packet 974.6, Driver.EndSubmission 17.0 |
+| title | 0.1 (0 %) | 0.0 (0 %) | 1032.1 | 0.0 | Shader.ResolveGraphicsStagesAbi 0.1 |
+| gpu | 723.3 (70 %) | 0.0 (0 %) | 308.9 | 0.0 | batch 723.3 |
+
+**Largest slices** (ms per frame, inclusive, all threads): Driver.Packet 1975.7, Graphics.Draw 863.7, Graphics.Draw.draw_and_resource_release 853.3, Driver.Packet.memory_wait 748.0, batch 723.3, Driver.Packet.draw 483.8, Driver.Draw 483.5, Driver.Draw.draw_enqueued 437.8, Graphics.Wait 304.8, Graphics.Wait.fence_wait 304.1
+
+**Longest waits**
+
+- Driver.Packet.memory_wait (queue worker 0x20) 869.4 ms at 7590 ms, present 1705
+- Driver.Packet.memory_wait (queue worker 0x20) 848.5 ms at 9640 ms, present 1707
+- Driver.Packet.memory_wait (queue worker 0x20) 838.7 ms at 17801 ms, present 1715
+- Driver.Packet.memory_wait (queue worker 0x20) 833.7 ms at 13769 ms, present 1711
+- Driver.Packet.memory_wait (queue worker 0x20) 819.4 ms at 11712 ms, present 1709
+- Driver.Packet.memory_wait (queue worker 0x20) 804.8 ms at 1467 ms, present 1699
+- Driver.Packet.memory_wait (queue worker 0x20) 799.9 ms at 14796 ms, present 1712
+- Driver.Packet.memory_wait (queue worker 0x20) 798.6 ms at 5568 ms, present 1703
+- Driver.Packet.memory_wait (queue worker 0x20) 797.1 ms at 12752 ms, present 1710
+- Driver.Packet.memory_wait (queue worker 0x20) 785.7 ms at 8663 ms, present 1706
+
+**Largest GPU batches** (GPU ranges inside, and the CPU slices that recorded each, inclusive)
+
+- batch 1201: 61.5 ms at 14751 ms, present 1712: GPU no ranges; recorded by Driver.Packet (queue worker 0x20) 152.0, Driver.Packet.dispatch (queue worker 0x20) 120.0, Driver.Dispatch (queue worker 0x20) 93.3, GpuMutex.wait.end (queue worker 0x20) 41.1
+- batch 1367: 60.4 ms at 16795 ms, present 1714: GPU no ranges; recorded by Driver.Packet (queue worker 0x20) 204.8, Driver.Packet.dispatch (queue worker 0x20) 131.5, Driver.Dispatch (queue worker 0x20) 98.1, Driver.Packet.prepare_memory (queue worker 0x20) 73.3
+- batch 361: 60.4 ms at 4470 ms, present 1702: GPU no ranges; recorded by Driver.Packet (queue worker 0x20) 997.2, Driver.Packet.memory_wait (queue worker 0x20) 773.6, Driver.Packet.dispatch (queue worker 0x20) 201.6, Driver.Dispatch (queue worker 0x20) 99.8
+- batch 1033: 60.2 ms at 12686 ms, present 1710: GPU no ranges; recorded by Driver.Packet (queue worker 0x20) 192.0, Driver.Packet.dispatch (queue worker 0x20) 122.5, Driver.Dispatch (queue worker 0x20) 96.9, Driver.Packet.prepare_memory (queue worker 0x20) 69.4
+- batch 617: 59.9 ms at 7585 ms, present 1705: GPU no ranges; recorded by Driver.Packet (queue worker 0x20) 1023.8, Driver.Packet.memory_wait (queue worker 0x20) 869.4, Driver.Packet.dispatch (queue worker 0x20) 121.7, Driver.Dispatch (queue worker 0x20) 92.0

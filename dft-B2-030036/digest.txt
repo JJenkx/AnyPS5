@@ -1,0 +1,61 @@
+**seconds 360:20** from present 2947: 86 presents, frame p50 234.3 / p90 262.7 / p99 340.7 / max 340.7 ms, GPU busy 165.8 ms per present
+AMD Radeon RX 6650 XT (RADV NAVI23), radv Mesa 26.2.6-arch1.1, Linux 7.2.14-arch1-1, 3840x2160, commit 4ffb7a00ba1b, dropped: no
+
+```json
+{"commit":"4ffb7a00ba1b","dirty":false,"env":{"APS5_PAD_INPUT_FILE":"<path>","APS5_PLAYGO_UNLISTED_CHUNKS":"installed","APS5_TRACE_DIR":"<path>","APS5_TRACE_SECONDS":"360:20"},"gpu":"AMD Radeon RX 6650 XT (RADV NAVI23)","driver":"radv Mesa 26.2.6-arch1.1","os":"Linux 7.2.14-arch1-1","cpu":"AMD Ryzen 9 7950X 16-Core Processor","cpu_threads":32,"memory_mib":127901,"title_id":"PPSA06565","title":"Dusk Diver 2","content_version":"01.000.000","resolution":"3840x2160","window":{"spec":"seconds 360:20","first_present":2947,"ms":20177.167},"presents":86,"frame_ms":{"p50":234.346,"p90":262.651,"p99":340.661,"max":340.661},"gpu_busy_ms_per_present":165.848,"worker_busy_pct":{"queue worker 0x0":99.19,"queue worker 0x20":98.82},"top_phases_ms_per_frame":{"Driver.Packet":460.461,"Driver.Packet.memory_wait":211.629,"Graphics.Draw":106.076,"Graphics.Draw.draw_and_resource_release":99.833,"Driver.Packet.dispatch":97.775,"Driver.Packet.draw":81.355,"Driver.Draw":81.135,"Driver.Dispatch":56.502},"owned_draw_counts":{},"trace_dropped":false,"trace":"aps5-trace-4ffb7a00ba1b-2273743.json.gz"}
+```
+
+**Slowest frames** (largest slices inside each, inclusive)
+
+- present 2996: 340.7 ms at 11409 ms: Driver.Packet (queue worker 0x20) 340.1, Driver.Packet (queue worker 0x0) 329.2, Driver.Packet.memory_wait (queue worker 0x20) 280.4, batch (gpu) 236.9
+- present 2947: 293.2 ms at 0 ms: Driver.Packet (queue worker 0x0) 281.0, Driver.Packet (queue worker 0x20) 231.6, Driver.Packet.memory_wait (queue worker 0x20) 204.8, batch (gpu) 179.3
+- present 3019: 291.6 ms at 16777 ms: Driver.Packet (queue worker 0x20) 290.8, Driver.Packet (queue worker 0x0) 278.9, Driver.Packet.memory_wait (queue worker 0x20) 252.4, batch (gpu) 204.6
+- present 2984: 274.5 ms at 8654 ms: Driver.Packet (queue worker 0x20) 274.1, Driver.Packet.memory_wait (queue worker 0x20) 265.7, Driver.Packet (queue worker 0x0) 262.4, batch (gpu) 160.9
+- present 2980: 273.4 ms at 7700 ms: Driver.Packet (queue worker 0x20) 273.0, Driver.Packet (queue worker 0x0) 262.1, Driver.Packet.memory_wait (queue worker 0x20) 245.5, batch (gpu) 161.1
+
+**Persistent spikes** (frame time above the fastest frame that separates it from a longer frame; one entry per stall, not per frame)
+
+- present 2996: 340.7 ms at 11409 ms, persistence 186.0 ms
+- present 3019: 291.6 ms at 16777 ms, persistence 136.9 ms
+- present 2947: 293.2 ms at 0 ms, persistence 119.8 ms
+- present 3027: 271.8 ms at 18733 ms, persistence 78.7 ms
+- present 2984: 274.5 ms at 8654 ms, persistence 74.8 ms
+- present 2980: 273.4 ms at 7700 ms, persistence 71.2 ms
+- present 2956: 268.0 ms at 2179 ms, persistence 70.0 ms
+- present 3013: 262.7 ms at 15402 ms, persistence 68.0 ms
+- present 2971: 257.6 ms at 5627 ms, persistence 57.7 ms
+- present 2977: 258.5 ms at 7008 ms, persistence 49.5 ms
+
+**Threads** (ms per frame)
+
+| thread | busy | wait | untraced | in slices < 20 us | largest |
+|---|---|---|---|---|---|
+| queue worker 0x0 | 184.9 (79 %) | 38.5 (16 %) | 11.2 | 53.5 | Driver.Packet 222.5, Driver.EndSubmission 1.0 |
+| draw committer | 112.9 (48 %) | 22.0 (9 %) | 99.7 | 18.8 | Graphics.Draw 101.5, Recorder.Submit 24.5 |
+| presenter | 0.9 (0 %) | 25.9 (11 %) | 207.7 | 0.1 | VideoOut.Flip 26.6, Driver.Present 0.2 |
+| queue worker 0x20 | 4.0 (2 %) | 227.8 (97 %) | 2.8 | 0.1 | Driver.Packet 228.7, Driver.EndSubmission 3.1 |
+| title | 0.0 (0 %) | 0.0 (0 %) | 234.6 | 0.1 | Shader.ResolveGraphicsStagesAbi 0.0 |
+| gpu | 165.7 (71 %) | 0.0 (0 %) | 68.9 | 0.0 | batch 165.7 |
+
+**Largest slices** (ms per frame, inclusive, all threads): Driver.Packet 451.2, Driver.Packet.memory_wait 211.6, batch 165.7, Graphics.Draw 101.5, Driver.Packet.dispatch 97.4, Graphics.Draw.draw_and_resource_release 95.0, Driver.Packet.draw 78.1, Driver.Draw 77.8, Driver.Dispatch 56.2, Resources.Complete 52.7
+
+**Longest waits**
+
+- Driver.Packet.memory_wait (queue worker 0x20) 321.5 ms at 11524 ms, present 2996
+- Driver.Packet.memory_wait (queue worker 0x20) 273.9 ms at 16883 ms, present 3019
+- Driver.Packet.memory_wait (queue worker 0x20) 264.4 ms at 13835 ms, present 3006
+- Driver.Packet.memory_wait (queue worker 0x20) 264.0 ms at 88 ms, present 2947
+- Driver.Packet.memory_wait (queue worker 0x20) 261.5 ms at 363 ms, present 2948
+- Driver.Packet.memory_wait (queue worker 0x20) 259.8 ms at 8512 ms, present 2983
+- Driver.Packet.memory_wait (queue worker 0x20) 258.8 ms at 19075 ms, present 3028
+- Driver.Packet.memory_wait (queue worker 0x20) 252.8 ms at 2268 ms, present 2956
+- Driver.Packet.memory_wait (queue worker 0x20) 250.3 ms at 9670 ms, present 2988
+- Driver.Packet.memory_wait (queue worker 0x20) 250.2 ms at 13348 ms, present 3004
+
+**Largest GPU batches** (GPU ranges inside, and the CPU slices that recorded each, inclusive)
+
+- batch 3860: 75.6 ms at 11642 ms, present 2996: GPU no ranges; recorded by Resources.Complete (draw committer) 6.5, Recorder.Submit (draw committer) 0.7, Resources.Prepare (draw committer) 0.1, Graphics.Draw (draw committer) 0.0
+- batch 3867: 53.2 ms at 11744 ms, present 2996: GPU no ranges; recorded by Graphics.Draw (draw committer) 2.9, Graphics.Draw.draw_and_resource_release (draw committer) 2.9, Resources.Complete (draw committer) 2.1, Recorder.Submit (draw committer) 0.5
+- batch 6320: 50.6 ms at 19156 ms, present 3028: GPU no ranges; recorded by Graphics.Draw (draw committer) 1.6, Graphics.Draw.draw_and_resource_release (draw committer) 1.5, Resources.Complete (draw committer) 0.9, Recorder.Submit (draw committer) 0.3
+- batch 1839: 48.7 ms at 5622 ms, present 2970: GPU no ranges; recorded by Graphics.Draw (draw committer) 2.3, Graphics.Draw.draw_and_resource_release (draw committer) 2.3, Resources.Complete (draw committer) 1.7, Recorder.Submit (draw committer) 0.6
+- batch 2683: 45.6 ms at 8087 ms, present 2981: GPU no ranges; recorded by Graphics.Draw (draw committer) 1.6, Graphics.Draw.draw_and_resource_release (draw committer) 1.5, Resources.Complete (draw committer) 0.8, Recorder.Submit (draw committer) 0.3
