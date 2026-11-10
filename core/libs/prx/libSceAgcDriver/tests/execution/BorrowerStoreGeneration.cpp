@@ -25,6 +25,7 @@
 #include <mutex>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -96,7 +97,7 @@ GuestTextureResource Surface(std::uint64_t address, std::uint32_t format) {
 
 using Texel = std::array<std::uint8_t, 4>;
 
-void Run(AgcDriver::VulkanDevice& device, GuestBlock& block) {
+void Run(AgcDriver::VulkanDevice& device, GuestBlock& block, bool cpuOverwrite) {
     auto context = device.graphicsContext();
     Require(context.hostImportAlignment != 0, "borrower generation: host imports unavailable");
     PrepareImportWatch(context);
@@ -164,16 +165,20 @@ void Run(AgcDriver::VulkanDevice& device, GuestBlock& block) {
         lastX = {static_cast<std::uint8_t>(0x80 + round), 0x91, 0xa2, 0xb3};
         write(imageX, false, lastX);
     }
+    if (cpuOverwrite) std::memset(block.Data(), 0x7c, 65536);
     flush();
     requireImage(imageX, lastX, "borrower generation: final GPU bytes were lost");
-    for (std::size_t i = 0; i < SurfaceBytes; ++i) Require(block.Data()[i] == lastX[i % 4], "borrower generation: final guest bytes were lost");
+    for (std::size_t i = 0; i < SurfaceBytes; ++i) {
+        const auto expected = cpuOverwrite && i < 65536 ? std::uint8_t{0x7c} : lastX[i % 4];
+        Require(block.Data()[i] == expected, "borrower generation: final guest bytes were lost");
+    }
     recorder.Sync();
     ClearCachedTextures(context.device);
 }
 
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
         if (!AgcDriver::GuestMemory::WriteWatched()) {
             std::puts("skipped, borrower generation requires write watching");
@@ -183,7 +188,7 @@ int main() {
         if (!device) return VulkanTestSkipped;
         std::lock_guard gpu(AgcDriver::GuestMemory::GpuMutex());
         GuestBlock block(true);
-        Run(*device, block);
+        Run(*device, block, argc == 2 && std::string_view(argv[1]) == "--cpu-overwrite");
         std::puts("borrower generation survives lender publication across four rounds");
         return 0;
     } catch (const std::exception& error) {
