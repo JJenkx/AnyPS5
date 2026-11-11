@@ -188,8 +188,6 @@ public:
     void Join() { Release(); if (worker.joinable()) worker.join(); }
     const std::multimap<std::string, std::string>& Headers() const { return headers; }
     const std::string& Upload() const { return upload; }
-    explicit Server(Mode mode, std::string location, int redirectStatus, std::vector<std::string> responseCookies)
-        : Server(mode, std::move(location), redirectStatus, "127.0.0.1", std::move(responseCookies)) {}
     bool Negotiated() const { return negotiated; }
     bool IsEarly() const { return mode >= Mode::EarlyFinal; }
     bool IsHttp1() const { return mode >= Mode::Http10 && mode <= Mode::Http1Plain; }
