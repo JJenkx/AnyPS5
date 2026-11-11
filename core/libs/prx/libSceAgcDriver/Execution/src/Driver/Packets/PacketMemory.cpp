@@ -435,6 +435,23 @@ bool Driver::enqueueDmaPacket(std::span<const std::uint32_t> packet, std::uint32
     return true;
 }
 
+bool Driver::enqueueClockCopyPacket(std::span<const std::uint32_t> packet, std::uint32_t opcode, std::uint32_t queue, const QueueState& state) {
+    static const bool enabled = std::getenv("APS5_PIPELINE_DRAIN_CLOCKS") == nullptr && std::getenv("APS5_CPU_STORES") == nullptr && std::getenv("APS5_DRAIN_ALL") == nullptr;
+    if (!enabled || !DeferLabels() || opcode != 0x40 || queue != 0 || packet.size() < 6 || !DrawPipeline::Active() || !DrawPipeline::Queue0().Busy() || !deferredLabels().labels.empty() || Pm4::CopyDataSource(packet) != Pm4::CopyDataGpuClockSource) return false;
+    const auto store = Pm4::ResolveStore(packet, state, 8);
+    if (!store.has_value()) return false;
+    const auto stored = store->Bytes();
+    if (stored.empty() || DrawPipeline::Queue0().Overlaps(store->address, stored.size()) || !GuestMemory::Accessible(reinterpret_cast<const void*>(store->address), stored.size(), true)) return false;
+    const auto address = store->address;
+    std::vector<std::byte> bytes(stored.begin(), stored.end());
+    auto queued = bytes;
+    DrawPipeline::Queue0().EnqueueStore([this, queue, address, bytes = std::move(bytes)] {
+        GuestMemory::SetCurrentPacket(0x40, queue);
+        commitStore(queue, address, bytes);
+    }, address, std::move(queued));
+    return true;
+}
+
 bool Driver::enqueueConstantRamDump(std::span<const std::uint32_t> packet, std::uint32_t opcode, std::uint32_t queue, const QueueState& state) {
     static const bool enabled = std::getenv("APS5_PIPELINE_DRAIN_DUMPS") == nullptr && std::getenv("APS5_CPU_STORES") == nullptr;
     if (!enabled || opcode != 0x83 || queue != 0 || !DrawPipeline::Active() || !deferredLabels().labels.empty()) return false;
