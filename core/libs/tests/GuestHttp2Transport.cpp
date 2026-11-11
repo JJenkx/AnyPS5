@@ -2135,6 +2135,46 @@ void Http1Cleartext(int ssl) {
     for (const bool split : {false, true}) PlainShortBody(ssl, split);
 }
 
+void MeasuredAsyncSendFailure(int ssl, bool overall, bool abort) {
+    Server server(Mode::Http11StallHeaders, "/another", 302, {}, true, true);
+    Client client(ssl, 1, 0, 2);
+    client.Create(server.Url());
+    Require(sceHttp2SetRecvTimeOut(client.request, overall || abort ? 1000000 : 100000) == 0, "async receive timeout setting");
+    Require(sceHttp2SetTimeOut(client.request, overall ? 100000 : 1000000) == 0, "async overall timeout setting");
+    Require(sceHttp2SendRequestAsync(client.request, nullptr, 0, nullptr, nullptr) == 0, "async measured-failure send accepted");
+    if (abort) {
+        server.WaitStage(2);
+        Require(sceHttp2AbortRequest(client.request) == 0, "abort active async send");
+    }
+    const int expected = static_cast<int>(abort ? 0x817b1080 : overall ? 0x817b1068 : 0x817b1222);
+    Http2AsyncResult result{};
+    Require(sceHttp2WaitAsync(client.request, &result, nullptr, nullptr) == 0, "wait for measured async failure");
+    Require(result.req_id == client.request && result.event_type == 0 && result.result == expected, "async send carries measured failure code");
+    AfterFailedSend(client, expected);
+    server.Join();
+}
+
+void MeasuredAsyncReadTimeout(int ssl) {
+    Server server(Mode::Http11StallBody, "/another", 302, {}, true, true);
+    Client client(ssl, 1, 0, 2);
+    client.Create(server.Url());
+    Require(sceHttp2SetRecvTimeOut(client.request, 100000) == 0, "async read timeout setting");
+    Require(sceHttp2SendRequest(client.request, nullptr, 0) == 0, "async read receives headers first");
+    char byte = 'z';
+    Require(sceHttp2ReadDataAsync(client.request, &byte, 1, nullptr, nullptr) == 0, "async read accepted");
+    Http2AsyncResult result{};
+    Require(sceHttp2WaitAsync(client.request, &result, nullptr, nullptr) == 0, "wait for async read timeout");
+    const int expected = static_cast<int>(0x817b1222);
+    Require(result.req_id == client.request && result.event_type == 1 && result.result == expected && byte == 'z', "async read carries timeout without changing output");
+    Require(sceHttp2ReadData(client.request, &byte, 1) == expected && byte == 'z', "async read failure remains sticky");
+    int status = 0;
+    Require(sceHttp2GetStatusCode(client.request, &status) == 0 && status == 200, "async read failure preserves status");
+    int kind = 5;
+    std::uint64_t length = 0;
+    Require(sceHttp2GetResponseContentLength(client.request, &kind, &length) == 0 && kind == 0 && length == 13, "async read failure preserves content length");
+    server.Join();
+}
+
 void HostAuthority(int ssl) {
     std::fprintf(stderr, "HTTP2 host header scenario\n");
     Server server(Mode::Normal);
@@ -2206,7 +2246,16 @@ int main(int argc, char** argv) {
     SceSsl::Data root{reinterpret_cast<std::uint8_t*>(const_cast<char*>(RootPem)), sizeof(RootPem)};
     SceSsl::Data* authorities[] = {&root};
     Require(sceSslLoadCert(ssl, 1, authorities, nullptr, nullptr) == 0, "trust loopback CA");
-    if (argc == 2 && std::string_view(argv[1]) == "--system-roots") {
+    if (argc == 2 && std::string_view(argv[1]) == "--measured-send-timeout") {
+        PlainFailedSend(ssl, Mode::Http11StallHeaders, static_cast<int>(0x817b1068), 3);
+    } else if (argc == 2 && std::string_view(argv[1]) == "--measured-async-timeout") {
+        MeasuredAsyncSendFailure(ssl, false, false);
+        MeasuredAsyncSendFailure(ssl, true, false);
+    } else if (argc == 2 && std::string_view(argv[1]) == "--measured-async-abort") {
+        MeasuredAsyncSendFailure(ssl, false, true);
+    } else if (argc == 2 && std::string_view(argv[1]) == "--measured-async-read-timeout") {
+        MeasuredAsyncReadTimeout(ssl);
+    } else if (argc == 2 && std::string_view(argv[1]) == "--system-roots") {
         const auto list = std::filesystem::current_path() / sceKernelGetFsSandboxRandomWord() / "common" / "cert" / "CA_LIST.cer";
         std::filesystem::create_directories(list.parent_path());
         std::ofstream(list, std::ios::binary | std::ios::trunc) << RootPem;
