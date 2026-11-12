@@ -25,10 +25,20 @@ VramBudget::VramBudget(const Context& context) {
     if (disabled() || context.integratedGpu || context.memoryProperties2 == nullptr || context.physical == VK_NULL_HANDLE) return;
     for (std::uint32_t index = 0; index < context.memory.memoryHeapCount && index < VK_MAX_MEMORY_HEAPS; ++index) {
         const auto& candidate = context.memory.memoryHeaps[index];
-        if ((candidate.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0 && (!heap || candidate.size > heapBytes)) {
-            heap = index;
-            heapBytes = candidate.size;
+        if ((candidate.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) == 0) continue;
+        bool usable = false;
+        for (std::uint32_t type = 0; type < context.memory.memoryTypeCount && type < VK_MAX_MEMORY_TYPES; ++type) {
+            const auto& memory = context.memory.memoryTypes[type];
+            usable = usable || (memory.heapIndex == index && (memory.propertyFlags & (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         }
+        if (!usable) continue;
+        if (heap) {
+            heap.reset();
+            heapBytes = 0;
+            return;
+        }
+        heap = index;
+        heapBytes = candidate.size;
     }
     if (!heap || heapBytes == 0) {
         heap.reset();

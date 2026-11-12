@@ -322,6 +322,26 @@ void VramTargets() {
     Expect(VramBudget::TargetFor(VkDeviceSize{2} << 30u, 256 * MiB) == 512 * MiB, "the target fell below a quarter of a 2 GiB heap");
 }
 
+void VramHeapEligibility() {
+    auto context = vramContext();
+    context.memory.memoryHeapCount = 3;
+    context.memory.memoryHeaps[2] = {HeapBytes / 2, VK_MEMORY_HEAP_DEVICE_LOCAL_BIT};
+    context.memory.memoryTypeCount = 3;
+    context.memory.memoryTypes[2] = {VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 2};
+    Expect(!VramBudget(context).Enabled(), "two device-tier heaps shared a release counter that cannot identify the heap freed");
+    context.memory.memoryTypes[2].propertyFlags |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    VramBudget withBar(context);
+    Expect(withBar.Enabled() && withBar.Report().heap == 0, "a host-visible BAR heap disabled the eligible device heap's budget");
+    context.memory.memoryHeaps[2].size = HeapBytes * 2;
+    VramBudget withLargeBar(context);
+    Expect(withLargeBar.Enabled() && withLargeBar.Report().heap == 0, "the policy tracked a larger host-visible heap that the device tier cannot use");
+    context.memory.memoryTypes[2] = {VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0};
+    Expect(VramBudget(context).Enabled(), "two memory types in the same device-tier heap disabled its budget");
+    context.memory.memoryTypes[0].propertyFlags |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    context.memory.memoryTypes[2].propertyFlags |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    Expect(!VramBudget(context).Enabled(), "the policy was enabled without a heap usable by the device tier");
+}
+
 void waitOutDemand() {
     std::this_thread::sleep_for(BufferPool::DemandWindow + std::chrono::milliseconds(200));
 }
@@ -1413,6 +1433,7 @@ int main(int argc, char** argv) {
         RefusedDevicePlacement();
         AttachmentReclaim();
         VramTargets();
+        VramHeapEligibility();
         VramUnderTargetPools();
         VramOverTargetKeepsDemand();
         VramOverTargetReleases();
