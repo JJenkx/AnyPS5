@@ -24,6 +24,7 @@ constexpr std::uint32_t Width = 64;
 constexpr std::uint32_t Height = 32;
 constexpr std::uint32_t Vertices = 3;
 constexpr std::uint32_t Stride = 16;
+constexpr std::uint32_t FirstVertex = 20;
 alignas(256) std::array<std::byte, Width * Height * 4> Pixels{};
 alignas(256) std::array<std::uint32_t, Vertices * 4> Output{};
 
@@ -35,7 +36,8 @@ alignas(256) constexpr std::array<std::uint32_t, 4> PixelCode{
     0x7e0e02f2, 0xf800180f, 0x07070707, 0xbf810000,
 };
 
-alignas(256) constexpr std::array<float, Vertices * 4> Elements{-0.5f, -0.5f, 0.0f, 1.0f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.5f, 0.0f, 1.0f};
+alignas(256) std::array<float, (FirstVertex + Vertices) * 4> Elements{};
+constexpr std::array<float, Vertices * 4> Triangle{-0.5f, -0.5f, 0.0f, 1.0f, 0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.5f, 0.0f, 1.0f};
 
 std::array<std::uint32_t, 4> VertexBufferDescriptor(std::uint32_t select, std::uint32_t records) {
     const auto address = reinterpret_cast<std::uintptr_t>(Elements.data());
@@ -47,8 +49,8 @@ std::array<std::uint32_t, 4> OutputDescriptor() {
     return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), static_cast<std::uint32_t>(sizeof(Output)), 0x31016facu};
 }
 
-void IndirectDraw(const std::shared_ptr<AgcDriver::VulkanDevice>& device, std::uint32_t* record, std::uint32_t select, std::uint32_t records) {
-    const std::string what = "indirect draw with a strided OOB_SELECT " + std::to_string(select) + " descriptor of " + std::to_string(records) + " records";
+void Draw(const std::shared_ptr<AgcDriver::VulkanDevice>& device, std::uint32_t* record, std::uint32_t select, std::uint32_t records, bool indirect, std::uint32_t firstVertex = 0) {
+    const std::string what = std::string(indirect ? "indirect" : "direct") + " draw with a strided OOB_SELECT " + std::to_string(select) + " descriptor of " + std::to_string(records) + " records";
     Pixels.fill(std::byte{0x40});
     Output.fill(0xdeadbeefu);
     std::vector<std::uint32_t> userData(12, 0u);
@@ -111,21 +113,26 @@ void IndirectDraw(const std::shared_ptr<AgcDriver::VulkanDevice>& device, std::u
     state.blend.colorWriteMask = 15;
     state.blends = {state.blend};
     state.blendConstants = {};
-    AgcDriver::Pm4::DrawParameters draw{0, 0, 0, 0, 0, false, 0, 0};
-    draw.indirect = AgcDriver::Pm4::DrawParameters::IndirectDraw{reinterpret_cast<std::uintptr_t>(record), 0x24u, 16u, 16u, 1u, false, 0u, 0x280u, 0x280u, 0x280u, false, 0u};
-    AgcDriver::DriverDetail::DrawProgram program{};
-    program.firstUserSgpr = 8;
-    program.userData = userData;
-    AgcDriver::DriverDetail::Driver::ClassifyIndirectDraw(vertexResult, state, program, device, draw, false);
+    AgcDriver::Pm4::DrawParameters draw{0, Vertices, 0, 1, 0, false, firstVertex, 0};
+    if (indirect) {
+        draw.indirect = AgcDriver::Pm4::DrawParameters::IndirectDraw{reinterpret_cast<std::uintptr_t>(record), 0x24u, 16u, 16u, 1u, false, 0u, 0x280u, 0x280u, 0x280u, false, 0u};
+        AgcDriver::DriverDetail::DrawProgram program{};
+        program.firstUserSgpr = 8;
+        program.userData = userData;
+        AgcDriver::DriverDetail::Driver::ClassifyIndirectDraw(vertexResult, state, program, device, draw, false);
+    }
     device->Draw(state, draw, shaders);
     device->WaitIdle();
-    const auto covered = std::count_if(Pixels.begin(), Pixels.end(), [](std::byte value) { return value != std::byte{0x40}; });
-    Require(covered != 0, what + ": nothing was drawn");
+    const auto center = (Height / 2u * Width + Width / 2u) * 4u;
+    for (std::size_t component = 0; component < 4; ++component) {
+        Require(Pixels[center + component] == std::byte{0xff}, what + ": triangle center was not white");
+        Require(Pixels[component] == std::byte{0x40}, what + ": the triangle changed an uncovered corner");
+    }
 }
 
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
         std::shared_ptr<AgcDriver::VulkanDevice> device = OpenVulkanTestDevice();
         if (!device) return VulkanTestSkipped;
@@ -137,10 +144,29 @@ int main() {
         }
         const std::array<std::uint32_t, 4> arguments{Vertices, 1, 0, 0};
         std::copy(arguments.begin(), arguments.end(), record);
-        for (const auto select : {2u, 3u}) {
-            IndirectDraw(device, record, select, Vertices);
+        std::copy(Triangle.begin(), Triangle.end(), Elements.begin());
+        std::copy(Triangle.begin(), Triangle.end(), Elements.begin() + FirstVertex * 4u);
+        const std::string mode = argc == 1 ? "indirect" : argv[1];
+        if (mode == "indirect") {
+            Draw(device, record, 2u, Vertices, true);
+            Draw(device, record, 3u, Stride, true);
+        } else if (mode == "direct-2") {
+            Draw(device, record, 2u, 1u, false);
+        } else if (mode == "direct-3") {
+            Draw(device, record, 3u, Stride, false, FirstVertex);
+        } else if (mode == "indirect-zero-3") {
+            bool refused = false;
+            try {
+                Draw(device, record, 3u, Stride - 1u, true);
+            } catch (const std::exception& error) {
+                if (std::string(error.what()).find("strided vertex fetch reads zero outside the descriptor range") == std::string::npos) throw;
+                refused = true;
+            }
+            Require(refused, "an indirect fetch that hardware reads as zero was copied as stored vertex data");
+        } else {
+            Require(false, "unknown strided vertex fetch test mode");
         }
-        std::puts("strided indirect vertex fetch tests passed");
+        std::puts("strided vertex fetch tests passed");
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

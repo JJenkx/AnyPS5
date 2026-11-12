@@ -305,6 +305,7 @@ inline std::size_t VertexBufferExtent(const ShaderRecompiler::VertexAttribute& a
     const auto stride = (attribute.resource.fields[1] >> 16u) & 0x3fffu;
     const auto records = attribute.resource.fields[2];
     Require(attribute.fetchIndex <= 1, "unsupported vertex fetch index");
+    Require(stride == 0 || !StridedFetchReadsZero(attribute), "strided vertex fetch reads zero outside the descriptor range");
     const auto bytes = stride == 0 ? ZeroStrideAvailableBytes(attribute) : records == 0 ? 0 : static_cast<std::uint64_t>(records - 1u) * stride + DecodeVertexFormat(attribute).bytes;
     Require(bytes != 0 && bytes <= std::numeric_limits<std::size_t>::max(), "empty or oversized vertex buffer descriptor");
     const auto address = attribute.resource.fields[0] | (static_cast<std::uint64_t>(attribute.resource.fields[1] & 0xffffu) << 32u);
