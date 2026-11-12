@@ -4456,61 +4456,153 @@ bool carriedShadowTests(const Device& device, Recorder& recorder) {
         return false;
     }
     constexpr std::size_t bytes = 4u << 20u;
-    void* block = AllocateWatched(bytes, 65536);
+    void* block = nullptr;
+    std::int64_t physical = -1;
+#ifdef __linux__
+    Require(context.dmaBufImport, "carried shadows require watched dma-buf imports on Linux");
+    Require(sceKernelAllocateDirectMemory(0, 0x7fffffffffll, bytes, 65536, 0, &physical) == 0, "allocate the carried-shadow dma-buf backing");
+    Require(sceKernelMapDirectMemory(&block, bytes, 0x33, 0, physical, 65536) == 0, "map the carried-shadow dma-buf backing");
+#else
+    block = AllocateWatched(bytes, 65536);
+#endif
     Require(block != nullptr, "cannot allocate the test block");
     struct Cleanup {
         const Context& context;
+        Recorder& recorder;
         void* block;
+        std::int64_t physical;
         ~Cleanup() {
+            recorder.Sync();
+#ifdef __linux__
+            ClearHostImports(context.device);
+            sceKernelMunmap(reinterpret_cast<std::uint64_t>(block), bytes);
+            sceKernelReleaseDirectMemory(physical, bytes);
+#else
             {
                 GuestAllocations::Mutation mutation;
                 mutation.Remove(block);
             }
             HostImportFor(context, reinterpret_cast<std::uint64_t>(block), bytes);
             ReleaseWatched(block, bytes);
+#endif
         }
     };
     std::memset(block, 0x11, bytes);
     const auto address = reinterpret_cast<std::uint64_t>(block);
+#ifndef __linux__
     {
         GuestAllocations::Mutation mutation;
         mutation.Add(block, bytes, true, true, true);
     }
-    const Cleanup cleanup{context, block};
+#endif
+    const Cleanup cleanup{context, recorder, block, physical};
     if (HostImportFor(context, address, bytes) == nullptr) {
         std::cout << "host import of the test block refused: carried shadows not tested\n";
         return false;
     }
+    Require(AgcDriver::GuestMemory::Watched(address, bytes), "the carried-shadow import lost write watching");
     const auto element = address + 4096;
     constexpr std::size_t elementBytes = 1u << 20u;
     std::vector<std::unique_ptr<GuestBufferMemory>> kept;
-    const auto use = [&] {
+    struct Drain {
+        Recorder& recorder;
+        ~Drain() { recorder.Sync(); }
+    } drain{recorder};
+    const auto use = [&](Recorder& target) {
         auto& memory = *kept.emplace_back(std::make_unique<GuestBufferMemory>(context));
         memory.AllowDeviceStaging();
         memory.AddWritable(element, elementBytes, false, true);
         memory.Upload(false);
         Require(memory.InPlaceReads().empty(), "a read and written 1 MiB element was bound in place");
-        memory.RecordCopyBacks(recorder);
-        recorder.NotePendingWrites(memory.Writes());
+        memory.RecordCopyBacks(target);
+        target.NotePendingWrites(memory.Writes());
         memory.MarkDirectWrites();
-        memory.NoteCarriedShadows(recorder);
+        memory.NoteCarriedShadows(target);
+        return &memory;
     };
     AgcDriver::GuestMemory::BumpCollectEpoch();
     static_cast<void>(AgcDriver::GuestMemory::CollectWrites(element, elementBytes));
-    use();
+    use(recorder);
     const auto first = GuestBufferMemory::CarriedShadowCopies();
-    use();
+    use(recorder);
     Require(GuestBufferMemory::CarriedShadowCopies() == first + 1, "a staged region nobody wrote since its last use was not copied in from that use's device shadow");
     recorder.Sync();
     Require(std::all_of(static_cast<const std::byte*>(block), static_cast<const std::byte*>(block) + bytes, [](std::byte value) { return value == std::byte{0x11}; }), "a carried copy-in changed the guest bytes");
-    use();
+    use(recorder);
     std::memset(reinterpret_cast<void*>(element + 8192), 0x22, 4096);
     AgcDriver::GuestMemory::BumpCollectEpoch();
     const auto beforeWrite = GuestBufferMemory::CarriedShadowCopies();
-    use();
+    use(recorder);
     Require(GuestBufferMemory::CarriedShadowCopies() == beforeWrite, "a staged region the CPU wrote since its last use was copied in from that use's device shadow");
     recorder.Sync();
     kept.clear();
+    use(recorder);
+    const auto serial = HostImportSerial(context, element, elementBytes, false);
+    const auto note = recorder.NewestWriteNote(element, elementBytes);
+    Require(serial != 0 && note != 0, "the carried remap control lacks an import or pending write note");
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Remove(block);
+    }
+    Require(HostImportFor(context, address, bytes) == nullptr, "the carried remap control retained its retired import");
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Add(block, bytes, true, true, true);
+    }
+    Require(HostImportFor(context, address, bytes) != nullptr, "the carried remap control could not import the re-registered range");
+    const auto replacement = HostImportSerial(context, element, elementBytes, false);
+    Require(replacement != 0 && replacement != serial, "re-registering the carried range did not replace its import");
+    const bool pendingRemapNote = recorder.NewestWriteNote(element, elementBytes) == note;
+    const auto beforeRemap = GuestBufferMemory::CarriedShadowCopies();
+    use(recorder);
+    const auto afterRemap = GuestBufferMemory::CarriedShadowCopies();
+    recorder.Sync();
+    kept.clear();
+    Require(afterRemap == beforeRemap, "a re-registered range copied in from its retired import's device shadow");
+    std::cout << "carried shadows reject a replaced import, pending write note preserved " << pendingRemapNote << '\n';
+    struct Reactivate {
+        Recorder& recorder;
+        ~Reactivate() { recorder.Activate(); }
+    } reactivate{recorder};
+    std::optional<Recorder> recycled;
+    recycled.emplace(context);
+    recycled->Activate();
+    use(*recycled);
+    const auto priorNote = recycled->NewestWriteNote(element, elementBytes);
+    const auto priorId = recycled->Id();
+    const auto priorAddress = &*recycled;
+    Require(priorNote == 1, "the first recycled recorder did not publish its first write note");
+    recycled->Sync();
+    kept.clear();
+    recycled.reset();
+    recycled.emplace(context);
+    recycled->Activate();
+    Require(&*recycled == priorAddress && recycled->Id() != priorId, "the recorder identity control did not reuse an address with a new ID");
+    const std::array<std::pair<std::uint64_t, std::uint64_t>, 1> writes{{{element, element + elementBytes}}};
+    recycled->NotePendingWrites(writes);
+    Require(recycled->NewestWriteNote(element, elementBytes) == priorNote, "the replacement recorder did not reuse the write-note number");
+    const auto* imported = HostImportFor(context, element, elementBytes);
+    Require(imported != nullptr, "the recorder identity control lost its import");
+    context.Function<PFN_vkCmdFillBuffer>("vkCmdFillBuffer")(recycled->Commands(), imported->buffer, HostImportOffset(*imported, element), elementBytes, 0x33333333u);
+    const auto beforeRecorderReuse = GuestBufferMemory::CarriedShadowCopies();
+    auto* staged = use(*recycled);
+    const auto afterRecorderReuse = GuestBufferMemory::CarriedShadowCopies();
+    auto readback = std::make_shared<Buffer>(context, elementBytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    std::uint32_t adjustment = 0;
+    const auto view = staged->Descriptor(element, elementBytes, adjustment);
+    RecordMemoryBarrier(context, recycled->Commands(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+    CopyBuffer(context, recycled->Commands(), view.buffer, view.offset + adjustment, readback->Handle(), 0, elementBytes);
+    recycled->Keep(readback);
+    recycled->Sync();
+    const auto data = readback->Bytes();
+    const bool fresh = std::all_of(data.begin(), data.end(), [](std::byte value) { return value == std::byte{0x33}; });
+    std::uint32_t observed = 0;
+    std::memcpy(&observed, data.data(), sizeof(observed));
+    std::cout << "recorder identity staged readback word " << observed << ", expected " << 0x33333333u << '\n';
+    kept.clear();
+    Require(fresh, "a new recorder read stale staged bytes from its predecessor at the same object address");
+    Require(afterRecorderReuse == beforeRecorderReuse, "a new recorder reused its predecessor's carried shadow at the same object address");
+    std::cout << "carried shadows reject a new recorder at a reused object address\n";
     return true;
 }
 
