@@ -438,16 +438,16 @@ bool Driver::enqueueDmaPacket(std::span<const std::uint32_t> packet, std::uint32
 bool Driver::enqueueClockCopyPacket(std::span<const std::uint32_t> packet, std::uint32_t opcode, std::uint32_t queue, const QueueState& state) {
     static const bool enabled = std::getenv("APS5_PIPELINE_DRAIN_CLOCKS") == nullptr && std::getenv("APS5_CPU_STORES") == nullptr && std::getenv("APS5_DRAIN_ALL") == nullptr;
     if (!enabled || !DeferLabels() || opcode != 0x40 || queue != 0 || packet.size() < 6 || !DrawPipeline::Active() || !DrawPipeline::Queue0().Busy() || !deferredLabels().labels.empty() || Pm4::CopyDataSource(packet) != Pm4::CopyDataGpuClockSource) return false;
-    const auto store = Pm4::ResolveStore(packet, state, 8);
+    auto store = Pm4::ResolveStore(packet, state, 8);
     if (!store.has_value()) return false;
     const auto stored = store->Bytes();
     if (stored.empty() || DrawPipeline::Queue0().Overlaps(store->address, stored.size()) || !GuestMemory::Accessible(reinterpret_cast<const void*>(store->address), stored.size(), true)) return false;
     const auto address = store->address;
-    std::vector<std::byte> bytes(stored.begin(), stored.end());
+    auto bytes = std::move(store->ownedBytes);
     auto queued = bytes;
     DrawPipeline::Queue0().EnqueueStore([this, queue, address, bytes = std::move(bytes)] {
         GuestMemory::SetCurrentPacket(0x40, queue);
-        commitStore(queue, address, bytes);
+        commitStore(queue, address, bytes, true);
     }, address, std::move(queued));
     return true;
 }
@@ -471,7 +471,7 @@ bool Driver::enqueueConstantRamDump(std::span<const std::uint32_t> packet, std::
     return true;
 }
 
-void Driver::commitStore(std::uint32_t queue, std::uint64_t address, std::span<const std::byte> bytes) {
+void Driver::commitStore(std::uint32_t queue, std::uint64_t address, std::span<const std::byte> bytes, bool gpuClock) {
     constexpr std::size_t gpuStoreLimit = 65536;
     GuestMemory::TagGpuLockSite(GuestMemory::GpuLockSite::Label);
     std::lock_guard gpuLock(GuestMemory::GpuMutex());
@@ -489,7 +489,8 @@ void Driver::commitStore(std::uint32_t queue, std::uint64_t address, std::span<c
         if (reason == 0) ++storesOnGpu;
         else ++storesBehindCompletions;
     } else {
-        if (reason != 1 && localDevice != nullptr) localDevice->WaitIdle();
+        const bool unimportedClock = gpuClock && reason == 3 && localDevice != nullptr && !localDevice->StoresPendingOver(address, bytes.size());
+        if (reason != 1 && localDevice != nullptr && !unimportedClock) localDevice->WaitIdle();
         GuestMemory::Write(address, bytes, 1);
         noteLabelStore(address, bytes, stamp != 0 ? stamp : ++eventSerial, queue);
         ++storesOnCpu;
