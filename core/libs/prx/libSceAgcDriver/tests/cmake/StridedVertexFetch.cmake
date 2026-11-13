@@ -1,5 +1,5 @@
 if(BUILD_TESTING AND TARGET agc_driver_strided_indirect_vertex_fetch_tests)
-    foreach(agcStridedMode IN ITEMS direct-2 direct-3)
+    foreach(agcStridedMode IN ITEMS direct-2 direct-3 indirect-2-small)
         string(REPLACE "-" "_" agcStridedName "${agcStridedMode}")
         set(agcStridedTest "agc_driver_strided_vertex_fetch_${agcStridedName}")
         add_test(NAME ${agcStridedTest} COMMAND agc_driver_strided_indirect_vertex_fetch_tests ${agcStridedMode})

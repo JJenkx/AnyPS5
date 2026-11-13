@@ -154,6 +154,8 @@ int main(int argc, char** argv) {
         if (mode == "indirect") {
             Draw(device, record, 2u, Vertices, true);
             Draw(device, record, 3u, Stride, true);
+        } else if (mode == "indirect-2-small") {
+            Draw(device, record, 2u, 1u, true);
         } else if (mode == "direct-2") {
             Draw(device, record, 2u, 1u, false);
         } else if (mode == "direct-3") {
