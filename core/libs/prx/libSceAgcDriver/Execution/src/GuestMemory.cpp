@@ -3399,10 +3399,6 @@ std::string HostWriteReport() {
     return line;
 }
 
-namespace {
-
-}
-
 bool PreparingHostWrite() {
     return preparingHostWrite;
 }
