@@ -138,7 +138,7 @@ int main() {
         const std::array<std::uint32_t, 4> arguments{Vertices, 1, 0, 0};
         std::copy(arguments.begin(), arguments.end(), record);
         for (const auto select : {2u, 3u}) {
-            IndirectDraw(device, record, select, Vertices);
+            IndirectDraw(device, record, select, select == 3u ? Stride : Vertices);
         }
         std::puts("strided indirect vertex fetch tests passed");
         return 0;
