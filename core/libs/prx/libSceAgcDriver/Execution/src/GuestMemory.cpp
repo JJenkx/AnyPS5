@@ -3401,12 +3401,6 @@ std::string HostWriteReport() {
 
 namespace {
 
-void landBeforeHostWrite(std::uint64_t address, std::size_t bytes) {
-    FlushGpuWrites(address, bytes);
-    static_cast<void>(MarkWritten(address, bytes));
-    FlushGpuWrites(address, bytes);
-}
-
 }
 
 bool PreparingHostWrite() {
@@ -3420,11 +3414,11 @@ void PrepareHostWrite(std::uintptr_t address, std::size_t bytes) {
     if (hostWritesStopped.load(std::memory_order_seq_cst)) return;
     const ReadSiteScope site(ReadSite::Store);
     if (!MemoryProfiled()) {
-        landBeforeHostWrite(address, bytes);
+        FlushGpuWrites(address, bytes);
         return;
     }
     const auto waitedBefore = threadWaitedMs();
-    landBeforeHostWrite(address, bytes);
+    FlushGpuWrites(address, bytes);
     noteHostWriteWait(threadWaitedMs() - waitedBefore);
 }
 
