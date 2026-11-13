@@ -2,6 +2,7 @@
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "VulkanTestDevice.hpp"
+#include "ShaderDiskCache.hpp"
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -12,6 +13,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -134,8 +136,11 @@ void MovedBufferHitsTheCache(bool libraries) {
 
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        const std::string_view mode = argc == 2 ? argv[1] : "";
+        Require(argc == 1 || (argc == 2 && (mode == "--disk-cold" || mode == "--disk-warm")), "unknown moved-buffer test mode");
+        if (!mode.empty()) Require(ShaderRecompiler::ShaderDiskCache::Enabled(), "disk-cache testing requires an enabled private shader cache");
         bool libraries = false;
         {
             const auto device = OpenVulkanTestDevice();
@@ -144,6 +149,14 @@ int main() {
         }
         if (!libraries && std::getenv("APS5_NO_GPL") == nullptr) return VulkanTestSkipped;
         MovedBufferHitsTheCache(libraries);
+        if (!mode.empty()) {
+            ShaderRecompiler::ShaderDiskCache::Flush();
+            const auto totals = ShaderRecompiler::ShaderDiskCache::Totals();
+            std::cout << "Moved-buffer disk cache: " << totals.hits << " hits, " << totals.misses << " misses, " << totals.writes << " writes, " << totals.loadFailures << " load failures, " << totals.writeFailures << " write failures\n";
+            Require(totals.loadFailures == 0u && totals.writeFailures == 0u, "moved-buffer shader cache could not persist or reload a variant");
+            if (mode == "--disk-cold") Require(totals.hits == 0u && totals.misses != 0u && totals.writes == totals.misses, "cold moved-buffer shaders were not compiled and persisted");
+            else Require(totals.hits != 0u && totals.misses == 0u && totals.writes == 0u, "warm moved-buffer shaders did not reload the persisted variants");
+        }
         AgcDriverShutdown_nid_postfix();
         std::cout << "A draw whose buffer moved reused the cached stages " << (libraries ? "with" : "without") << " graphics pipeline libraries\n";
         return 0;
