@@ -1,10 +1,13 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Dispatch/DispatchCache.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
 #include "Optimization/ShaderStageInputInfo.hpp"
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -49,6 +52,61 @@ void CheckRange(std::uint64_t bufferAddress, std::uint32_t stride, std::uint32_t
     Check(unknown.dataPositions.empty(), "buffer relocation accepted an unknown buffer range");
 }
 
+void CheckPatchComposition(bool stored) {
+    using namespace ShaderRecompiler;
+    using namespace AgcDriver::DriverDetail;
+    const std::array<std::uint32_t, 3> original{10u, 20u, 30u};
+    auto compiled = std::make_shared<RecompileResult>();
+    if (stored) {
+        DescriptorBinding data;
+        data.role = DescriptorRole::ShaderData;
+        data.guestDescriptor.assign(original.begin(), original.end());
+        compiled->bindings.push_back(data);
+    } else {
+        compiled->pushConstants.resize(sizeof(original));
+        std::memcpy(compiled->pushConstants.data(), original.data(), sizeof(original));
+    }
+    DescriptorBinding buffers;
+    buffers.role = DescriptorRole::GuestBuffers;
+    buffers.guestDescriptor = {0x12340000u, 0u, 16u, 0x31016facu};
+    const auto bufferBinding = static_cast<std::uint32_t>(compiled->bindings.size());
+    compiled->bindings.push_back(buffers);
+    DispatchVariant variant;
+    variant.compiled = compiled;
+    const auto check = [&](std::array<std::uint32_t, 3> expected) {
+        if (stored) {
+            Check(variant.compiled->bindings[0].guestDescriptor == std::vector<std::uint32_t>(expected.begin(), expected.end()), "stored shader-data patches discarded an earlier value");
+            Check(variant.patchedPushConstants.empty(), "stored shader data retained a push overlay");
+        } else {
+            const auto& bytes = variant.patchedPushConstants.empty() ? variant.compiled->pushConstants : variant.patchedPushConstants;
+            Check(bytes.size() == sizeof(expected), "shader-data patch changed the push range");
+            std::array<std::uint32_t, 3> words;
+            std::memcpy(words.data(), bytes.data(), sizeof(words));
+            Check(words == expected, "push shader-data patches discarded an earlier value");
+        }
+        Check(variant.shaderDataPatches.empty() && variant.descriptorPatches.empty(), "applied patch queues were not consumed");
+        Check(compiled->bindings[bufferBinding].guestDescriptor == buffers.guestDescriptor, "descriptor patch mutated the shared donor");
+        if (stored) Check(compiled->bindings[0].guestDescriptor == std::vector<std::uint32_t>(original.begin(), original.end()), "shader-data patch mutated the stored donor");
+        else Check(std::memcmp(compiled->pushConstants.data(), original.data(), sizeof(original)) == 0, "shader-data patch mutated the pushed donor");
+    };
+    variant.shaderDataPatches = {{0u, 100u}};
+    Driver::applyShaderDataPatches(variant);
+    check({100u, 20u, 30u});
+    variant.shaderDataPatches = {{1u, 200u}};
+    Driver::applyShaderDataPatches(variant);
+    check({100u, 200u, 30u});
+    variant.shaderDataPatches = {{2u, 300u}};
+    variant.descriptorPatches = {{bufferBinding, 0u, 0x56780000u}};
+    Driver::applyShaderDataPatches(variant);
+    check({100u, 200u, 300u});
+    Check(variant.compiled->bindings[bufferBinding].guestDescriptor[0] == 0x56780000u, "composed descriptor patch was not applied");
+    Check(variant.patchedPushConstants.empty(), "descriptor composition did not consume the push overlay");
+    const auto effective = variant.compiled;
+    Driver::applyShaderDataPatches(variant);
+    Check(variant.compiled == effective, "an empty patch pass replaced the effective compiled result");
+    check({100u, 200u, 300u});
+}
+
 }
 
 int main() {
@@ -64,7 +122,9 @@ int main() {
         CheckRange(base, 16u, 4u, base - 16u, true);
         CheckRange(base, 0u, 64u, 0x200004000ull, true);
         CheckRange(base, 0x3fffu, 0xffffffffu, base + 0x100000000ull, false);
-        std::cout << "Buffer base tagging preserves captured byte/strided buffers and 48-bit ranges\n";
+        CheckPatchComposition(false);
+        CheckPatchComposition(true);
+        std::cout << "Buffer base tagging preserves captured ranges; pushed and stored shader-data patches compose without changing donors\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
