@@ -2289,14 +2289,21 @@ void unwatchLocked(WriteTracker& tracker, std::uint64_t address, std::size_t byt
 
 thread_local bool ownHostWrite = false;
 std::atomic<std::uint64_t> hostWritesInFlight{0};
+thread_local bool preparingHostWrite = false;
 std::atomic<bool> hostWritesStopped{false};
 
 class HostWriteInFlight {
 public:
-    HostWriteInFlight() { hostWritesInFlight.fetch_add(1, std::memory_order_seq_cst); }
-    ~HostWriteInFlight() { hostWritesInFlight.fetch_sub(1, std::memory_order_seq_cst); }
+    HostWriteInFlight() : previous(std::exchange(preparingHostWrite, true)) { hostWritesInFlight.fetch_add(1, std::memory_order_seq_cst); }
+    ~HostWriteInFlight() {
+        preparingHostWrite = previous;
+        hostWritesInFlight.fetch_sub(1, std::memory_order_seq_cst);
+    }
     HostWriteInFlight(const HostWriteInFlight&) = delete;
     HostWriteInFlight& operator=(const HostWriteInFlight&) = delete;
+
+private:
+    bool previous;
 };
 
 class OwnHostWrite {
@@ -3400,6 +3407,10 @@ void landBeforeHostWrite(std::uint64_t address, std::size_t bytes) {
     FlushGpuWrites(address, bytes);
 }
 
+}
+
+bool PreparingHostWrite() {
+    return preparingHostWrite;
 }
 
 void PrepareHostWrite(std::uintptr_t address, std::size_t bytes) {

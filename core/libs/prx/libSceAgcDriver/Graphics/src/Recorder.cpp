@@ -1068,7 +1068,7 @@ void FlushForAccess(std::uint64_t address, std::size_t bytes) {
         }
     }
     const auto site = GuestMemory::CurrentReadSite();
-    const auto scope = site != GuestMemory::ReadSite::Store ? PublishScope::Whole : PublishScope::PartialUnits;
+    const auto scope = site != GuestMemory::ReadSite::Store || GuestMemory::PreparingHostWrite() ? PublishScope::Whole : PublishScope::PartialUnits;
     const bool waited = completionDepth() != 0;
     bool published = false;
     // The classification is made before the store (the store changes what it measures); profile only.
