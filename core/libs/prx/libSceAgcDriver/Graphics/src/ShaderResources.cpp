@@ -1942,7 +1942,7 @@ std::uint64_t ReleaseTextureCaches(std::uint64_t bytes, bool newImage) {
                 it = next;
             }
         }
-        if (lock.owns_lock()) {
+        if (lock.owns_lock() || inherited) {
             if (auto* recorder = Recorder::Active(); freed < bytes && recorder != nullptr && GuestMemory::GpuMutex().HeldByThisThread() && recorder->Recording()) {
                 for (const auto& [texture, size] : heldBytes) {
                     const auto before = recorder->OpenKeptBytes();
@@ -1950,8 +1950,8 @@ std::uint64_t ReleaseTextureCaches(std::uint64_t bytes, bool newImage) {
                     if (recorder->OpenKeptBytes() != before) ++charged;
                 }
             }
-            lock.unlock();
         }
+        if (lock.owns_lock()) lock.unlock();
         if (retry || sampledSkipped || freed >= bytes || held.empty()) break;
         std::vector<std::shared_ptr<ShaderResources>> resources;
         if (!SharedResourceCache().TryRemoveTextures(held, &resources) || resources.empty()) break;
