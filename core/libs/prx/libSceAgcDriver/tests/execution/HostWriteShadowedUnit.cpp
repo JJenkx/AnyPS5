@@ -122,9 +122,34 @@ bool HostWriteKeepsItsBytes(const AgcDriver::Graphics::Context& context, const A
     return true;
 }
 
+bool ShortHostWriteKeepsUnwrittenBytes(const AgcDriver::Graphics::Context& context, const AgcDriver::Graphics::HostImport& import, std::uint64_t unitBegin, std::size_t written) {
+    ShadowUnit(context, import, unitBegin);
+    auto* const unit = reinterpret_cast<std::uint8_t*>(unitBegin);
+    {
+        const GuestArena::HostWrite scope(unit, Unit);
+        Require(scope.Open(), "short host write: destination is not writable guest memory");
+        std::memset(unit, HostByte, written);
+    }
+    PublishUnit(unitBegin);
+    {
+        std::lock_guard lock(AgcDriver::GuestMemory::GpuMutex());
+        AgcDriver::Graphics::Recorder::Active()->Sync();
+    }
+    Require(unit[-1] == AroundByte && unit[Unit] == AroundByte, "short host write: surrounding bytes changed");
+    const auto* shadow = reinterpret_cast<const std::uint8_t*>(&ShadowWord);
+    for (std::size_t offset = 0; offset < Unit; ++offset) {
+        const auto expected = offset < written ? HostByte : shadow[offset % sizeof(ShadowWord)];
+        if (unit[offset] == expected) continue;
+        std::cout << "short host write " << written << "/" << Unit << ": FAILED byte " << offset << " got " << static_cast<unsigned>(unit[offset]) << " expected " << static_cast<unsigned>(expected) << '\n';
+        return false;
+    }
+    std::cout << "short host write " << written << "/" << Unit << ": prefix and unwritten GPU tail preserved\n";
+    return true;
 }
 
-int main() {
+}
+
+int main(int argc, char** argv) {
     using namespace AgcDriver::Graphics;
     try {
         const int udmabuf = open("/dev/udmabuf", O_RDWR | O_CLOEXEC);
@@ -167,8 +192,14 @@ int main() {
         Require(landHook != nullptr, "host write over a shadowed unit: the device installed no flush hook");
         AgcDriver::GuestMemory::SetFlushHook(&LandThenPublish);
         GuestArena::GuestArenaSetHostWriteHook_nid_no_patch(&AgcDriver::GuestMemory::PrepareHostWrite);
-        bool passed = HostWriteKeepsItsBytes(context, *import, firstUnit + Unit, false, "a publish made while the host write is open");
-        passed = HostWriteKeepsItsBytes(context, *import, firstUnit + 3 * Unit, true, "a publish made between the host write's flush and its write") && passed;
+        bool passed = true;
+        if (argc == 2 && std::strcmp(argv[1], "--short-write") == 0) {
+            for (const auto written : {std::size_t{0}, std::size_t{1}, std::size_t{4096}, std::size_t{Unit - 1}, std::size_t{Unit}})
+                passed = ShortHostWriteKeepsUnwrittenBytes(context, *import, firstUnit + 6 * Unit, written) && passed;
+        } else {
+            passed = HostWriteKeepsItsBytes(context, *import, firstUnit + Unit, false, "a publish made while the host write is open");
+            passed = HostWriteKeepsItsBytes(context, *import, firstUnit + 3 * Unit, true, "a publish made between the host write's flush and its write") && passed;
+        }
         AgcDriver::GuestMemory::SetFlushHook(landHook);
         Require(passed, "host write over a shadowed unit: a publish put a unit shadow's results over a host write");
 
