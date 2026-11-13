@@ -3190,7 +3190,7 @@ std::vector<std::byte> boundedModuleKey(std::size_t index) {
 
 int runSpecializedBoundsProcess(std::string_view mode) {
     if (mode == "--specialized-cap-entries") setEnvironment("APS5_SPECIALIZED_DISK_CACHE_ENTRIES", "3");
-    if (mode == "--specialized-cap-bytes") setEnvironment("APS5_SPECIALIZED_DISK_CACHE_MAX_MIB", "1");
+    if (mode.ends_with("-bytes")) setEnvironment("APS5_SPECIALIZED_DISK_CACHE_MAX_MIB", "1");
     if (mode == "--specialized-cap-invalid") setEnvironment("APS5_SPECIALIZED_DISK_CACHE_ENTRIES", "three");
     if (mode == "--specialized-cap-off") setEnvironment("APS5_SPECIALIZED_DISK_CACHE_ENTRIES", "0");
     const auto stored = [&](std::size_t index) { return ShaderDiskCache::EntryDirectory() / ShaderDiskCache::SpecializedEntryName(boundedModuleKey(index)); };
@@ -3222,6 +3222,30 @@ int runSpecializedBoundsProcess(std::string_view mode) {
         ShaderDiskCache::Flush();
         for (std::size_t index = 0; index < 5u; ++index) require(onDisk(index) && loaded(index), "a bound that is not a decimal number did not fall back to the default" + counters("after storing five modules"));
         std::cout << "a bound that is not a decimal number was reported and the default kept all " << 5 << " modules\n";
+        return 0;
+    }
+    if (mode == "--specialized-cap-grow-bytes" || mode == "--specialized-cap-shrink-bytes") {
+        const auto storeWords = [&](std::size_t index, std::size_t count) {
+            auto sized = *module;
+            std::vector<std::uint32_t> words(count, 0u);
+            words[0] = 0x07230203u;
+            sized.spirv = SharedSpirv(words);
+            ShaderDiskCache::StoreSpecialized(boundedModuleKey(index), std::make_shared<const ShaderDiskCache::SpecializedModule>(std::move(sized)));
+            ShaderDiskCache::Flush();
+        };
+        const bool growing = mode == "--specialized-cap-grow-bytes";
+        storeWords(0, growing ? 0x10000u : 0x28000u);
+        storeWords(0, growing ? 0x28000u : 0x10000u);
+        storeWords(1, growing ? 0x28000u : 0x10000u);
+        if (growing) {
+            require(onDisk(1) && !onDisk(0), "rewriting a specialized entry to 640 KiB left two 640 KiB entries under the 1 MiB cap" + counters("after growing a tracked entry"));
+            require(ShaderDiskCache::Totals().specializedEvictions == 1u, "growing a tracked entry did not account for the required eviction");
+        } else {
+            storeWords(2, 0x10000u);
+            require(onDisk(0) && onDisk(1) && onDisk(2), "rewriting a specialized entry to 256 KiB evicted a file although all three 256 KiB entries fit under the 1 MiB cap" + counters("after shrinking a tracked entry"));
+            require(ShaderDiskCache::Totals().specializedEvictions == 0u, "shrinking a tracked entry caused an unnecessary eviction");
+        }
+        std::cout << "the specialized byte cap accounts for a tracked entry " << (growing ? "growing" : "shrinking") << '\n';
         return 0;
     }
     if (mode == "--specialized-cap-bytes") {
@@ -3269,7 +3293,7 @@ void verifySpecializedBoundsAcrossProcesses(const char* self) {
         const std::string command = "\"" + std::string(self) + "\" " + mode;
         require(std::system(command.c_str()) == 0, std::string("the process ") + mode + " failed");
     };
-    for (const auto* mode : {"--specialized-cap-entries", "--specialized-cap-bytes", "--specialized-cap-invalid", "--specialized-cap-off"}) run(mode);
+    for (const auto* mode : {"--specialized-cap-entries", "--specialized-cap-bytes", "--specialized-cap-grow-bytes", "--specialized-cap-shrink-bytes", "--specialized-cap-invalid", "--specialized-cap-off"}) run(mode);
     setEnvironment("ANYPS5_SHADER_CACHE_DIR", own.string());
 }
 
