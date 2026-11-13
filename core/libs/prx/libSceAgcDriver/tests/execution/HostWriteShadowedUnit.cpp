@@ -122,28 +122,32 @@ bool HostWriteKeepsItsBytes(const AgcDriver::Graphics::Context& context, const A
     return true;
 }
 
-bool ShortHostWriteKeepsUnwrittenBytes(const AgcDriver::Graphics::Context& context, const AgcDriver::Graphics::HostImport& import, std::uint64_t unitBegin, std::size_t written) {
-    ShadowUnit(context, import, unitBegin);
+bool ShortHostWriteKeepsUnwrittenBytes(const AgcDriver::Graphics::Context& context, const AgcDriver::Graphics::HostImport& import, std::uint64_t unitBegin, std::size_t offsetBegin, std::size_t requested, std::size_t written) {
+    const auto span = ((offsetBegin + requested + Unit - 1) / Unit) * Unit;
+    auto* const before = reinterpret_cast<std::uint8_t*>(unitBegin);
+    const auto guardBefore = before[-1];
+    const auto guardAfter = before[span];
+    for (std::size_t offset = 0; offset < span; offset += Unit) ShadowUnit(context, import, unitBegin + offset);
     auto* const unit = reinterpret_cast<std::uint8_t*>(unitBegin);
     {
-        const GuestArena::HostWrite scope(unit, Unit);
+        const GuestArena::HostWrite scope(unit + offsetBegin, requested);
         Require(scope.Open(), "short host write: destination is not writable guest memory");
-        std::memset(unit, HostByte, written);
+        std::memset(unit + offsetBegin, HostByte, written);
     }
-    PublishUnit(unitBegin);
+    for (std::size_t offset = 0; offset < span; offset += Unit) PublishUnit(unitBegin + offset);
     {
         std::lock_guard lock(AgcDriver::GuestMemory::GpuMutex());
         AgcDriver::Graphics::Recorder::Active()->Sync();
     }
-    Require(unit[-1] == AroundByte && unit[Unit] == AroundByte, "short host write: surrounding bytes changed");
+    Require(unit[-1] == guardBefore && unit[span] == guardAfter, "short host write: surrounding bytes changed");
     const auto* shadow = reinterpret_cast<const std::uint8_t*>(&ShadowWord);
-    for (std::size_t offset = 0; offset < Unit; ++offset) {
-        const auto expected = offset < written ? HostByte : shadow[offset % sizeof(ShadowWord)];
+    for (std::size_t offset = 0; offset < span; ++offset) {
+        const auto expected = offset >= offsetBegin && offset - offsetBegin < written ? HostByte : shadow[offset % sizeof(ShadowWord)];
         if (unit[offset] == expected) continue;
-        std::cout << "short host write " << written << "/" << Unit << ": FAILED byte " << offset << " got " << static_cast<unsigned>(unit[offset]) << " expected " << static_cast<unsigned>(expected) << '\n';
+        std::cout << "short host write " << written << "/" << requested << " at " << offsetBegin << ": FAILED byte " << offset << " got " << static_cast<unsigned>(unit[offset]) << " expected " << static_cast<unsigned>(expected) << '\n';
         return false;
     }
-    std::cout << "short host write " << written << "/" << Unit << ": prefix and unwritten GPU tail preserved\n";
+    std::cout << "short host write " << written << "/" << requested << " at " << offsetBegin << ": prefix and unwritten GPU tail preserved\n";
     return true;
 }
 
@@ -195,7 +199,11 @@ int main(int argc, char** argv) {
         bool passed = true;
         if (argc == 2 && std::strcmp(argv[1], "--short-write") == 0) {
             for (const auto written : {std::size_t{0}, std::size_t{1}, std::size_t{4096}, std::size_t{Unit - 1}, std::size_t{Unit}})
-                passed = ShortHostWriteKeepsUnwrittenBytes(context, *import, firstUnit + 6 * Unit, written) && passed;
+                passed = ShortHostWriteKeepsUnwrittenBytes(context, *import, firstUnit + 6 * Unit, 0, Unit, written) && passed;
+            passed = ShortHostWriteKeepsUnwrittenBytes(context, *import, firstUnit + 6 * Unit, 0, 2 * Unit, Unit + 17) && passed;
+            passed = ShortHostWriteKeepsUnwrittenBytes(context, *import, firstUnit + 6 * Unit, 17, Unit - 34, 0) && passed;
+            passed = ShortHostWriteKeepsUnwrittenBytes(context, *import, firstUnit + 6 * Unit, 17, Unit - 34, 31) && passed;
+            passed = ShortHostWriteKeepsUnwrittenBytes(context, *import, firstUnit + 6 * Unit, 17, 2 * Unit - 34, Unit) && passed;
         } else {
             passed = HostWriteKeepsItsBytes(context, *import, firstUnit + Unit, false, "a publish made while the host write is open");
             passed = HostWriteKeepsItsBytes(context, *import, firstUnit + 3 * Unit, true, "a publish made between the host write's flush and its write") && passed;
