@@ -1759,6 +1759,55 @@ void AsyncDelete(int ssl, bool waiter) {
     Require(sceHttp2WaitAsync(client.request, &result, nullptr, nullptr) == static_cast<int>(0x817b1100), "deleted async request stays invalid");
 }
 
+void AsyncDeleteContract(int ssl, bool read) {
+    Server server(read ? Mode::StallBody : Mode::StallHeaders);
+    Client client(ssl);
+    client.Create(server.Url());
+    const int request = client.request;
+    char byte = 'z';
+    if (read) {
+        Require(sceHttp2SendRequest(request, nullptr, 0) == 0, "delete contract read headers");
+        Require(sceHttp2ReadDataAsync(request, &byte, 1, nullptr, nullptr) == 0, "delete contract read submission");
+    } else Require(sceHttp2SendRequestAsync(request, nullptr, 0, nullptr, nullptr) == 0, "delete contract send submission");
+    server.WaitStage(2);
+    struct Admission {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool admitted = false;
+    } admission;
+    GuestSceHttp2Test::SetAsyncWaitHookForTests_nid_no_patch([](void* data) {
+        auto& admission = *static_cast<Admission*>(data);
+        std::lock_guard lock(admission.mutex);
+        admission.admitted = true;
+        admission.changed.notify_one();
+    }, &admission);
+    Http2AsyncResult result{};
+    result.req_id = -1;
+    result.event_type = -1;
+    result.result = 123;
+    std::uint32_t timeout = 4000000;
+    auto waiter = std::async(std::launch::async, [&] { return sceHttp2WaitAsync(request, &result, &timeout, nullptr); });
+    {
+        std::unique_lock lock(admission.mutex);
+        Require(admission.changed.wait_for(lock, std::chrono::seconds(2), [&] { return admission.admitted; }), "waiter captured live request state");
+    }
+    Require(sceHttp2DeleteRequest(request) == 0, "delete contract request");
+    client.request = 0;
+    Require(waiter.wait_for(std::chrono::seconds(2)) == std::future_status::ready, "deleted wait completes promptly");
+    const int returned = waiter.get();
+    GuestSceHttp2Test::SetAsyncWaitHookForTests_nid_no_patch(nullptr, nullptr);
+    server.Release();
+    server.Join();
+    std::fprintf(stderr, "async delete contract read=%d return=0x%x event=%d request=%d expected_request=%d result=0x%x remaining_us=%u byte=%c\n",
+        read ? 1 : 0, static_cast<unsigned>(returned), result.event_type, result.req_id, request, static_cast<unsigned>(result.result), timeout, byte);
+    Require(returned == 0, "deleted admitted wait returns completion");
+    Require(result.req_id == request && result.event_type == (read ? 1 : 0) && result.result == static_cast<int>(0x817b1080), "deleted operation completes as aborted");
+    Require(timeout > 0 && timeout <= 4000000, "deleted wait preserves remaining deadline");
+    Require(byte == 'z', "deleted read leaves destination untouched");
+    Http2AsyncResult later{};
+    Require(sceHttp2WaitAsync(request, &later, nullptr, nullptr) == static_cast<int>(0x817b1100), "later wait rejects deleted handle");
+}
+
 void AsyncTwoWaiters(int ssl) {
     std::fprintf(stderr, "HTTP2 async two-waiter scenario\n");
     Server server(Mode::StallResponse);
@@ -2394,7 +2443,9 @@ int main(int argc, char** argv) {
     SceSsl::Data root{reinterpret_cast<std::uint8_t*>(const_cast<char*>(RootPem)), sizeof(RootPem)};
     SceSsl::Data* authorities[] = {&root};
     Require(sceSslLoadCert(ssl, 1, authorities, nullptr, nullptr) == 0, "trust loopback CA");
-    if (argc == 2 && std::string_view(argv[1]) == "--system-roots") {
+    if (argc == 2 && (std::string_view(argv[1]) == "--async-delete-send" || std::string_view(argv[1]) == "--async-delete-read")) {
+        AsyncDeleteContract(ssl, std::string_view(argv[1]) == "--async-delete-read");
+    } else if (argc == 2 && std::string_view(argv[1]) == "--system-roots") {
         const auto list = std::filesystem::current_path() / sceKernelGetFsSandboxRandomWord() / "common" / "cert" / "CA_LIST.cer";
         std::filesystem::create_directories(list.parent_path());
         std::ofstream(list, std::ios::binary | std::ios::trunc) << RootPem;

@@ -72,6 +72,8 @@ static std::mutex g_handlesMutex;
 static std::unordered_map<int, Http2Handle> g_handles;
 static std::atomic<GuestSceHttp2Test::AsyncPublishHook> g_asyncPublishHook{nullptr};
 static std::atomic<void*> g_asyncPublishHookData{nullptr};
+static std::atomic<GuestSceHttp2Test::AsyncWaitHook> g_asyncWaitHook{nullptr};
+static std::atomic<void*> g_asyncWaitHookData{nullptr};
 
 static void CompleteAsync(const std::shared_ptr<Http2AsyncState>& state, const char* function, int req_id,
     const Http2AsyncOption* option, int event_type, int result, std::exception_ptr failure) {
@@ -109,6 +111,10 @@ static void RetireAsync(const std::shared_ptr<Http2AsyncState>& state) {
 }
 
 namespace GuestSceHttp2Test {
+void SetAsyncWaitHookForTests_nid_no_patch(AsyncWaitHook hook, void* data) noexcept {
+    g_asyncWaitHookData.store(data, std::memory_order_release);
+    g_asyncWaitHook.store(hook, std::memory_order_release);
+}
 void SetAsyncPublishHookForTests_nid_no_patch(AsyncPublishHook hook, void* data) noexcept {
     g_asyncPublishHookData.store(data, std::memory_order_release);
     g_asyncPublishHook.store(hook, std::memory_order_release);
@@ -490,6 +496,7 @@ int APS5_VABI sceHttp2WaitAsync(int req_id, Http2AsyncResult* result, uint32_t* 
         state = handle->async;
     }
     std::unique_lock lock(state->mutex);
+    if (const auto hook = g_asyncWaitHook.load(std::memory_order_acquire)) hook(g_asyncWaitHookData.load(std::memory_order_acquire));
     const auto available = [&] { return state->retired || !state->pending.empty(); };
     if (!available() && state->active == 0) return ERROR_NOT_CONNECTED;
     if (timeout && *timeout == 0) {
