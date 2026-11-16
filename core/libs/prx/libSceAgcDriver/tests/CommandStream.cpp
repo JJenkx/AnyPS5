@@ -461,6 +461,16 @@ VKAPI_ATTR VkResult VKAPI_CALL stubGetFenceStatus(VkDevice, VkFence) {
     return VK_SUCCESS;
 }
 
+template<typename T>
+struct UnexpectedResourceCall;
+
+template<typename R, typename... Args>
+struct UnexpectedResourceCall<R (VKAPI_PTR *)(Args...)> {
+    static VKAPI_ATTR R VKAPI_CALL Call(Args...) {
+        throw std::runtime_error("unexpected resource call in command stream mock");
+    }
+};
+
 const std::map<std::string_view, PFN_vkVoidFunction>& stubTable() {
     static const std::map<std::string_view, PFN_vkVoidFunction> table{
 #define TEST_SCALAR_ENTRY(name) {name##Name, reinterpret_cast<PFN_vkVoidFunction>(&Scalar<name##Name, 0, PFN_vkCmd##name>::Call)},
@@ -472,6 +482,14 @@ const std::map<std::string_view, PFN_vkVoidFunction>& stubTable() {
         {"vkUpdateDescriptorSets", reinterpret_cast<PFN_vkVoidFunction>(&stubUpdateDescriptorSets)},
         {"vkAllocateDescriptorSets", reinterpret_cast<PFN_vkVoidFunction>(&stubAllocateDescriptorSets)},
         {"vkGetFenceStatus", reinterpret_cast<PFN_vkVoidFunction>(&stubGetFenceStatus)},
+        {"vkCreateBuffer", reinterpret_cast<PFN_vkVoidFunction>(&UnexpectedResourceCall<PFN_vkCreateBuffer>::Call)},
+        {"vkDestroyBuffer", reinterpret_cast<PFN_vkVoidFunction>(&UnexpectedResourceCall<PFN_vkDestroyBuffer>::Call)},
+        {"vkGetBufferMemoryRequirements", reinterpret_cast<PFN_vkVoidFunction>(&UnexpectedResourceCall<PFN_vkGetBufferMemoryRequirements>::Call)},
+        {"vkBindBufferMemory", reinterpret_cast<PFN_vkVoidFunction>(&UnexpectedResourceCall<PFN_vkBindBufferMemory>::Call)},
+        {"vkAllocateMemory", reinterpret_cast<PFN_vkVoidFunction>(&UnexpectedResourceCall<PFN_vkAllocateMemory>::Call)},
+        {"vkFreeMemory", reinterpret_cast<PFN_vkVoidFunction>(&UnexpectedResourceCall<PFN_vkFreeMemory>::Call)},
+        {"vkMapMemory", reinterpret_cast<PFN_vkVoidFunction>(&UnexpectedResourceCall<PFN_vkMapMemory>::Call)},
+        {"vkUnmapMemory", reinterpret_cast<PFN_vkVoidFunction>(&UnexpectedResourceCall<PFN_vkUnmapMemory>::Call)},
     };
     return table;
 }
