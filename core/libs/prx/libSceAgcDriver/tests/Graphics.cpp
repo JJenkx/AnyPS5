@@ -14964,9 +14964,11 @@ void commandStateTests() {
 
 int main(int argc, char** argv) {
 #ifdef _WIN32
+    _putenv_s("APS5_DEFERRED_ENCODE", "");
     _putenv_s("APS5_PIN_WAIT_MS", "200");
     _putenv_s("APS5_HEAP_MIRROR_MIB", "4");
 #else
+    unsetenv("APS5_DEFERRED_ENCODE");
     setenv("APS5_PIN_WAIT_MS", "200", 1);
     setenv("APS5_HEAP_MIRROR_MIB", "4", 1);
 #endif
