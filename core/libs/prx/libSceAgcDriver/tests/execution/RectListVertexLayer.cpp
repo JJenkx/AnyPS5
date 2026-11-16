@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/QueueSubmitter.hpp"
 #include "Recompiler.hpp"
 #include "VulkanTestDevice.hpp"
 #include <algorithm>
@@ -10,6 +11,14 @@
 #include <span>
 #include <string>
 #include <vector>
+
+namespace AgcDriver {
+
+struct VulkanDeviceTestAccess {
+    static Graphics::Context Context(const VulkanDevice& device) { return device.graphicsContext(); }
+};
+
+}
 
 namespace {
 
@@ -238,10 +247,16 @@ std::uint32_t RunCase(const VertexProgram& seed, const VertexProgram& drawn) {
         std::cerr << error << '\n';
         ++failures;
     };
+    VkQueue retiredQueue = VK_NULL_HANDLE;
     {
         auto fresh = OpenDevice();
         report(DrawAndCheck(*fresh, drawn, name + ", fresh pipeline cache"));
+        if (AgcDriver::Graphics::QueueSubmitter::Enabled()) {
+            retiredQueue = AgcDriver::VulkanDeviceTestAccess::Context(*fresh).queue;
+            Require(AgcDriver::Graphics::QueueSubmitter::Existing(retiredQueue) != nullptr, "the async draw registered no queue worker");
+        }
     }
+    if (retiredQueue != VK_NULL_HANDLE) Require(AgcDriver::Graphics::QueueSubmitter::Existing(retiredQueue) == nullptr, "the async queue worker outlived its Vulkan device");
     auto device = OpenDevice();
     report(DrawAndCheck(*device, seed, name + ", the seeding draw"));
     report(DrawAndCheck(*device, drawn, name + ", pipeline cache seeded"));
