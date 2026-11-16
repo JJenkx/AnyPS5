@@ -1268,6 +1268,7 @@ struct VulkanDevice::State {
             }
             if (settlePool != VK_NULL_HANDLE) destroyPool(device, settlePool, nullptr);
             Graphics::DestroyDeferredObjects(device);
+            Graphics::QueueSubmitter::Retire(queue);
             destroyDevice(device, nullptr);
             Graphics::MemoryAccounting::ForgetDevice(device);
         }

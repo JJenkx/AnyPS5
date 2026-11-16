@@ -31,6 +31,7 @@ public:
     static bool Enabled();
     static QueueSubmitter& For(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit, PFN_vkDeviceWaitIdle waitIdle);
     static QueueSubmitter* Existing(VkQueue queue);
+    static void Retire(VkQueue queue);
 
     std::uint64_t Enqueue(Job job);
     void WaitSubmitReturned(std::uint64_t position) const;
@@ -41,6 +42,7 @@ public:
 
 private:
     QueueSubmitter(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit, PFN_vkDeviceWaitIdle waitIdle);
+    ~QueueSubmitter();
     void run();
 
     VkDevice device;
@@ -54,6 +56,7 @@ private:
     std::deque<Job> jobs;
     bool busy = false;
     bool sleeping = false;
+    bool stopping = false;
     std::uint64_t submitted = 0;
     std::uint64_t enqueued = 0;
     std::uint64_t taken = 0;

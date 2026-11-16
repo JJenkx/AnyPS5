@@ -43,13 +43,35 @@ QueueSubmitter* QueueSubmitter::Existing(VkQueue queue) {
     return found != all.byQueue.end() ? found->second : nullptr;
 }
 
+void QueueSubmitter::Retire(VkQueue queue) {
+    QueueSubmitter* retired = nullptr;
+    auto& all = AllSubmitters();
+    {
+        std::lock_guard lock(all.mutex);
+        const auto found = all.byQueue.find(queue);
+        if (found == all.byQueue.end()) return;
+        retired = found->second;
+        all.byQueue.erase(found);
+    }
+    delete retired;
+}
+
+QueueSubmitter::~QueueSubmitter() {
+    Drain();
+    {
+        std::lock_guard lock(mutex);
+        stopping = true;
+    }
+    ready.notify_one();
+    thread.join();
+}
+
 QueueSubmitter::QueueSubmitter(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit, PFN_vkDeviceWaitIdle waitIdle) :
     device(device), queue(queue), submit(submit), waitIdle(waitIdle) {
     thread = std::thread([this] {
         RaiseWorkerThreadPriority("queue submitter");
         run();
     });
-    thread.detach();
 }
 
 void QueueSubmitter::RethrowFailure() {
@@ -96,6 +118,7 @@ void QueueSubmitter::run() {
         {
             std::unique_lock lock(mutex);
             while (jobs.empty()) {
+                if (stopping) return;
                 sleeping = true;
                 ready.wait(lock);
                 sleeping = false;
