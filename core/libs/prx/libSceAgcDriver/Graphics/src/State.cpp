@@ -21,6 +21,8 @@
 #include <array>
 #include <sstream>
 #include <string_view>
+#include <mutex>
+#include <set>
 
 namespace AgcDriver::Graphics {
 
@@ -2170,6 +2172,30 @@ State DecodeState(const QueueState& queue, bool vertexWorkgroup) {
         Require(mrt0 == result.colors.end() || (mrt0->componentMapping == 0xe4u && mrt0->packing == ShaderRecompiler::ColorExportPacking::None), "alpha-to-coverage into a component-swapped or packed MRT0 target is unsupported");
     }
     APS5_LOG_OUT_DEBUG("DecodeState done colorTarget=%u render=%ux%u topology=%u", result.hasColorTarget ? 1u : 0u, result.renderExtent.width, result.renderExtent.height, static_cast<unsigned>(result.topology));
+    static const bool diagnostic = std::getenv("APS5_DIAG_VIEWPORT_STATE") != nullptr;
+    if (diagnostic) {
+        static std::mutex mutex;
+        static std::set<std::array<std::uint32_t, 26>> seen;
+        std::array<std::uint32_t, 26> values{};
+        constexpr std::array<std::uint32_t, 16> offsets{0x204, 0x206, 0x10f, 0x110, 0x111, 0x112, 0x113, 0x114, 0x1c5, 0x8e, 0x8f, 0x31c, 0x31d, 0x1e0, 0x207, 0x203};
+        for (std::size_t i = 0; i < offsets.size(); ++i) {
+            const auto found = cx.find(offsets[i]);
+            values[i] = found == cx.end() ? 0u : found->second;
+        }
+        values[16] = result.renderExtent.width;
+        values[17] = result.renderExtent.height;
+        const std::array viewport{result.viewport.x, result.viewport.y, result.viewport.width, result.viewport.height, result.viewport.minDepth, result.viewport.maxDepth};
+        for (std::size_t i = 0; i < viewport.size(); ++i) values[18 + i] = std::bit_cast<std::uint32_t>(viewport[i]);
+        values[24] = static_cast<std::uint32_t>(result.topology);
+        values[25] = static_cast<std::uint32_t>(result.stages.path);
+        std::lock_guard lock(mutex);
+        if (seen.size() < 128 && seen.insert(values).second) {
+            std::array<char, 1024> line{};
+            auto length = std::snprintf(line.data(), line.size(), "[viewport-state] %zu", seen.size());
+            for (const auto value : values) length += std::snprintf(line.data() + length, line.size() - length, " %08x", value);
+            std::fprintf(stderr, "%s\n", line.data());
+        }
+    }
     return result;
 }
 
