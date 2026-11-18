@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <source_location>
 #include <stdexcept>
 #include <vector>
@@ -146,6 +147,10 @@ void RejectsBadEncodings() {
     Rejects(key, compressedOffCurve, 33, P256Uncompressed);
     Rejects(key, P256Uncompressed, 64, P256Uncompressed);
     Rejects(key, P256Uncompressed, 0, P256Uncompressed);
+    Rejects(key, P256Uncompressed, -1, P256Uncompressed);
+    Rejects(key, std::vector<unsigned char>(5000, 0x04), 4097, P256Uncompressed);
+    Rejects(key, P256Uncompressed, std::int64_t{std::numeric_limits<std::int32_t>::max()} + 1, P256Uncompressed);
+    Rejects(key, P256Uncompressed, std::numeric_limits<std::int64_t>::max(), P256Uncompressed);
     Rejects(key, P384Uncompressed, static_cast<std::int64_t>(P384Uncompressed.size()), P256Uncompressed);
     std::vector<unsigned char> offCurve = P256Uncompressed;
     offCurve.back() ^= 1;
@@ -162,6 +167,21 @@ void RejectsBadEncodings() {
     Require(key != nullptr);
     key->conversionForm = 2;
     Rejects(key, offCurve, 65, offCurve);
+    EC_KEY_free_nid_postfix(key);
+}
+
+void RejectsARangeThatWrapsTheAddressSpace() {
+    EcKey* key = EC_KEY_new_by_curve_name_nid_postfix(Secp256r1);
+    Require(key != nullptr);
+    const unsigned char* cursor = reinterpret_cast<const unsigned char*>(std::numeric_limits<std::uintptr_t>::max() - 8);
+    bool threw = false;
+    try {
+        o2i_ECPublicKey_nid_postfix(&key, &cursor, 65);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    Require(threw);
+    Require(cursor == reinterpret_cast<const unsigned char*>(std::numeric_limits<std::uintptr_t>::max() - 8));
     EC_KEY_free_nid_postfix(key);
 }
 
@@ -186,6 +206,7 @@ int main() {
     ReusesTheExistingPoint();
     RejectsAMissingKeyOrGroup();
     RejectsBadEncodings();
+    RejectsARangeThatWrapsTheAddressSpace();
     RejectsANullInput();
     std::puts("libSceLibreSsl3 o2i_ECPublicKey tests passed");
 }
