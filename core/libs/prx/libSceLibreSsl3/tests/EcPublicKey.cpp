@@ -199,6 +199,37 @@ void RejectsANullInput() {
     EC_KEY_free_nid_postfix(key);
 }
 
+void RejectsUnreadableBytesBeforeCreatingAPoint() {
+    EcKey* key = EC_KEY_new_by_curve_name_nid_postfix(Secp256r1);
+    Require(key != nullptr && key->publicKey == nullptr);
+    EcKey* original = key;
+    const unsigned char* cursor = nullptr;
+    bool threw = false;
+    try {
+        o2i_ECPublicKey_nid_postfix(&key, &cursor, 1);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    Require(threw && key == original && cursor == nullptr);
+    Require(key->publicKey == nullptr && key->conversionForm == 4);
+    EC_KEY_free_nid_postfix(key);
+}
+
+void KeepsTheCreatedPointOnOrdinaryDecodeFailure() {
+    for (const auto length : {0, 1}) {
+        ERR_clear_error_nid_postfix();
+        EcKey* key = EC_KEY_new_by_curve_name_nid_postfix(Secp256r1);
+        Require(key != nullptr && key->publicKey == nullptr);
+        EcKey* original = key;
+        const unsigned char bytes[]{5};
+        const unsigned char* cursor = bytes;
+        Require(o2i_ECPublicKey_nid_postfix(&key, &cursor, length) == nullptr);
+        Require(key == original && cursor == bytes && key->publicKey != nullptr && key->conversionForm == 4);
+        EC_KEY_free_nid_postfix(key);
+    }
+    ERR_clear_error_nid_postfix();
+}
+
 }
 
 int main() {
@@ -208,5 +239,7 @@ int main() {
     RejectsBadEncodings();
     RejectsARangeThatWrapsTheAddressSpace();
     RejectsANullInput();
+    RejectsUnreadableBytesBeforeCreatingAPoint();
+    KeepsTheCreatedPointOnOrdinaryDecodeFailure();
     std::puts("libSceLibreSsl3 o2i_ECPublicKey tests passed");
 }

@@ -1,0 +1,5 @@
+# libSceLibreSsl3
+
+## change [o2i_ECPublicKey]
+
+- [o2i_ECPublicKey](../../../core/libs/prx/libSceLibreSsl3/src/EcAsn1.cpp) (libSceLibreSsl3) - nothing is checked on the console. A failed decode queues only `ERR_R_EC_LIB`, because libSceLibreSsl's `EC_POINT_oct2point` queues no reason of its own where [LibreSSL 4.0.0](https://github.com/libressl/openbsd/blob/ce488b78e0bd994780569df718596b9776ff681a/src/lib/libcrypto/ec/ec_asn1.c) first queues the decoder's, such as `EC_R_INVALID_ENCODING`; a compressed point on a curve whose prime is not 3 mod 4 throws there. Otherwise it follows `ec_asn1.c`: a missing key or group queues `ERR_R_PASSED_NULL_PARAMETER`, a missing public point is created and kept on failure, an off-curve uncompressed or hybrid point still overwrites it, as `EC_POINT_set_affine_coordinates` does, and success stores the first octet without its low bit as the conversion form and advances `*in` by `len`. A null `in` throws. Guest-copy faults and range overflow throw before creating a missing public point; that ordering is host validation, not console-measured fault behavior. It works only on libSceLibreSsl keys.

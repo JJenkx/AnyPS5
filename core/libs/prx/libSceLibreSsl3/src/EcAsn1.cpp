@@ -447,15 +447,15 @@ EcKey* APS5_VABI o2i_ECPublicKey_nid_postfix(EcKey** key, const unsigned char** 
     if (in == nullptr) APS5_INVALID_ARG_EX;
     const unsigned char* cursor = nullptr;
     if (!GuestPtr<const unsigned char*>(in).CopyIn(cursor) || !GuestPtr<const unsigned char*>(in).CopyOut(cursor)) APS5_INVALID_ARG_EX;
-    if (result->publicKey == nullptr && (result->publicKey = EC_POINT_new_nid_postfix(result->group)) == nullptr) {
-        PutError(MallocFailure);
-        return nullptr;
-    }
     std::vector<unsigned char> bytes;
     if (length > 0 && length <= MaxEncodedBytes) {
         if (!RangeFits(cursor, length)) APS5_INVALID_ARG_EX;
         bytes.resize(static_cast<std::size_t>(length));
         if (!GuestBytes(cursor).CopyIn(bytes.data(), bytes.size())) APS5_INVALID_ARG_EX;
+    }
+    if (result->publicKey == nullptr && (result->publicKey = EC_POINT_new_nid_postfix(result->group)) == nullptr) {
+        PutError(MallocFailure);
+        return nullptr;
     }
     if (bytes.empty() || !EC_POINT_oct2point_nid_postfix(result->group, result->publicKey, bytes.data(), bytes.size(), nullptr)) {
         PutError(EcLibrary);
