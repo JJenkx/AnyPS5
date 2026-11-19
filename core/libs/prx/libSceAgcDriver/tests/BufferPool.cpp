@@ -1361,6 +1361,25 @@ void RetainedImagesReleasedBeforeHostPlacement() {
     Expect(uncovered == 1u && cacheReclaimCalls == 1, "with no retained image memory left, the texture caches were not asked before host placement");
 }
 
+void ImageMemoryNearBudget() {
+    mock = MockDevice{};
+    auto context = budgetContext();
+    reportedBudget = 1000 * MiB;
+    reportedUsage = 930 * MiB;
+    VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    allocation.allocationSize = 4 * MiB;
+    allocation.memoryTypeIndex = 0;
+    std::uint32_t type = 0;
+    const auto first = AllocateImageMemory(context, allocation, 1u, "test image", &type);
+    const auto second = AllocateImageMemory(context, allocation, 1u, "test image", &type);
+    ReleaseImageMemory(context, first, 4 * MiB, 0);
+    Expect(mock.frees == 0 && context.bufferPool->RetainedImages() == 1, "image memory released with more than a sixteenth of the budget free was not retained");
+    reportedUsage = 950 * MiB;
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    ReleaseImageMemory(context, second, 4 * MiB, 0);
+    Expect(mock.frees == 2 && context.bufferPool->RetainedImages() == 0, "image memory released within a sixteenth of the budget was retained, or the retained memory was kept");
+}
+
 void ImageMemoryReuse() {
     mock = MockDevice{};
     auto context = mockContext();
@@ -1770,6 +1789,7 @@ int main(int argc, char** argv) {
         ImageMemoryReclaim();
         RenderTargetMemoryReuse();
         ImageMemoryOverBudget();
+        ImageMemoryNearBudget();
         RetainedImagesReleasedBeforeHostPlacement();
         HostPlacement();
         HostSlotBeforeCacheRelease();

@@ -153,7 +153,7 @@ bool BufferPool::imagePooled(VkDeviceSize bytes, std::uint32_t memoryType) const
     return imageBudget != 0 && bytes != 0 && bytes <= imageBudget && bytes <= deviceTier.budget && memoryType < memoryProperties.memoryTypeCount && DeviceTiered(memoryProperties.memoryTypes[memoryType].propertyFlags);
 }
 
-bool BufferPool::heapOverBudget() {
+bool BufferPool::heapNearBudget() {
     if (memoryProperties2 == nullptr || physical == VK_NULL_HANDLE) return false;
     const auto now = std::chrono::steady_clock::now();
     if (heapRead != std::chrono::steady_clock::time_point{} && now - heapRead < std::chrono::milliseconds(100)) return heapOver;
@@ -164,7 +164,7 @@ bool BufferPool::heapOverBudget() {
     heapRead = now;
     heapOver = false;
     for (std::uint32_t heap = 0; heap < memoryProperties.memoryHeapCount && heap < VK_MAX_MEMORY_HEAPS; ++heap) {
-        if ((memoryProperties.memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0 && reported.heapBudget[heap] != 0 && reported.heapUsage[heap] > reported.heapBudget[heap]) heapOver = true;
+        if ((memoryProperties.memoryHeaps[heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0 && reported.heapBudget[heap] != 0 && reported.heapUsage[heap] > reported.heapBudget[heap] - reported.heapBudget[heap] / ImageRetentionMarginDivisor) heapOver = true;
     }
     return heapOver;
 }
@@ -207,7 +207,7 @@ void BufferPool::PutImageMemory(VkDeviceMemory memory, VkDeviceSize bytes, std::
     std::vector<BufferAllocation> evicted;
     try {
         std::lock_guard lock(mutex);
-        if (heapOverBudget() || bytes > imageBudget - std::min(imageBudget, retainedImageSlabBytes.load(std::memory_order_relaxed))) {
+        if (heapNearBudget() || bytes > imageBudget - std::min(imageBudget, retainedImageSlabBytes.load(std::memory_order_relaxed))) {
             while (imageSlots != 0 && evictOldestImage(evicted)) {
             }
             evicted.push_back(allocation);
@@ -878,7 +878,7 @@ void BufferPool::releaseImageAllocation(const ImageAllocation& allocation) noexc
         MemoryAccounting::RetainPart(device, block.memory, static_cast<VkDeviceSize>(units) * imageUnitBytes, true);
         if (--block.allocations != 0) return;
         imageMemoryReleasedBytes += imageBlockBytes;
-        if (retainedImageSlabBytes.load(std::memory_order_relaxed) == 0 && imageBudget >= imageBlockBytes && imageBytes <= imageBudget - imageBlockBytes && !heapOverBudget()) {
+        if (retainedImageSlabBytes.load(std::memory_order_relaxed) == 0 && imageBudget >= imageBlockBytes && imageBytes <= imageBudget - imageBlockBytes && !heapNearBudget()) {
             block.retained = true;
             retainedImageSlabBytes.store(imageBlockBytes, std::memory_order_relaxed);
             return;
