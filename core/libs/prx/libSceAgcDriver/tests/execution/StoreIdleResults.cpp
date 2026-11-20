@@ -1,21 +1,34 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Synchronization/SynchronizationStatistics.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/GuestTextureResource.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureTiling.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "VulkanTestDevice.hpp"
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <iostream>
+#include <memory>
+#include <span>
 #include <mutex>
 #include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
+
+namespace AgcDriver::DriverDetail {
+struct DriverTestAccess {
+    static std::shared_ptr<VulkanDevice> Device() { return Driver::Get().device.Load(); }
+    static void WakeForCompletions() { Driver::Get().wakeQueueZeroForCompletions(); }
+};
+}
 
 namespace {
 
@@ -89,6 +102,7 @@ int main(int argc, char** argv) {
         std::vector<std::uint32_t> storage((BlockBytes + 0x10000u) / 4u);
         const bool wake = argc == 2 && std::string_view(argv[1]) == "--idle-epoch-wake";
         const bool disabled = argc == 2 && std::string_view(argv[1]) == "--disabled-idle-store";
+        const bool completionWake = argc == 2 && std::string_view(argv[1]) == "--completion-wake";
         std::vector<std::uint32_t> nextStorage(wake || disabled ? (BlockBytes + 0x10000u) / 4u : 0u);
         auto* nextTexels = wake || disabled ? reinterpret_cast<std::uint32_t*>((reinterpret_cast<std::uintptr_t>(nextStorage.data()) + 0xffffu) & ~std::uintptr_t{0xffffu}) : nullptr;
         struct ShutdownGuard {
@@ -114,6 +128,37 @@ int main(int argc, char** argv) {
         };
 
         Store(texels);
+        if (completionWake) {
+            alignas(64) static std::array<std::uint32_t, 16> label{};
+            GuestAllocations::Mutation().Add(label.data(), sizeof(label), true, true, true);
+            const auto dormant = [] { return AgcDriver::DriverDetail::queue0Dormant.load(std::memory_order_relaxed); };
+            const auto pendingDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (!(AgcDriver::Graphics::StorageTexture::AnyPending() && dormant()) && std::chrono::steady_clock::now() < pendingDeadline) std::this_thread::sleep_for(std::chrono::microseconds(200));
+            Require(AgcDriver::Graphics::StorageTexture::AnyPending() && dormant(), "completion wake fixture did not see queue 0 wait over pending storage results");
+            const auto device = AgcDriver::DriverDetail::DriverTestAccess::Device();
+            Require(device != nullptr, "completion wake fixture has no device");
+            std::atomic<bool> ran{false};
+            std::chrono::steady_clock::time_point registered;
+            bool stillPending = false;
+            {
+                std::lock_guard gpuLock(AgcDriver::GuestMemory::GpuMutex());
+                stillPending = AgcDriver::Graphics::StorageTexture::AnyPending() && dormant();
+                const std::uint32_t value = 1;
+                device->WriteLabelOnGpu(AddressOf(label.data()), std::as_bytes(std::span<const std::uint32_t>(&value, 1)), 1, 0, false);
+                registered = std::chrono::steady_clock::now();
+                Require(device->AfterRecordedWork([&ran] { ran.store(true, std::memory_order_release); }, false), "the completion was not deferred to recorded work");
+                device->SubmitRecorded(false);
+            }
+            AgcDriver::DriverDetail::DriverTestAccess::WakeForCompletions();
+            Require(stillPending, "the completion was registered after queue 0 left its wait over pending storage results; rerun the fixture");
+            const auto runDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (!ran.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < runDeadline) std::this_thread::sleep_for(std::chrono::microseconds(200));
+            const auto waited = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - registered).count();
+            Require(ran.load(std::memory_order_acquire), "the completion never ran");
+            Require(waited < 25.0, "a completion registered while queue 0 waited over pending storage results ran only after the wait ended");
+            std::cout << "completion ran " << waited << " ms after registration\n";
+            return 0;
+        }
         if (wake) {
             const auto pendingDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
             while (!AgcDriver::Graphics::StorageTexture::AnyPending() && std::chrono::steady_clock::now() < pendingDeadline) std::this_thread::sleep_for(std::chrono::milliseconds(1));
