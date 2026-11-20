@@ -7,10 +7,14 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <thread>
 
 namespace AgcDriver::Graphics {
+
+struct QueueSubmissionDevice;
 
 class QueueSubmitter {
 public:
@@ -25,8 +29,10 @@ public:
     };
 
     static bool Enabled();
-    static QueueSubmitter& For(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit);
-    static QueueSubmitter* Existing(VkQueue queue);
+    static void RegisterDevice(VkDevice device);
+    static std::shared_ptr<QueueSubmitter> For(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit);
+    static std::shared_ptr<QueueSubmitter> Existing(VkQueue queue);
+    static void DrainDevice(VkDevice device);
     static void RetireDevice(VkDevice device);
     static std::uint64_t FailedSubmits(VkDevice device);
     static bool FailedThrough(VkDevice device, std::uint64_t serial);
@@ -37,17 +43,20 @@ public:
     bool Returned(std::uint64_t position) const { return returned.load(std::memory_order_acquire) >= position; }
     void WaitSubmitReturned(std::uint64_t position) const;
     void Drain();
-    AgcDriver::Mutex& QueueMutex() { return queueMutex; }
     std::uint64_t Submitted() const;
 
 private:
-    QueueSubmitter(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit);
+    friend class QueueAccess;
+    QueueSubmitter(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit, std::shared_ptr<QueueSubmissionDevice> admission);
     void run();
+    void requestStop();
     void stop();
 
     VkDevice device;
     VkQueue queue;
     PFN_vkQueueSubmit submit;
+    std::shared_ptr<QueueSubmissionDevice> admission;
+    std::shared_mutex accessMutex;
     AgcDriver::Mutex queueMutex;
     mutable std::mutex mutex;
     std::condition_variable ready;
@@ -63,6 +72,7 @@ private:
     std::atomic<std::uint64_t> failed{0};
     std::atomic<std::uint64_t> firstFailedSerial{~std::uint64_t{0}};
     VkResult stoppedWith = VK_SUCCESS;
+    std::once_flag stopped;
     std::thread thread;
 };
 
@@ -74,7 +84,8 @@ public:
     QueueAccess& operator=(const QueueAccess&) = delete;
 
 private:
-    QueueSubmitter* submitter;
+    std::shared_ptr<QueueSubmitter> submitter;
+    std::shared_lock<std::shared_mutex> access;
 };
 
 }

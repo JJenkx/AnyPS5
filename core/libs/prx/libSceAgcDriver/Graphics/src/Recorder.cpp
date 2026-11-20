@@ -1436,7 +1436,7 @@ Recorder::~Recorder() {
     } catch (const std::exception& error) {
         std::fprintf(stderr, "[gpu] recorder teardown: %s\n", error.what());
     }
-    if (auto* submitter = QueueSubmitter::Existing(context.queue)) submitter->Drain();
+    if (auto submitter = QueueSubmitter::Existing(context.queue)) submitter->Drain();
     ForgetHtileMasks_nid_no_patch(id);
     progressWatcher.reset();
     holdKept.clear();
@@ -4793,10 +4793,10 @@ void Recorder::Submit() {
     const auto submitStart = std::chrono::steady_clock::now();
     batch->submitStarted.store(true, std::memory_order_release);
     if (QueueSubmitter::Enabled()) {
-        auto& submitter = QueueSubmitter::For(context.device, context.queue, function(queueSubmit, "vkQueueSubmit"));
+        auto submitter = QueueSubmitter::For(context.device, context.queue, function(queueSubmit, "vkQueueSubmit"));
         batch->submitResult = VK_SUCCESS;
-        batch->submitPosition = submitter.Enqueue({batch->commands, batch->fence, hold, holdValue, timeline, serial, &batch->submitResult});
-        batch->submitter = &submitter;
+        batch->submitPosition = submitter->Enqueue({batch->commands, batch->fence, hold, holdValue, timeline, serial, &batch->submitResult});
+        batch->submitter = std::move(submitter);
     } else {
         batch->submitter = nullptr;
         VkResult result;

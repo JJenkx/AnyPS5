@@ -1170,7 +1170,7 @@ struct VulkanDevice::State {
             device = VK_NULL_HANDLE;
         }
         if (device != VK_NULL_HANDLE) {
-            Graphics::QueueSubmitter::RetireDevice(device);
+            Graphics::QueueSubmitter::DrainDevice(device);
             const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
             if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();
             // Resident images kept for unfinished presentations go before the caches they came from.
@@ -1198,6 +1198,8 @@ struct VulkanDevice::State {
             Graphics::DestroyShadows(device);
             recorder.reset();
             Graphics::QueueSubmitter::RetireDevice(device);
+            const auto retiredIdle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
+            if (retiredIdle != VK_SUCCESS && retiredIdle != VK_ERROR_DEVICE_LOST) std::terminate();
             // Cached graphics pipelines (with their framebuffers, modules, render passes and layouts)
             // belong to this device and must be destroyed while it lives.
             Graphics::ClearCachedPipelines(device);
@@ -2556,6 +2558,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window, bool compileOnly) :
     check(state->InstanceFunction<PFN_vkCreateDevice>("vkCreateDevice")(selected, &deviceInfo, nullptr, &state->device), "vkCreateDevice");
     state->shaderProfile = std::move(shaderProfile);
     if (compileOnly) return;
+    Graphics::QueueSubmitter::RegisterDevice(state->device);
     if (state->deferDestruction) state->contextDeviceProc = Graphics::DeferDestructionToIdle(state->device, state->deviceProc);
     if (calibratedTimestamps != nullptr) {
         const bool khr = std::strcmp(calibratedTimestamps, VK_KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) == 0;

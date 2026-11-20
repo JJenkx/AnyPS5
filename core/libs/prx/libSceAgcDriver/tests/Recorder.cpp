@@ -642,6 +642,7 @@ public:
                 function<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2"), extensionsEnabled, device);
             device.pEnabledFeatures = &enabled;
             Check(function<PFN_vkCreateDevice>("vkCreateDevice")(context.physical, &device, nullptr, &context.device), "vkCreateDevice");
+            AgcDriver::Graphics::QueueSubmitter::RegisterDevice(context.device);
             context.deviceProc = function<PFN_vkGetDeviceProcAddr>("vkGetDeviceProcAddr");
             function<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties")(context.physical, &context.memory);
             VkPhysicalDeviceProperties properties{};
@@ -729,6 +730,8 @@ private:
         if (context.device != VK_NULL_HANDLE) {
             DestroyShadows(context.device);
             AgcDriver::Graphics::QueueSubmitter::RetireDevice(context.device);
+            const auto idle = function<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(context.device);
+            if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();
             function<PFN_vkDestroyDevice>("vkDestroyDevice")(context.device, nullptr);
         }
         if (instance != VK_NULL_HANDLE) function<PFN_vkDestroyInstance>("vkDestroyInstance")(instance, nullptr);

@@ -741,7 +741,7 @@ private:
     };
     struct Batch {
         VkCommandBuffer commands = VK_NULL_HANDLE;
-        QueueSubmitter* submitter = nullptr;
+        std::shared_ptr<QueueSubmitter> submitter;
         std::uint64_t submitPosition = 0;
         VkResult submitResult = VK_SUCCESS;
         CommandState graphicsState;

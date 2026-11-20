@@ -8,14 +8,22 @@
 #include <memory>
 #include <stdexcept>
 #include <vector>
+#include <utility>
 
 namespace AgcDriver::Graphics {
+
+struct QueueSubmissionDevice {
+    std::atomic<bool> retiring{false};
+    bool finished = false;
+    std::condition_variable retired;
+};
 
 namespace {
 
 struct Submitters {
     std::mutex mutex;
-    std::map<VkQueue, QueueSubmitter*> byQueue;
+    std::map<VkQueue, std::shared_ptr<QueueSubmitter>> byQueue;
+    std::map<VkDevice, std::shared_ptr<QueueSubmissionDevice>> devices;
 };
 
 Submitters& AllSubmitters() {
@@ -33,29 +41,32 @@ bool QueueSubmitter::Enabled() {
     return RuntimeSwitches::Set(RuntimeSwitch::AsyncSubmit);
 }
 
-QueueSubmitter& QueueSubmitter::For(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit) {
+void QueueSubmitter::RegisterDevice(VkDevice device) {
+    if (device == VK_NULL_HANDLE) throw std::invalid_argument("AGC graphics: registering a null queue submitter device");
     auto& all = AllSubmitters();
-    QueueSubmitter* stale = nullptr;
-    QueueSubmitter* result = nullptr;
-    {
-        std::lock_guard lock(all.mutex);
-        const auto found = all.byQueue.find(queue);
-        if (found != all.byQueue.end() && found->second->device == device) return *found->second;
-        std::unique_ptr<QueueSubmitter> created(new QueueSubmitter(device, queue, submit));
-        if (found != all.byQueue.end()) {
-            stale = found->second;
-            found->second = created.get();
-        } else {
-            all.byQueue.emplace(queue, created.get());
-            liveSubmitters.fetch_add(1, std::memory_order_release);
-        }
-        result = created.release();
-    }
-    if (stale != nullptr) stale->stop();
-    return *result;
+    std::lock_guard lock(all.mutex);
+    if (all.devices.contains(device)) throw std::runtime_error("AGC graphics: queue submitter device is already registered");
+    all.devices.emplace(device, std::make_shared<QueueSubmissionDevice>());
 }
 
-QueueSubmitter* QueueSubmitter::Existing(VkQueue queue) {
+std::shared_ptr<QueueSubmitter> QueueSubmitter::For(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit) {
+    if (queue == VK_NULL_HANDLE || submit == nullptr) throw std::invalid_argument("AGC graphics: invalid queue submitter parameters");
+    auto& all = AllSubmitters();
+    std::lock_guard lock(all.mutex);
+    const auto registered = all.devices.find(device);
+    if (registered == all.devices.end() || registered->second->retiring.load(std::memory_order_acquire)) throw std::runtime_error("AGC graphics: queue submitter device is not active");
+    const auto found = all.byQueue.find(queue);
+    if (found != all.byQueue.end()) {
+        if (found->second->device != device) throw std::runtime_error("AGC graphics: queue belongs to another registered device");
+        return found->second;
+    }
+    auto created = std::shared_ptr<QueueSubmitter>(new QueueSubmitter(device, queue, submit, registered->second));
+    all.byQueue.emplace(queue, created);
+    liveSubmitters.fetch_add(1, std::memory_order_release);
+    return created;
+}
+
+std::shared_ptr<QueueSubmitter> QueueSubmitter::Existing(VkQueue queue) {
     if (queue == VK_NULL_HANDLE || liveSubmitters.load(std::memory_order_acquire) == 0) return nullptr;
     auto& all = AllSubmitters();
     std::lock_guard lock(all.mutex);
@@ -63,23 +74,50 @@ QueueSubmitter* QueueSubmitter::Existing(VkQueue queue) {
     return found != all.byQueue.end() ? found->second : nullptr;
 }
 
-void QueueSubmitter::RetireDevice(VkDevice device) {
+void QueueSubmitter::DrainDevice(VkDevice device) {
     auto& all = AllSubmitters();
-    std::vector<QueueSubmitter*> retired;
+    std::vector<std::shared_ptr<QueueSubmitter>> submitters;
     {
         std::lock_guard lock(all.mutex);
-        for (const auto& entry : all.byQueue) {
-            if (entry.second->device == device) retired.push_back(entry.second);
+        for (const auto& entry : all.byQueue) if (entry.second->device == device) submitters.push_back(entry.second);
+    }
+    for (const auto& submitter : submitters) submitter->Drain();
+}
+
+void QueueSubmitter::RetireDevice(VkDevice device) {
+    auto& all = AllSubmitters();
+    std::vector<std::shared_ptr<QueueSubmitter>> retired;
+    std::shared_ptr<QueueSubmissionDevice> admission;
+    {
+        std::unique_lock lock(all.mutex);
+        const auto found = all.devices.find(device);
+        if (found == all.devices.end()) return;
+        admission = found->second;
+        if (admission->retiring.load(std::memory_order_acquire)) {
+            admission->retired.wait(lock, [&] { return admission->finished; });
+            return;
         }
+        for (const auto& entry : all.byQueue) if (entry.second->device == device) retired.push_back(entry.second);
+        admission->retiring.store(true, std::memory_order_release);
+        for (const auto& submitter : retired) submitter->requestStop();
     }
-    for (auto* submitter : retired) submitter->stop();
-    std::lock_guard lock(all.mutex);
-    for (auto* submitter : retired) {
-        const auto found = all.byQueue.find(submitter->queue);
-        if (found == all.byQueue.end() || found->second != submitter) continue;
-        all.byQueue.erase(found);
-        liveSubmitters.fetch_sub(1, std::memory_order_release);
+    for (const auto& submitter : retired) {
+        submitter->stop();
+        std::unique_lock access(submitter->accessMutex);
     }
+    {
+        std::lock_guard lock(all.mutex);
+        for (const auto& submitter : retired) {
+            const auto found = all.byQueue.find(submitter->queue);
+            if (found != all.byQueue.end() && found->second == submitter) {
+                all.byQueue.erase(found);
+                liveSubmitters.fetch_sub(1, std::memory_order_release);
+            }
+        }
+        all.devices.erase(device);
+        admission->finished = true;
+    }
+    admission->retired.notify_all();
 }
 
 std::uint64_t QueueSubmitter::FailedSubmits(VkDevice device) {
@@ -107,8 +145,8 @@ QueueSubmitter::~QueueSubmitter() {
     stop();
 }
 
-QueueSubmitter::QueueSubmitter(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit) :
-    device(device), queue(queue), submit(submit) {
+QueueSubmitter::QueueSubmitter(VkDevice device, VkQueue queue, PFN_vkQueueSubmit submit, std::shared_ptr<QueueSubmissionDevice> admission) :
+    device(device), queue(queue), submit(submit), admission(std::move(admission)) {
     thread = Libc::StartHostThread([this] {
         try {
             RaiseWorkerThreadPriority("queue submitter");
@@ -119,13 +157,20 @@ QueueSubmitter::QueueSubmitter(VkDevice device, VkQueue queue, PFN_vkQueueSubmit
     });
 }
 
-void QueueSubmitter::stop() {
+void QueueSubmitter::requestStop() {
     {
         std::lock_guard lock(mutex);
         stopping = true;
     }
     ready.notify_one();
-    if (thread.joinable()) thread.join();
+    drained.notify_all();
+}
+
+void QueueSubmitter::stop() {
+    std::call_once(stopped, [&] {
+        requestStop();
+        if (thread.joinable()) thread.join();
+    });
 }
 
 std::uint64_t QueueSubmitter::Enqueue(const Job& job) {
@@ -133,8 +178,8 @@ std::uint64_t QueueSubmitter::Enqueue(const Job& job) {
     std::uint64_t position = 0;
     {
         std::unique_lock lock(mutex);
-        drained.wait(lock, [&] { return jobs.size() < MaxQueuedJobs || stopping; });
-        if (stopping) throw std::runtime_error("AGC graphics: a batch was queued on the queue submitter of a retired device");
+        drained.wait(lock, [&] { return jobs.size() < MaxQueuedJobs || stopping || admission->retiring.load(std::memory_order_acquire); });
+        if (stopping || admission->retiring.load(std::memory_order_acquire)) throw std::runtime_error("AGC graphics: a batch was queued on the queue submitter of a retired device");
         jobs.push_back(job);
         position = ++enqueued;
         wake = sleeping;
@@ -220,14 +265,23 @@ void QueueSubmitter::run() {
     }
 }
 
-QueueAccess::QueueAccess(VkQueue queue) : submitter(QueueSubmitter::Existing(queue)) {
-    if (submitter == nullptr) return;
+QueueAccess::QueueAccess(VkQueue queue) {
+    if (queue == VK_NULL_HANDLE || liveSubmitters.load(std::memory_order_acquire) == 0) return;
+    auto& all = AllSubmitters();
+    {
+        std::lock_guard lock(all.mutex);
+        const auto found = all.byQueue.find(queue);
+        if (found == all.byQueue.end()) return;
+        if (found->second->admission->retiring.load(std::memory_order_acquire)) throw std::runtime_error("AGC graphics: queue access during device retirement");
+        submitter = found->second;
+        access = std::shared_lock(submitter->accessMutex);
+    }
     submitter->Drain();
-    submitter->QueueMutex().lock();
+    submitter->queueMutex.lock();
 }
 
 QueueAccess::~QueueAccess() {
-    if (submitter != nullptr) submitter->QueueMutex().unlock();
+    if (submitter != nullptr) submitter->queueMutex.unlock();
 }
 
 }
