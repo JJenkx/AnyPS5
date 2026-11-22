@@ -37,7 +37,7 @@ std::uint32_t DefineBdaLookup(SpirvEmitterState& state, const char* name, bool r
     const auto outerMerge = state.module.AllocateId();
     state.module.AddFunction(spv::OpBranch, outer);
     EmitLabel(state, outer);
-    state.module.AddFunction(spv::OpLoopMerge, outerMerge, outerContinue, spv::LoopControlMaskNone);
+    state.module.AddFunction(spv::OpLoopMerge, outerMerge, outerContinue, spv::LoopControlDontUnrollMask);
     state.module.AddFunction(spv::OpBranch, outerBody);
     EmitLabel(state, outerBody);
     std::vector<std::uint32_t> exits{spv::OpPhi, resultType, state.module.AllocateId()};
@@ -93,7 +93,7 @@ std::uint32_t DefineBdaLookup(SpirvEmitterState& state, const char* name, bool r
     state.module.AddFunction(spv::OpPhi, u32, lower, constant(0), entryLabel, newLow, continuation);
     state.module.AddFunction(spv::OpPhi, u32, upper, count, entryLabel, newHigh, continuation);
     const auto search = binary(spv::OpULessThan, boolean, lower, upper);
-    state.module.AddFunction(spv::OpLoopMerge, merge, continuation, spv::LoopControlMaskNone);
+    state.module.AddFunction(spv::OpLoopMerge, merge, continuation, spv::LoopControlDontUnrollMask);
     state.module.AddFunction(spv::OpBranchConditional, search, body, merge);
     EmitLabel(state, body);
     const auto midpoint = binary(spv::OpIAdd, u32, lower, binary(spv::OpShiftRightLogical, u32, binary(spv::OpISub, u32, upper, lower), constant(1)));
@@ -182,7 +182,7 @@ static std::uint32_t DefineBdaNoteWrite(SpirvEmitterState& state) {
     const auto found = state.module.AllocateId();
     state.module.AddFunction(spv::OpLoad, boolean, found, done);
     const auto searching = binary(spv::OpLogicalAnd, boolean, Unary(state, spv::OpLogicalNot, boolean, found), binary(spv::OpULessThan, boolean, probe, constant(BdaAbi::WrittenPageProbes)));
-    state.module.AddFunction(spv::OpLoopMerge, merge, continuation, spv::LoopControlMaskNone);
+    state.module.AddFunction(spv::OpLoopMerge, merge, continuation, spv::LoopControlDontUnrollMask);
     state.module.AddFunction(spv::OpBranchConditional, searching, body, merge);
     EmitLabel(state, body);
     const auto slot = binary(spv::OpBitwiseAnd, u32, binary(spv::OpIAdd, u32, hash, probe), constant(BdaAbi::WrittenPageSlots - 1u));
