@@ -318,9 +318,9 @@ void RunBdaContractTests() {
         AgcDriver::Graphics::Require(loops == 1u && lookups == (bits == 32u ? 2u : 1u), "a runtime V# write of " + std::to_string(bits) + " bits has " + std::to_string(lookups) + " write lookups and " + std::to_string(loops) + " byte-loop calls, not its byte path through write_bda_bytes");
         const auto [byteLoops, rolled] = LoopsKeptRolled(shader, "write_bda_bytes");
         AgcDriver::Graphics::Require(byteLoops == 1u && rolled == 1u, "the byte loop of write_bda_bytes may be unrolled, which copies its write lookup once per byte");
-        for (const auto* name : {"get_bda_write_pointer", "probe_bda_write_pointer", "note_bda_write"}) {
+        for (const auto* name : {"get_bda_pointer", "probe_bda_pointer", "get_bda_write_pointer", "probe_bda_write_pointer", "get_bda_atomic_pointer"}) {
             const auto [helperLoops, helperRolled] = LoopsKeptRolled(shader, name);
-            AgcDriver::Graphics::Require(helperLoops == helperRolled, std::string(name) + " may be unrolled inside each BDA write");
+            AgcDriver::Graphics::Require(helperLoops == 2u && helperRolled == 1u, std::string(name) + " must keep only its lookup wrapper rolled");
         }
     }
 }

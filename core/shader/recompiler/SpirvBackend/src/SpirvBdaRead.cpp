@@ -231,7 +231,7 @@ std::uint32_t DefineBdaSpanReadFunction(SpirvEmitterState& state, bool coherent,
         state.module.AddFunction(spv::OpPhi, u32, dword, zero, entry, nextDword, continuation);
         state.module.AddFunction(spv::OpPhi, values, gathered, zeros, entry, nextGathered, continuation);
         const auto more = Binary(state, spv::OpULessThan, boolean, dword, ConstantU32(state, 4u));
-        state.module.AddFunction(spv::OpLoopMerge, merge, continuation, spv::LoopControlDontUnrollMask);
+        state.module.AddFunction(spv::OpLoopMerge, merge, continuation, spv::LoopControlMaskNone);
         state.module.AddFunction(spv::OpBranchConditional, more, body, merge);
         EmitLabel(state, body);
         const auto used32 = Binary(state, spv::OpINotEqual, boolean, Binary(state, spv::OpBitwiseAnd, u32, used, Binary(state, spv::OpShiftLeftLogical, u32, ConstantU32(state, 1u), dword)), zero);
