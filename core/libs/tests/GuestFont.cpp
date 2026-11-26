@@ -552,6 +552,58 @@ static bool KerningIs(const FontKerning& kerning, float offsetX) {
     return kerning.offsetX == offsetX && kerning.offsetY == 0.0f && kerning.positionX == 0.0f && kerning.positionY == 0.0f;
 }
 
+static void CheckScaledKerningGuestMemory(FontHandle font) {
+#ifdef _WIN32
+    SYSTEM_INFO info{};
+    GetSystemInfo(&info);
+    const std::size_t page = info.dwPageSize;
+    auto* memory = static_cast<unsigned char*>(VirtualAlloc(nullptr, page * 2, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    Require(memory != nullptr);
+    DWORD previous;
+    Require(VirtualProtect(memory + page, page, PAGE_NOACCESS, &previous) != 0);
+#else
+    const long pageSize = sysconf(_SC_PAGESIZE);
+    Require(pageSize > 0);
+    const auto page = static_cast<std::size_t>(pageSize);
+    auto* memory = static_cast<unsigned char*>(mmap(nullptr, page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+    Require(memory != MAP_FAILED);
+    Require(mprotect(memory + page, page, PROT_NONE) == 0);
+#endif
+    for (const auto offset : {page, page - sizeof(float)}) {
+        auto* output = reinterpret_cast<FontKerning*>(memory + offset);
+        for (const auto handle : {font, FontHandle{nullptr}}) {
+            errno = EBUSY;
+            Require(sceFontGetRenderScaledKerning(handle, 'A', 'V', output) == SCE_FONT_ERROR_INVALID_PARAMETER && errno == EBUSY);
+        }
+    }
+    std::memset(memory, 0xa5, page);
+    auto* exact = reinterpret_cast<FontKerning*>(memory + page - sizeof(FontKerning));
+#ifdef _WIN32
+    Require(VirtualProtect(memory, page, PAGE_READONLY, &previous) != 0);
+#else
+    Require(mprotect(memory, page, PROT_READ) == 0);
+#endif
+    for (const auto handle : {font, FontHandle{nullptr}}) {
+        errno = EBUSY;
+        Require(sceFontGetRenderScaledKerning(handle, 'A', 'V', exact) == SCE_FONT_ERROR_INVALID_PARAMETER && errno == EBUSY);
+    }
+    for (std::size_t i = 0; i < page; ++i) Require(memory[i] == 0xa5);
+#ifdef _WIN32
+    Require(VirtualProtect(memory, page, PAGE_READWRITE, &previous) != 0);
+#else
+    Require(mprotect(memory, page, PROT_READ | PROT_WRITE) == 0);
+#endif
+    errno = EBUSY;
+    Require(sceFontGetRenderScaledKerning(font, 'A', 'V', exact) == SCE_FONT_OK && errno == EBUSY && KerningIs(*exact, -20.0f));
+    Require(sceFontGetRenderScaledKerning(nullptr, 'A', 'V', exact) == SCE_FONT_ERROR_INVALID_FONT_HANDLE && errno == EBUSY && KerningIs(*exact, 0.0f));
+    for (std::size_t i = 0; i < page - sizeof(FontKerning); ++i) Require(memory[i] == 0xa5);
+#ifdef _WIN32
+    Require(VirtualFree(memory, 0, MEM_RELEASE) != 0);
+#else
+    Require(munmap(memory, page * 2) == 0);
+#endif
+}
+
 static void CheckRenderEffects(FontHandle font, FontRenderer renderer) {
     const auto approximately = [](float value, float expected) { return std::fabs(value - expected) < 1e-6f; };
     float slant = 1.0f;
@@ -1216,6 +1268,7 @@ int main() {
     Require(sceFontGetRenderScaledKerning(font, 'A', 'V', &kerning) == SCE_FONT_ERROR_NOT_BOUND_RENDERER && KerningIs(kerning, 0.0f));
     Require(sceFontBindRenderer(font, renderer) == SCE_FONT_OK);
     Require(sceFontGetRenderScaledKerning(font, 'A', 'V', &kerning) == SCE_FONT_OK && KerningIs(kerning, -20.0f));
+    CheckScaledKerningGuestMemory(font);
     Require(sceFontSetupRenderScalePixel(font, 50.0f, 50.0f) == SCE_FONT_OK);
     Require(sceFontGetRenderScaledKerning(font, 'A', 'V', &kerning) == SCE_FONT_OK && KerningIs(kerning, -10.0f));
     Require(sceFontGetKerning(font, 'A', 'V', &kerning) == SCE_FONT_OK && KerningIs(kerning, -20.0f));
