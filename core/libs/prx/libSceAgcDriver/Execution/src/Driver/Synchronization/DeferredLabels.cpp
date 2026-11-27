@@ -1,4 +1,3 @@
-#include "prx/libkernel/Time/include/SleepWake.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Synchronization/DeferredLabels.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Synchronization/SynchronizationStatistics.hpp"
@@ -8,6 +7,7 @@
 #include "ThreadOwned.hpp"
 #include <algorithm>
 #include <cstdlib>
+#include <optional>
 
 namespace AgcDriver::DriverDetail {
 
@@ -65,12 +65,15 @@ bool Driver::labelTryEachPacket() {
     return each;
 }
 
-std::chrono::microseconds Driver::labelFlushDeadline() {
-    static const std::chrono::microseconds value = [] {
+std::chrono::microseconds Driver::labelFlushDeadline() const {
+    static const auto fixed = []() -> std::optional<std::chrono::microseconds> {
         const char* text = std::getenv("APS5_LABEL_FLUSH_US");
-        return std::chrono::microseconds(text ? std::atoi(text) : (LabelBatchSubmit() ? 2000 : 250));
+        if (text != nullptr) return std::chrono::microseconds(std::atoi(text));
+        if (!LabelBatchSubmit()) return std::chrono::microseconds(250);
+        return std::nullopt;
     }();
-    return value;
+    if (fixed) return *fixed;
+    return std::chrono::microseconds(labelWaitersPresent() ? 100 : 2000);
 }
 
 bool Driver::labelWaitersPresent() const {
@@ -82,9 +85,7 @@ bool Driver::labelFlushDue() {
     if (QueuedLabelTable() && !deferredLabels().labels.empty()) Get().recordQueuedLabelsByTry(GuestMemory::GpuLockThreadTag(), pollLabelRecords);
     const auto since = Graphics::Recorder::PendingLabelSince();
     if (!since.has_value()) return false;
-    static const bool fixed = std::getenv("APS5_LABEL_FLUSH_US") != nullptr || !LabelBatchSubmit();
-    const auto deadline = fixed || !Get().labelWaitersPresent() ? labelFlushDeadline() : std::chrono::microseconds(100);
-    return std::chrono::steady_clock::now() - *since >= deadline;
+    return std::chrono::steady_clock::now() - *since >= Get().labelFlushDeadline();
 }
 
 bool Driver::completionsPending() {

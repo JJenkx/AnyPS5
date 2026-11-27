@@ -14,20 +14,24 @@ static void Require(bool condition, const char* message) {
 
 int main() {
     Require(KernelWakeableSleepers_nid_no_patch() == 0, "a wakeable sleeper was counted before any thread slept");
-    std::atomic<bool> done{false};
+    std::atomic<bool> stop{false};
     const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + std::chrono::milliseconds(500);
     std::thread sleeper([&] {
-        SleepWake::Sleep(SleepWake::MAX_WAKEABLE_NANOS);
-        done.store(true, std::memory_order_release);
+        while (!stop.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+            SleepWake::Sleep(SleepWake::MAX_WAKEABLE_NANOS);
+        }
     });
     bool counted = false;
-    while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() - start < std::chrono::milliseconds(500)) {
+    while (std::chrono::steady_clock::now() < deadline) {
         if (KernelWakeableSleepers_nid_no_patch() == 1) {
             counted = true;
-            KernelWakeSleepers_nid_no_patch();
             break;
         }
+        std::this_thread::yield();
     }
+    stop.store(true, std::memory_order_release);
+    KernelWakeSleepers_nid_no_patch();
     sleeper.join();
     const auto elapsed = std::chrono::steady_clock::now() - start;
     Require(counted, "a thread in a wakeable sleep was not counted");

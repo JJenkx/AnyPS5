@@ -413,7 +413,7 @@ private:
     void noteReleasedTails(const Submission& submission);
     static bool packetEpoch();
     static bool labelTryEachPacket();
-    static std::chrono::microseconds labelFlushDeadline();
+    std::chrono::microseconds labelFlushDeadline() const;
     static bool labelFlushDue();
     bool labelWaitersPresent() const;
     static bool completionsPending();

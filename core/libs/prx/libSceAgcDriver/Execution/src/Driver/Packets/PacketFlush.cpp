@@ -25,6 +25,7 @@ void Driver::flushBetweenPackets(std::uint32_t queue, std::uint32_t header, bool
     const bool reapDue = completions && (reapEachPacket() || queue == 0);
 
     const auto now = queued || pending.has_value() || reapDue ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    const auto deadline = queued || pending.has_value() ? labelFlushDeadline() : std::chrono::microseconds{};
 
     bool recordAtLock = false;
     if (queued) {
@@ -33,7 +34,7 @@ void Driver::flushBetweenPackets(std::uint32_t queue, std::uint32_t header, bool
 
             needsRecord = !queuedTable && NeedsRecordedLabels(header) && !selfLocking;
         }
-        if (now - deferred.since >= labelFlushDeadline()) record = deferredDue = true;
+        if (now - deferred.since >= deadline) record = deferredDue = true;
         if (record && !deferredDue && selfLocking && !labelTryEachPacket()) {
             record = false;
             recordAtLock = true;
@@ -41,7 +42,7 @@ void Driver::flushBetweenPackets(std::uint32_t queue, std::uint32_t header, bool
     }
     if (pending.has_value()) {
         if (!labelPacket && packetFlush) submit = true;
-        if (now - *pending >= labelFlushDeadline()) submit = pendingDue = true;
+        if (now - *pending >= deadline) submit = pendingDue = true;
     }
     const auto work = Graphics::Recorder::RecordedWorkSinceSubmit();
     const bool capped = !submit && !record && batchCap() != 0 && work >= batchCap();
@@ -63,7 +64,7 @@ void Driver::flushBetweenPackets(std::uint32_t queue, std::uint32_t header, bool
 
     bool outright = needsRecord;
     if (LabelBatchSubmit()) {
-        const auto grace = 4 * labelFlushDeadline();
+        const auto grace = 4 * deadline;
         const bool overdue = (deferredDue && now - deferred.since >= grace) || (pendingDue && now - *pending >= grace) || (capped && work >= 2 * batchCap());
         if (overdue) ++overdueLocks;
         outright = outright || overdue;
