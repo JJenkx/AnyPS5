@@ -30,7 +30,7 @@
  * SUCH DAMAGE.
  */
 
-/* Adapted from FreeBSD release/11.4.0 lib/libc/gen/radixsort.c: https://github.com/freebsd/freebsd-src/blob/8c639945a44588f6cfdddfb057bb5aad88735da0/lib/libc/gen/radixsort.c */
+/* Adapted from FreeBSD release/11.4.0 lib/libc/stdlib/radixsort.c: https://github.com/freebsd/freebsd-src/blob/8c639945a44588f6cfdddfb057bb5aad88735da0/lib/libc/stdlib/radixsort.c */
 #include "prx/libc/include/Api.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
@@ -45,6 +45,12 @@ struct RadixStack {
     const Byte** sa;
     int sn;
     int si;
+};
+
+struct RadixHistogram {
+    int count[256]{};
+    int occupied = 0;
+    int first = 0;
 };
 
 constexpr int RadixThreshold = 20;
@@ -70,12 +76,8 @@ void SimpleSort(const Byte** a, int n, int b, const Byte* tr, std::uint32_t endc
         }
 }
 
-void ROrderUnstable(const Byte** a, int n, int i, const Byte* tr, std::uint32_t endch);
-
-void ROrderStable(const Byte** a, const Byte** ta, int n, int i, const Byte* tr, std::uint32_t endch);
-
-void ROrderUnstable(const Byte** a, int n, int i, const Byte* tr, std::uint32_t endch) {
-    static int count[256], nc, bmin;
+void ROrderUnstable(const Byte** a, int n, int i, const Byte* tr, std::uint32_t endch, RadixHistogram& histogram) {
+    auto& [count, nc, bmin] = histogram;
     int c;
     const Byte **ak, *r;
     RadixStack s[RadixStackSize], *sp, *sp0, *sp1, temp;
@@ -104,7 +106,7 @@ void ROrderUnstable(const Byte** a, int n, int i, const Byte* tr, std::uint32_t 
                 }
             }
             if (sp + nc > s + RadixStackSize) {
-                ROrderUnstable(a, n, i, tr, endch);
+                ROrderUnstable(a, n, i, tr, endch, histogram);
                 continue;
             }
         }
@@ -153,8 +155,8 @@ void ROrderUnstable(const Byte** a, int n, int i, const Byte* tr, std::uint32_t 
     }
 }
 
-void ROrderStable(const Byte** a, const Byte** ta, int n, int i, const Byte* tr, std::uint32_t endch) {
-    static int count[256], nc, bmin;
+void ROrderStable(const Byte** a, const Byte** ta, int n, int i, const Byte* tr, std::uint32_t endch, RadixHistogram& histogram) {
+    auto& [count, nc, bmin] = histogram;
     int c;
     const Byte **ak, **ai;
     RadixStack s[RadixStackSize], *sp, *sp0, *sp1, temp;
@@ -182,7 +184,7 @@ void ROrderStable(const Byte** a, const Byte** ta, int n, int i, const Byte* tr,
                 }
             }
             if (sp + nc > s + RadixStackSize) {
-                ROrderStable(a, ta, n, i, tr, endch);
+                ROrderStable(a, ta, n, i, tr, endch, histogram);
                 continue;
             }
         }
@@ -242,7 +244,8 @@ extern "C" int APS5_VABI radixsort_nid_postfix(const unsigned char** a, int n, c
     Byte tr0[256];
     const Byte* tr = nullptr;
     if (!SetUpTable(tab, endch, tr, tr0)) return -1;
-    ROrderUnstable(a, n, 0, tr, endch);
+    RadixHistogram histogram;
+    ROrderUnstable(a, n, 0, tr, endch, histogram);
     return 0;
 }
 
@@ -259,7 +262,8 @@ extern "C" int APS5_VABI sradixsort_nid_postfix(const unsigned char** a, int n, 
         SetErrno(GuestEnomem);
         return -1;
     }
-    ROrderStable(a, ta, n, 0, tr, endch);
+    RadixHistogram histogram;
+    ROrderStable(a, ta, n, 0, tr, endch, histogram);
     free_nid_postfix(ta);
     return 0;
 }
