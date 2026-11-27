@@ -36,6 +36,7 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace {
 
@@ -220,6 +221,10 @@ void ROrderStable(const Byte** a, const Byte** ta, int n, int i, const Byte* tr,
 }
 
 bool SetUpTable(const Byte* tab, std::uint32_t& endch, const Byte*& tr, Byte (&tr0)[256]) {
+    if (endch > std::numeric_limits<Byte>::max()) {
+        SetErrno(GuestEinval);
+        return false;
+    }
     if (tab == nullptr) {
         tr = tr0;
         int c;
