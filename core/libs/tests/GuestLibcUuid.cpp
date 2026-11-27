@@ -1,4 +1,5 @@
 #include "prx/libc/include/Api.hpp"
+#include "prx/libc/include/ApplicationHeap.hpp"
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -22,6 +23,7 @@ static GuestUuid Parse(const char* text, std::uint32_t expectedStatus) {
 }
 
 int main() {
+    ApplicationHeapInitialize_nid_no_patch(ApplicationEmptyProcessParameters_nid_no_patch());
     const GuestUuid sample = Parse(Sample, 0);
     Require(sample.time_low == 0x01234567u && sample.time_mid == 0x89abu && sample.time_hi_and_version == 0xcdefu);
     Require(sample.clock_seq_hi_and_reserved == 0x01 && sample.clock_seq_low == 0x23);
