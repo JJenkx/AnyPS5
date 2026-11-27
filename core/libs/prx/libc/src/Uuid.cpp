@@ -75,8 +75,8 @@ void SetStatus(std::uint32_t* status, std::uint32_t value) {
 
 bool UuidIsNil(const GuestUuid* uuid) {
     if (uuid == nullptr) return true;
-    const auto* words = reinterpret_cast<const std::uint32_t*>(uuid);
-    return words[0] == 0 && words[1] == 0 && words[2] == 0 && words[3] == 0;
+    const GuestUuid nil{};
+    return std::memcmp(uuid, &nil, sizeof(nil)) == 0;
 }
 
 }
@@ -86,11 +86,11 @@ extern "C" std::int32_t APS5_VABI uuid_compare_nid_postfix(const GuestUuid* a, c
     if (a == b) return 0;
     if (a == nullptr) return UuidIsNil(b) ? 0 : -1;
     if (b == nullptr) return UuidIsNil(a) ? 0 : 1;
-    if (a->time_low != b->time_low) return a->time_low < b->time_low ? -1 : 1;
-    if (a->time_mid != b->time_mid) return a->time_mid < b->time_mid ? -1 : 1;
-    if (a->time_hi_and_version != b->time_hi_and_version) return a->time_hi_and_version < b->time_hi_and_version ? -1 : 1;
-    if (a->clock_seq_hi_and_reserved != b->clock_seq_hi_and_reserved) return a->clock_seq_hi_and_reserved < b->clock_seq_hi_and_reserved ? -1 : 1;
-    if (a->clock_seq_low != b->clock_seq_low) return a->clock_seq_low < b->clock_seq_low ? -1 : 1;
+    if (a->timeLow != b->timeLow) return a->timeLow < b->timeLow ? -1 : 1;
+    if (a->timeMid != b->timeMid) return a->timeMid < b->timeMid ? -1 : 1;
+    if (a->timeHiAndVersion != b->timeHiAndVersion) return a->timeHiAndVersion < b->timeHiAndVersion ? -1 : 1;
+    if (a->clockSeqHiAndReserved != b->clockSeqHiAndReserved) return a->clockSeqHiAndReserved < b->clockSeqHiAndReserved ? -1 : 1;
+    if (a->clockSeqLow != b->clockSeqLow) return a->clockSeqLow < b->clockSeqLow ? -1 : 1;
     const int result = std::memcmp(a->node, b->node, sizeof(a->node));
     if (result != 0) return result < 0 ? -1 : 1;
     return 0;
@@ -124,11 +124,11 @@ extern "C" void APS5_VABI uuid_from_string_nid_postfix(const char* text, GuestUu
     if (std::strlen(text) != 36) return;
     if (text[8] != '-') return;
     const int converted = std::sscanf(text, "%8x-%4hx-%4hx-%2hhx%2hhx-%2hhx%2hhx%2hhx%2hhx%2hhx%2hhx",
-        &uuid->time_low, &uuid->time_mid, &uuid->time_hi_and_version,
-        &uuid->clock_seq_hi_and_reserved, &uuid->clock_seq_low, &uuid->node[0],
+        &uuid->timeLow, &uuid->timeMid, &uuid->timeHiAndVersion,
+        &uuid->clockSeqHiAndReserved, &uuid->clockSeqLow, &uuid->node[0],
         &uuid->node[1], &uuid->node[2], &uuid->node[3], &uuid->node[4], &uuid->node[5]);
     if (converted != 11) return;
-    const unsigned int variant = uuid->clock_seq_hi_and_reserved;
+    const unsigned int variant = uuid->clockSeqHiAndReserved;
     if ((variant & 0x80) != 0x00 && (variant & 0xc0) != 0x80 && (variant & 0xe0) != 0xc0) {
         SetStatus(status, UuidStatusBadVersion);
     } else {
@@ -138,7 +138,7 @@ extern "C" void APS5_VABI uuid_from_string_nid_postfix(const char* text, GuestUu
 
 extern "C" std::uint16_t APS5_VABI uuid_hash_nid_postfix(const GuestUuid* uuid, std::uint32_t* status) {
     SetStatus(status, UuidStatusOk);
-    return uuid != nullptr ? static_cast<std::uint16_t>(uuid->time_low & 0xffff) : 0;
+    return uuid != nullptr ? static_cast<std::uint16_t>(uuid->timeLow & 0xffff) : 0;
 }
 
 extern "C" std::int32_t APS5_VABI uuid_is_nil_nid_postfix(const GuestUuid* uuid, std::uint32_t* status) {
@@ -154,9 +154,9 @@ extern "C" void APS5_VABI uuid_to_string_nid_postfix(const GuestUuid* uuid, char
     auto* buffer = static_cast<char*>(malloc_nid_postfix(UuidStringBytes));
     if (buffer != nullptr) {
         std::snprintf(buffer, UuidStringBytes, "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-            static_cast<unsigned int>(uuid->time_low), static_cast<unsigned int>(uuid->time_mid),
-            static_cast<unsigned int>(uuid->time_hi_and_version), static_cast<unsigned int>(uuid->clock_seq_hi_and_reserved),
-            static_cast<unsigned int>(uuid->clock_seq_low), static_cast<unsigned int>(uuid->node[0]),
+            static_cast<unsigned int>(uuid->timeLow), static_cast<unsigned int>(uuid->timeMid),
+            static_cast<unsigned int>(uuid->timeHiAndVersion), static_cast<unsigned int>(uuid->clockSeqHiAndReserved),
+            static_cast<unsigned int>(uuid->clockSeqLow), static_cast<unsigned int>(uuid->node[0]),
             static_cast<unsigned int>(uuid->node[1]), static_cast<unsigned int>(uuid->node[2]),
             static_cast<unsigned int>(uuid->node[3]), static_cast<unsigned int>(uuid->node[4]),
             static_cast<unsigned int>(uuid->node[5]));
@@ -167,42 +167,42 @@ extern "C" void APS5_VABI uuid_to_string_nid_postfix(const GuestUuid* uuid, char
 
 extern "C" void APS5_VABI uuid_enc_le_nid_postfix(void* buffer, const GuestUuid* uuid) {
     auto* bytes = static_cast<std::uint8_t*>(buffer);
-    for (int i = 0; i < 4; ++i) bytes[i] = static_cast<std::uint8_t>(uuid->time_low >> (8 * i));
-    for (int i = 0; i < 2; ++i) bytes[4 + i] = static_cast<std::uint8_t>(uuid->time_mid >> (8 * i));
-    for (int i = 0; i < 2; ++i) bytes[6 + i] = static_cast<std::uint8_t>(uuid->time_hi_and_version >> (8 * i));
-    bytes[8] = uuid->clock_seq_hi_and_reserved;
-    bytes[9] = uuid->clock_seq_low;
+    for (int i = 0; i < 4; ++i) bytes[i] = static_cast<std::uint8_t>(uuid->timeLow >> (8 * i));
+    for (int i = 0; i < 2; ++i) bytes[4 + i] = static_cast<std::uint8_t>(uuid->timeMid >> (8 * i));
+    for (int i = 0; i < 2; ++i) bytes[6 + i] = static_cast<std::uint8_t>(uuid->timeHiAndVersion >> (8 * i));
+    bytes[8] = uuid->clockSeqHiAndReserved;
+    bytes[9] = uuid->clockSeqLow;
     for (std::size_t i = 0; i < sizeof(uuid->node); ++i) bytes[10 + i] = uuid->node[i];
 }
 
 extern "C" void APS5_VABI uuid_dec_le_nid_postfix(const void* buffer, GuestUuid* uuid) {
     const auto* bytes = static_cast<const std::uint8_t*>(buffer);
-    uuid->time_low = static_cast<std::uint32_t>(bytes[0]) | static_cast<std::uint32_t>(bytes[1]) << 8 |
+    uuid->timeLow = static_cast<std::uint32_t>(bytes[0]) | static_cast<std::uint32_t>(bytes[1]) << 8 |
         static_cast<std::uint32_t>(bytes[2]) << 16 | static_cast<std::uint32_t>(bytes[3]) << 24;
-    uuid->time_mid = static_cast<std::uint16_t>(bytes[4] | bytes[5] << 8);
-    uuid->time_hi_and_version = static_cast<std::uint16_t>(bytes[6] | bytes[7] << 8);
-    uuid->clock_seq_hi_and_reserved = bytes[8];
-    uuid->clock_seq_low = bytes[9];
+    uuid->timeMid = static_cast<std::uint16_t>(bytes[4] | bytes[5] << 8);
+    uuid->timeHiAndVersion = static_cast<std::uint16_t>(bytes[6] | bytes[7] << 8);
+    uuid->clockSeqHiAndReserved = bytes[8];
+    uuid->clockSeqLow = bytes[9];
     for (std::size_t i = 0; i < sizeof(uuid->node); ++i) uuid->node[i] = bytes[10 + i];
 }
 
 extern "C" void APS5_VABI uuid_enc_be_nid_postfix(void* buffer, const GuestUuid* uuid) {
     auto* bytes = static_cast<std::uint8_t*>(buffer);
-    for (int i = 0; i < 4; ++i) bytes[i] = static_cast<std::uint8_t>(uuid->time_low >> (24 - 8 * i));
-    for (int i = 0; i < 2; ++i) bytes[4 + i] = static_cast<std::uint8_t>(uuid->time_mid >> (8 - 8 * i));
-    for (int i = 0; i < 2; ++i) bytes[6 + i] = static_cast<std::uint8_t>(uuid->time_hi_and_version >> (8 - 8 * i));
-    bytes[8] = uuid->clock_seq_hi_and_reserved;
-    bytes[9] = uuid->clock_seq_low;
+    for (int i = 0; i < 4; ++i) bytes[i] = static_cast<std::uint8_t>(uuid->timeLow >> (24 - 8 * i));
+    for (int i = 0; i < 2; ++i) bytes[4 + i] = static_cast<std::uint8_t>(uuid->timeMid >> (8 - 8 * i));
+    for (int i = 0; i < 2; ++i) bytes[6 + i] = static_cast<std::uint8_t>(uuid->timeHiAndVersion >> (8 - 8 * i));
+    bytes[8] = uuid->clockSeqHiAndReserved;
+    bytes[9] = uuid->clockSeqLow;
     for (std::size_t i = 0; i < sizeof(uuid->node); ++i) bytes[10 + i] = uuid->node[i];
 }
 
 extern "C" void APS5_VABI uuid_dec_be_nid_postfix(const void* buffer, GuestUuid* uuid) {
     const auto* bytes = static_cast<const std::uint8_t*>(buffer);
-    uuid->time_low = static_cast<std::uint32_t>(bytes[0]) << 24 | static_cast<std::uint32_t>(bytes[1]) << 16 |
+    uuid->timeLow = static_cast<std::uint32_t>(bytes[0]) << 24 | static_cast<std::uint32_t>(bytes[1]) << 16 |
         static_cast<std::uint32_t>(bytes[2]) << 8 | static_cast<std::uint32_t>(bytes[3]);
-    uuid->time_mid = static_cast<std::uint16_t>(bytes[4] << 8 | bytes[5]);
-    uuid->time_hi_and_version = static_cast<std::uint16_t>(bytes[6] << 8 | bytes[7]);
-    uuid->clock_seq_hi_and_reserved = bytes[8];
-    uuid->clock_seq_low = bytes[9];
+    uuid->timeMid = static_cast<std::uint16_t>(bytes[4] << 8 | bytes[5]);
+    uuid->timeHiAndVersion = static_cast<std::uint16_t>(bytes[6] << 8 | bytes[7]);
+    uuid->clockSeqHiAndReserved = bytes[8];
+    uuid->clockSeqLow = bytes[9];
     for (std::size_t i = 0; i < sizeof(uuid->node); ++i) uuid->node[i] = bytes[10 + i];
 }
