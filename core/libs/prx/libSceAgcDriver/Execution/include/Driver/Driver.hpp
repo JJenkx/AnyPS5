@@ -414,6 +414,7 @@ private:
     static bool packetEpoch();
     static bool labelTryEachPacket();
     std::chrono::microseconds labelFlushDeadline() const;
+    static std::chrono::microseconds labelFlushBusyDeadline(std::chrono::microseconds deadline);
     static bool labelFlushDue();
     bool labelWaitersPresent() const;
     static bool completionsPending();

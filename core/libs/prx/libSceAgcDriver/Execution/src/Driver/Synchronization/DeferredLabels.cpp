@@ -81,6 +81,14 @@ bool Driver::labelWaitersPresent() const {
     return std::any_of(awaitedSlots.begin(), awaitedSlots.end(), [](const auto& slot) { return slot.address.load(std::memory_order_acquire) != 0; });
 }
 
+std::chrono::microseconds Driver::labelFlushBusyDeadline(std::chrono::microseconds deadline) {
+    static const std::chrono::microseconds value = [] {
+        const char* text = std::getenv("APS5_LABEL_FLUSH_BUSY_US");
+        return std::chrono::microseconds(text ? std::atoi(text) : 1000);
+    }();
+    return std::max(deadline, value);
+}
+
 bool Driver::labelFlushDue() {
     if (QueuedLabelTable() && !deferredLabels().labels.empty()) Get().recordQueuedLabelsByTry(GuestMemory::GpuLockThreadTag(), pollLabelRecords);
     const auto since = Graphics::Recorder::PendingLabelSince();

@@ -276,6 +276,7 @@ struct Context {
     bool mixedAttachmentSamples = false;
     bool conservativeRasterization = false;
     bool meshWave32 = false;
+    bool pixelWave32 = false;
     VkBuffer emptyBuffer = VK_NULL_HANDLE;
     VkBuffer oversizedBuffer = VK_NULL_HANDLE;
     bool exactRobustLoads = false;
@@ -300,6 +301,7 @@ struct Context {
     bool individuallyFreeDescriptorSets = false;
     bool hostImportsInHeapUsage = false;
     bool tessellationPipelineCache = true;
+    bool orderedInterlockEpilogs = false;
     bool imageTableUpdateAfterBind = false;
     bool samplerTableUpdateAfterBind = false;
     bool geometryShader = false;
